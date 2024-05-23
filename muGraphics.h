@@ -9,11 +9,11 @@ More explicit license information at the end of file.
 @TODO Add Vulkan validation layer usage with custom user callback.
 @TODO Add automatic sub-allocation for buffer data that is too large to process.
 @TODO Make a system for optimal Vulkan memory allocation.
-@TODO Clean up Vulkan function parameters (AKA just make "mug_innervk_inner* p_inner" the only real
-parameter).
 @TODO Find a way for X11 to be fine with Vulkan existing while the window is being resized... may
 have to block for the entire duration of it being resized.
 @TODO mu_X_buffer_render_count(..., size_m X_count)
+@TODO Desired FPS.
+@TODO Abstract Vulkan uniform buffer handlers, too messy right now.
 
 @MENTION MUG_VK_LOOK_AHEAD_FRAMES
 @MENTION MUG_GL_PRIMITIVE_RESTART_INDEX_32 and MUG_GL_PRIMITIVE_RESTART_INDEX_16
@@ -42402,6 +42402,7 @@ have to block for the entire duration of it being resized.
 				typedef struct mug_innervk_shaders mug_innervk_shaders;
 
 				struct mug_innervk_inner {
+					muWindow win;
 					mug_innervk_initiation init;
 					mug_innervk_swapchain sc;
 					mug_innervk_renderers rs;
@@ -42510,15 +42511,15 @@ have to block for the entire duration of it being resized.
 					return score;
 				}
 
-				mugResult mug_innervk_initiation_create(muWindow window, mug_innervk_initiation* p_init) {
+				mugResult mug_innervk_initiation_create(mug_innervk_inner* p_inner) {
 					muCOSAResult cosa_res = MUCOSA_SUCCESS;
 					VkResult vk_res = VK_SUCCESS;
 
-					p_init->instance = VK_NULL_HANDLE;
-					p_init->debug_messenger = VK_NULL_HANDLE;
-					p_init->surface = VK_NULL_HANDLE;
-					p_init->physical_device = VK_NULL_HANDLE;
-					p_init->device = VK_NULL_HANDLE;
+					p_inner->init.instance = VK_NULL_HANDLE;
+					p_inner->init.debug_messenger = VK_NULL_HANDLE;
+					p_inner->init.surface = VK_NULL_HANDLE;
+					p_inner->init.physical_device = VK_NULL_HANDLE;
+					p_inner->init.device = VK_NULL_HANDLE;
 
 					/* Instance */
 
@@ -42536,7 +42537,7 @@ have to block for the entire duration of it being resized.
 						}
 
 						const char** actual_surface_extensions = surface_extensions;
-						if (p_init->use_validation_layers && mug_innervk_are_validation_layers_available(p_init)) {
+						if (p_inner->init.use_validation_layers && mug_innervk_are_validation_layers_available(&p_inner->init)) {
 							inst_cinfo.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
 							inst_cinfo.ppEnabledLayerNames = (const char* const*)mug_innervk_validation_layers;
 
@@ -42556,13 +42557,13 @@ have to block for the entire duration of it being resized.
 								actual_surface_extensions = surface_extensions;
 							}
 						} else {
-							p_init->use_validation_layers = MU_FALSE;
+							p_inner->init.use_validation_layers = MU_FALSE;
 						}
 
 						inst_cinfo.enabledExtensionCount = (uint32_t)surface_extension_count;
 						inst_cinfo.ppEnabledExtensionNames = (const char* const*)actual_surface_extensions;
 
-						if (vkCreateInstance(&inst_cinfo, 0, &p_init->instance) != VK_SUCCESS) {
+						if (vkCreateInstance(&inst_cinfo, 0, &p_inner->init.instance) != VK_SUCCESS) {
 							if (actual_surface_extensions != 0 && actual_surface_extensions != surface_extensions) {
 								mu_free(actual_surface_extensions);
 							}
@@ -42575,7 +42576,7 @@ have to block for the entire duration of it being resized.
 
 					/* Validation layers */
 
-						if (p_init->use_validation_layers) {
+						if (p_inner->init.use_validation_layers) {
 							VkDebugUtilsMessengerCreateInfoEXT dum_cinfo = MU_ZERO_STRUCT(VkDebugUtilsMessengerCreateInfoEXT);
 							dum_cinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
 							dum_cinfo.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | */
@@ -42583,11 +42584,11 @@ have to block for the entire duration of it being resized.
 							VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 							dum_cinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
 							VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-							dum_cinfo.pfnUserCallback = p_init->debug_messenger_callback;
+							dum_cinfo.pfnUserCallback = p_inner->init.debug_messenger_callback;
 
-							PFN_vkCreateDebugUtilsMessengerEXT fun = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(p_init->instance, "vkCreateDebugUtilsMessengerEXT");
+							PFN_vkCreateDebugUtilsMessengerEXT fun = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(p_inner->init.instance, "vkCreateDebugUtilsMessengerEXT");
 							if (fun != 0) {
-								if (fun(p_init->instance, &dum_cinfo, 0, &p_init->debug_messenger) != VK_SUCCESS) {
+								if (fun(p_inner->init.instance, &dum_cinfo, 0, &p_inner->init.debug_messenger) != VK_SUCCESS) {
 									// :L
 								}
 							}
@@ -42595,8 +42596,8 @@ have to block for the entire duration of it being resized.
 
 					/* Surface */
 
-						mu_vulkan_create_window_surface(&cosa_res, window,
-							&vk_res, &p_init->instance, 0, &p_init->surface
+						mu_vulkan_create_window_surface(&cosa_res, p_inner->win,
+							&vk_res, &p_inner->init.instance, 0, &p_inner->init.surface
 						);
 						if (cosa_res != MUCOSA_SUCCESS) {
 							return muCOSA_result_to_mug_result(cosa_res);
@@ -42608,7 +42609,7 @@ have to block for the entire duration of it being resized.
 					/* Physical device */
 
 						uint32_t physical_device_count = 0;
-						if (vkEnumeratePhysicalDevices(p_init->instance, &physical_device_count, NULL) != VK_SUCCESS) {
+						if (vkEnumeratePhysicalDevices(p_inner->init.instance, &physical_device_count, NULL) != VK_SUCCESS) {
 							return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
 						}
 						if (physical_device_count == 0) {
@@ -42619,7 +42620,7 @@ have to block for the entire duration of it being resized.
 						if (physical_devices == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
-						if (vkEnumeratePhysicalDevices(p_init->instance, &physical_device_count, physical_devices) != VK_SUCCESS) {
+						if (vkEnumeratePhysicalDevices(p_inner->init.instance, &physical_device_count, physical_devices) != VK_SUCCESS) {
 							mu_free(physical_devices);
 							return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
 						}
@@ -42642,7 +42643,7 @@ have to block for the entire duration of it being resized.
 							int32_m score = mug_innervk_rate_physical_device(physical_devices[i], ext_props, extension_count);
 							if (score > best_score) {
 								best_score = score;
-								p_init->physical_device = physical_devices[i];
+								p_inner->init.physical_device = physical_devices[i];
 							}
 
 							if (ext_props != 0) {
@@ -42660,7 +42661,7 @@ have to block for the entire duration of it being resized.
 						// Queue families
 
 						uint32_t queue_family_property_count = 0;
-						vkGetPhysicalDeviceQueueFamilyProperties(p_init->physical_device, 
+						vkGetPhysicalDeviceQueueFamilyProperties(p_inner->init.physical_device, 
 						&queue_family_property_count, 0);
 						if (queue_family_property_count == 0) {
 							return MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES;
@@ -42671,7 +42672,7 @@ have to block for the entire duration of it being resized.
 						if (queue_family_properties == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
-						vkGetPhysicalDeviceQueueFamilyProperties(p_init->physical_device,
+						vkGetPhysicalDeviceQueueFamilyProperties(p_inner->init.physical_device,
 						&queue_family_property_count, queue_family_properties);
 
 						muBool found_graphics = MU_FALSE, found_present = MU_FALSE;
@@ -42679,16 +42680,16 @@ have to block for the entire duration of it being resized.
 						for (uint32_t i = 0; i < queue_family_property_count; i++) {
 							if (!found_graphics && queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 								found_graphics = MU_TRUE;
-								p_init->graphics_family = i;
+								p_inner->init.graphics_family = i;
 							}
 
 							if (!found_present) {
 								VkBool32 present_support = VK_FALSE;
-								vkGetPhysicalDeviceSurfaceSupportKHR(p_init->physical_device,
-								i, p_init->surface, &present_support);
+								vkGetPhysicalDeviceSurfaceSupportKHR(p_inner->init.physical_device,
+								i, p_inner->init.surface, &present_support);
 								if (present_support) {
 									found_present = MU_TRUE;
-									p_init->present_family = i;
+									p_inner->init.present_family = i;
 								}
 							}
 
@@ -42710,19 +42711,19 @@ have to block for the entire duration of it being resized.
 
 						VkDeviceQueueCreateInfo graphics_dq_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
 						graphics_dq_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-						graphics_dq_ci.queueFamilyIndex = p_init->graphics_family;
+						graphics_dq_ci.queueFamilyIndex = p_inner->init.graphics_family;
 						graphics_dq_ci.queueCount = 1;
 						graphics_dq_ci.pQueuePriorities = &priority;
 
 						VkDeviceQueueCreateInfo present_dq_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
 						present_dq_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-						present_dq_ci.queueFamilyIndex = p_init->present_family;
+						present_dq_ci.queueFamilyIndex = p_inner->init.present_family;
 						present_dq_ci.queueCount = 1;
 						present_dq_ci.pQueuePriorities = &priority;
 
 						VkDeviceQueueCreateInfo dq_cis[] = { graphics_dq_ci, present_dq_ci };
 						uint32_t dq_ci_count = 2;
-						if (p_init->graphics_family == p_init->present_family) {
+						if (p_inner->init.graphics_family == p_inner->init.present_family) {
 							dq_ci_count = 1;
 						}
 
@@ -42735,7 +42736,7 @@ have to block for the entire duration of it being resized.
 						device_ci.enabledExtensionCount = MUG_VK_EXTENSION_COUNT;
 						device_ci.ppEnabledExtensionNames = mug_innervk_extensions;
 
-						if (p_init->use_validation_layers) {
+						if (p_inner->init.use_validation_layers) {
 							device_ci.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
 							device_ci.ppEnabledLayerNames = mug_innervk_validation_layers;
 						}
@@ -42743,62 +42744,60 @@ have to block for the entire duration of it being resized.
 						VkPhysicalDeviceFeatures features = MU_ZERO_STRUCT(VkPhysicalDeviceFeatures);
 						device_ci.pEnabledFeatures = &features;
 
-						if (vkCreateDevice(p_init->physical_device, &device_ci, 0, &p_init->device) != VK_SUCCESS) {
+						if (vkCreateDevice(p_inner->init.physical_device, &device_ci, 0, &p_inner->init.device) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_DEVICE;
 						}
 
 						// Queues, part II: joke that I'm not going to make
 
-						vkGetDeviceQueue(p_init->device, p_init->graphics_family, 0, &p_init->graphics_queue);
-						vkGetDeviceQueue(p_init->device, p_init->present_family, 0, &p_init->present_queue);
+						vkGetDeviceQueue(p_inner->init.device, p_inner->init.graphics_family, 0, &p_inner->init.graphics_queue);
+						vkGetDeviceQueue(p_inner->init.device, p_inner->init.present_family, 0, &p_inner->init.present_queue);
 
 					return MUG_SUCCESS;
 				}
 
-				void mug_innervk_initiation_destroy(mug_innervk_initiation* p_init) {
-					if (p_init->device != VK_NULL_HANDLE) {
-						vkDeviceWaitIdle(p_init->device);
-						vkDestroyDevice(p_init->device, 0);
+				void mug_innervk_initiation_destroy(mug_innervk_inner* p_inner) {
+					if (p_inner->init.device != VK_NULL_HANDLE) {
+						vkDeviceWaitIdle(p_inner->init.device);
+						vkDestroyDevice(p_inner->init.device, 0);
 					}
 
-					if (p_init->surface != VK_NULL_HANDLE) {
-						vkDestroySurfaceKHR(p_init->instance, p_init->surface, 0);
+					if (p_inner->init.surface != VK_NULL_HANDLE) {
+						vkDestroySurfaceKHR(p_inner->init.instance, p_inner->init.surface, 0);
 					}
-					if (p_init->debug_messenger != VK_NULL_HANDLE) {
+					if (p_inner->init.debug_messenger != VK_NULL_HANDLE) {
 						PFN_vkDestroyDebugUtilsMessengerEXT fun = (PFN_vkDestroyDebugUtilsMessengerEXT)
-						vkGetInstanceProcAddr(p_init->instance, "vkDestroyDebugUtilsMessengerEXT");
+						vkGetInstanceProcAddr(p_inner->init.instance, "vkDestroyDebugUtilsMessengerEXT");
 						if (fun != 0) {
-							fun(p_init->instance, p_init->debug_messenger, 0);
+							fun(p_inner->init.instance, p_inner->init.debug_messenger, 0);
 						}
 					}
-					if (p_init->instance != VK_NULL_HANDLE) {
-						vkDestroyInstance(p_init->instance, 0);
+					if (p_inner->init.instance != VK_NULL_HANDLE) {
+						vkDestroyInstance(p_inner->init.instance, 0);
 					}
 				}
 
 			/* Swapchain */
 
-				mugResult mug_innervk_swapchain_create(muWindow window, 
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc
-				) {
+				mugResult mug_innervk_swapchain_create(mug_innervk_inner* p_inner) {
 					muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
-					p_sc->handle = VK_NULL_HANDLE;
-					p_sc->images = 0;
-					p_sc->image_views = 0;
+					p_inner->sc.handle = VK_NULL_HANDLE;
+					p_inner->sc.images = 0;
+					p_inner->sc.image_views = 0;
 
 					/* Start create info */
 
 						VkSwapchainCreateInfoKHR sc_ci = MU_ZERO_STRUCT(VkSwapchainCreateInfoKHR);
 						sc_ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-						sc_ci.surface = p_init->surface;
+						sc_ci.surface = p_inner->init.surface;
 						sc_ci.imageArrayLayers = 1;
 						sc_ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 						sc_ci.clipped = VK_TRUE;
 						sc_ci.oldSwapchain = VK_NULL_HANDLE;
 
-						uint32_t families[2] = { p_init->graphics_family, p_init->present_family };
-						if (p_init->graphics_family != p_init->present_family) {
+						uint32_t families[2] = { p_inner->init.graphics_family, p_inner->init.present_family };
+						if (p_inner->init.graphics_family != p_inner->init.present_family) {
 							sc_ci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 							sc_ci.queueFamilyIndexCount = 2;
 							sc_ci.pQueueFamilyIndices = families;
@@ -42808,7 +42807,7 @@ have to block for the entire duration of it being resized.
 
 						VkSurfaceCapabilitiesKHR cap;
 						if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-							p_init->physical_device, p_init->surface, &cap
+							p_inner->init.physical_device, p_inner->init.surface, &cap
 							) != VK_SUCCESS) {
 							return MUG_FAILED_GET_VK_SURFACE_INFO;
 						}
@@ -42825,7 +42824,7 @@ have to block for the entire duration of it being resized.
 
 						uint32_t format_count = 0;
 						if (vkGetPhysicalDeviceSurfaceFormatsKHR(
-							p_init->physical_device, p_init->surface, &format_count, 0
+							p_inner->init.physical_device, p_inner->init.surface, &format_count, 0
 							) != VK_SUCCESS) {
 							return MUG_FAILED_GET_VK_SURFACE_INFO;
 						}
@@ -42840,7 +42839,7 @@ have to block for the entire duration of it being resized.
 						}
 
 						if (vkGetPhysicalDeviceSurfaceFormatsKHR(
-							p_init->physical_device, p_init->surface, &format_count, formats)
+							p_inner->init.physical_device, p_inner->init.surface, &format_count, formats)
 							!= VK_SUCCESS) {
 							mu_free(formats);
 							return MUG_FAILED_GET_VK_SURFACE_INFO;
@@ -42858,7 +42857,7 @@ have to block for the entire duration of it being resized.
 						mu_free(formats);
 
 						sc_ci.imageFormat = chosen_format.format;
-						p_sc->format = sc_ci.imageFormat;
+						p_inner->sc.format = sc_ci.imageFormat;
 						sc_ci.imageColorSpace = chosen_format.colorSpace;
 
 					/* Extent */
@@ -42867,7 +42866,7 @@ have to block for the entire duration of it being resized.
 							sc_ci.imageExtent = cap.currentExtent;
 						} else {
 							uint32_m width=0, height=0;
-							mu_window_get_dimensions(&cosa_res, window, &width, &height);
+							mu_window_get_dimensions(&cosa_res, p_inner->win, &width, &height);
 							if (cosa_res != MUCOSA_SUCCESS) {
 								return muCOSA_result_to_mug_result(cosa_res);
 							}
@@ -42887,23 +42886,23 @@ have to block for the entire duration of it being resized.
 							}
 						}
 
-						p_sc->extent = sc_ci.imageExtent;
+						p_inner->sc.extent = sc_ci.imageExtent;
 
-						p_sc->viewport = MU_ZERO_STRUCT(VkViewport);
-						p_sc->viewport.width = p_sc->extent.width;
-						p_sc->viewport.height = p_sc->extent.height;
-						p_sc->viewport.minDepth = 0.f;
-						p_sc->viewport.maxDepth = 1.f;
+						p_inner->sc.viewport = MU_ZERO_STRUCT(VkViewport);
+						p_inner->sc.viewport.width = p_inner->sc.extent.width;
+						p_inner->sc.viewport.height = p_inner->sc.extent.height;
+						p_inner->sc.viewport.minDepth = 0.f;
+						p_inner->sc.viewport.maxDepth = 1.f;
 
-						p_sc->scissor = MU_ZERO_STRUCT(VkRect2D);
-						p_sc->scissor.extent = p_sc->extent;
+						p_inner->sc.scissor = MU_ZERO_STRUCT(VkRect2D);
+						p_inner->sc.scissor.extent = p_inner->sc.extent;
 
 					/* Present modes */
 					// (see https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html)
 
 						uint32_t present_mode_count = 0;
 						if (vkGetPhysicalDeviceSurfacePresentModesKHR(
-							p_init->physical_device, p_init->surface, &present_mode_count, 0)
+							p_inner->init.physical_device, p_inner->init.surface, &present_mode_count, 0)
 						!= VK_SUCCESS) {
 							return MUG_FAILED_GET_VK_SURFACE_INFO;
 						}
@@ -42918,7 +42917,7 @@ have to block for the entire duration of it being resized.
 						}
 
 						if (vkGetPhysicalDeviceSurfacePresentModesKHR(
-							p_init->physical_device, p_init->surface, &present_mode_count, present_modes)
+							p_inner->init.physical_device, p_inner->init.surface, &present_mode_count, present_modes)
 						!= VK_SUCCESS) {
 							mu_free(present_modes);
 							return MUG_FAILED_GET_VK_SURFACE_INFO;
@@ -42936,45 +42935,45 @@ have to block for the entire duration of it being resized.
 
 					/* Creation */
 
-						if (vkCreateSwapchainKHR(p_init->device, &sc_ci, 0, &p_sc->handle) != VK_SUCCESS) {
+						if (vkCreateSwapchainKHR(p_inner->init.device, &sc_ci, 0, &p_inner->sc.handle) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_SWAPCHAIN;
 						}
 
 					/* Images */
 
 						if (vkGetSwapchainImagesKHR(
-							p_init->device, p_sc->handle, &p_sc->image_count, 0) != VK_SUCCESS) {
+							p_inner->init.device, p_inner->sc.handle, &p_inner->sc.image_count, 0) != VK_SUCCESS) {
 							return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
 						}
 
-						p_sc->images = (VkImage*)mu_malloc(sizeof(VkImage) * p_sc->image_count);
-						if (p_sc->images == 0) {
+						p_inner->sc.images = (VkImage*)mu_malloc(sizeof(VkImage) * p_inner->sc.image_count);
+						if (p_inner->sc.images == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
 
 						if (vkGetSwapchainImagesKHR(
-							p_init->device, p_sc->handle, &p_sc->image_count, p_sc->images) != VK_SUCCESS) {
+							p_inner->init.device, p_inner->sc.handle, &p_inner->sc.image_count, p_inner->sc.images) != VK_SUCCESS) {
 							// Don't need to free here since it's handled later ...
 							return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
 						}
 
 					/* Image views */
 
-						p_sc->image_views = (VkImageView*)mu_malloc(sizeof(VkImageView)*p_sc->image_count);
-						if (p_sc->image_views == 0) {
+						p_inner->sc.image_views = (VkImageView*)mu_malloc(sizeof(VkImageView)*p_inner->sc.image_count);
+						if (p_inner->sc.image_views == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
 
-						for (uint32_t i = 0; i < p_sc->image_count; i++) {
-							p_sc->image_views[i] = VK_NULL_HANDLE;
+						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
+							p_inner->sc.image_views[i] = VK_NULL_HANDLE;
 						}
 
-						for (uint32_t i = 0; i < p_sc->image_count; i++) {
+						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
 							VkImageViewCreateInfo iv_ci = MU_ZERO_STRUCT(VkImageViewCreateInfo);
 							iv_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-							iv_ci.image = p_sc->images[i];
+							iv_ci.image = p_inner->sc.images[i];
 							iv_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-							iv_ci.format = p_sc->format;
+							iv_ci.format = p_inner->sc.format;
 							iv_ci.components.r = iv_ci.components.g = iv_ci.components.b = iv_ci.components.a =
 							VK_COMPONENT_SWIZZLE_IDENTITY;
 							iv_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -42983,7 +42982,7 @@ have to block for the entire duration of it being resized.
 							iv_ci.subresourceRange.baseArrayLayer = 0;
 							iv_ci.subresourceRange.layerCount = 1;
 
-							if (vkCreateImageView(p_init->device, &iv_ci, 0, &p_sc->image_views[i]) != VK_SUCCESS) {
+							if (vkCreateImageView(p_inner->init.device, &iv_ci, 0, &p_inner->sc.image_views[i]) != VK_SUCCESS) {
 								return MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS;
 							}
 						}
@@ -42991,28 +42990,28 @@ have to block for the entire duration of it being resized.
 					return MUG_SUCCESS;
 				}
 
-				void mug_innervk_swapchain_destroy(mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc) {
-					if (p_sc->image_views != 0) {
-						for (uint32_t i = 0; i < p_sc->image_count; i++) {
-							if (p_sc->image_views[i] != VK_NULL_HANDLE) {
-								vkDestroyImageView(p_init->device, p_sc->image_views[i], 0);
+				void mug_innervk_swapchain_destroy(mug_innervk_inner* p_inner) {
+					if (p_inner->sc.image_views != 0) {
+						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
+							if (p_inner->sc.image_views[i] != VK_NULL_HANDLE) {
+								vkDestroyImageView(p_inner->init.device, p_inner->sc.image_views[i], 0);
 							}
 						}
-						mu_free(p_sc->image_views);
+						mu_free(p_inner->sc.image_views);
 					}
 
-					if (p_sc->images != 0) {
-						mu_free(p_sc->images);
+					if (p_inner->sc.images != 0) {
+						mu_free(p_inner->sc.images);
 					}
 
-					if (p_sc->handle != VK_NULL_HANDLE) {
-						vkDestroySwapchainKHR(p_init->device, p_sc->handle, 0);
+					if (p_inner->sc.handle != VK_NULL_HANDLE) {
+						vkDestroySwapchainKHR(p_inner->init.device, p_inner->sc.handle, 0);
 					}
 				}
 
 			/* Command */
 
-				mugResult mug_innervk_command_create(mug_innervk_initiation* p_init, mug_innervk_command* p_cmd) {
+				mugResult mug_innervk_command_create(mug_innervk_inner* p_inner, mug_innervk_command* p_cmd) {
 					p_cmd->pool = VK_NULL_HANDLE;
 					p_cmd->buffer = VK_NULL_HANDLE;
 					p_cmd->queue_wait_semaphore = VK_NULL_HANDLE;
@@ -43026,9 +43025,9 @@ have to block for the entire duration of it being resized.
 						VkCommandPoolCreateInfo cp_ci = MU_ZERO_STRUCT(VkCommandPoolCreateInfo);
 						cp_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 						cp_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-						cp_ci.queueFamilyIndex = p_init->graphics_family;
+						cp_ci.queueFamilyIndex = p_inner->init.graphics_family;
 
-						if (vkCreateCommandPool(p_init->device, &cp_ci, 0, &p_cmd->pool) != VK_SUCCESS) {
+						if (vkCreateCommandPool(p_inner->init.device, &cp_ci, 0, &p_cmd->pool) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_COMMAND_POOL;
 						}
 
@@ -43040,7 +43039,7 @@ have to block for the entire duration of it being resized.
 						alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 						alloc_info.commandBufferCount = 1;
 
-						if (vkAllocateCommandBuffers(p_init->device, &alloc_info, &p_cmd->buffer) != VK_SUCCESS) {
+						if (vkAllocateCommandBuffers(p_inner->init.device, &alloc_info, &p_cmd->buffer) != VK_SUCCESS) {
 							return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
 						}
 
@@ -43049,10 +43048,10 @@ have to block for the entire duration of it being resized.
 						VkSemaphoreCreateInfo s_ci = MU_ZERO_STRUCT(VkSemaphoreCreateInfo);
 						s_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-						if (vkCreateSemaphore(p_init->device, &s_ci, 0, &p_cmd->queue_wait_semaphore) != VK_SUCCESS) {
+						if (vkCreateSemaphore(p_inner->init.device, &s_ci, 0, &p_cmd->queue_wait_semaphore) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_SEMAPHORE;
 						}
-						if (vkCreateSemaphore(p_init->device, &s_ci, 0, &p_cmd->queue_signal_semaphore) != VK_SUCCESS) {
+						if (vkCreateSemaphore(p_inner->init.device, &s_ci, 0, &p_cmd->queue_signal_semaphore) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_SEMAPHORE;
 						}
 
@@ -43062,107 +43061,98 @@ have to block for the entire duration of it being resized.
 						f_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 						f_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-						if (vkCreateFence(p_init->device, &f_ci, 0, &p_cmd->queue_wait_fence) != VK_SUCCESS) {
+						if (vkCreateFence(p_inner->init.device, &f_ci, 0, &p_cmd->queue_wait_fence) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_FENCE;
 						}
 
 					return MUG_SUCCESS;
 				}
 
-				void mug_innervk_command_destroy(mug_innervk_initiation* p_init, mug_innervk_command* p_cmd) {
+				void mug_innervk_command_destroy(mug_innervk_inner* p_inner, mug_innervk_command* p_cmd) {
 					if (p_cmd->queue_wait_fence != VK_NULL_HANDLE) {
-						vkDestroyFence(p_init->device, p_cmd->queue_wait_fence, 0);
+						vkDestroyFence(p_inner->init.device, p_cmd->queue_wait_fence, 0);
 					}
 
 					if (p_cmd->queue_signal_semaphore != VK_NULL_HANDLE) {
-						vkDestroySemaphore(p_init->device, p_cmd->queue_signal_semaphore, 0);
+						vkDestroySemaphore(p_inner->init.device, p_cmd->queue_signal_semaphore, 0);
 					}
 					if (p_cmd->queue_wait_semaphore != VK_NULL_HANDLE) {
-						vkDestroySemaphore(p_init->device, p_cmd->queue_wait_semaphore, 0);
+						vkDestroySemaphore(p_inner->init.device, p_cmd->queue_wait_semaphore, 0);
 					}
 
 					if (p_cmd->buffer != VK_NULL_HANDLE) {
-						vkFreeCommandBuffers(p_init->device, p_cmd->pool, 1, &p_cmd->buffer);
+						vkFreeCommandBuffers(p_inner->init.device, p_cmd->pool, 1, &p_cmd->buffer);
 					}
 
 					if (p_cmd->pool != VK_NULL_HANDLE) {
-						vkDestroyCommandPool(p_init->device, p_cmd->pool, 0);
+						vkDestroyCommandPool(p_inner->init.device, p_cmd->pool, 0);
 					}
 				}
 
-				void mug_innervk_inner_swapchain_resize(mugResult* result,
-					muWindow window, mug_innervk_inner* p_inner
-				);
+				void mug_innervk_inner_swapchain_resize(mugResult* result, mug_innervk_inner* p_inner);
 				// Note: can (and should) be called even if the command has already begun.
-				mugResult mug_innervk_command_begin(muWindow window, mug_innervk_inner* p_inner,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd
-				) {
+				mugResult mug_innervk_command_begin(mug_innervk_inner* p_inner) {
 					mugResult res = MUG_SUCCESS;
 					VkResult vk_res = VK_SUCCESS;
 
-					if (p_cmd->on) {
+					if (p_inner->cmds[p_inner->now_cmd].on) {
 						return MUG_SUCCESS;
 					}
 
-					if (vkWaitForFences(p_init->device, 1, &p_cmd->queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
+					if (vkWaitForFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
 						return MUG_FAILED_WAIT_FOR_VK_FENCE;
 					}
 
 					/* Start getting next swapchain image */
 
-						vk_res = vkAcquireNextImageKHR(p_init->device, p_sc->handle, UINT64_MAX,
-							p_cmd->queue_wait_semaphore, VK_NULL_HANDLE, &p_sc->image_index
+						vk_res = vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
+							p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
 						);
 
 						while (vk_res == VK_ERROR_OUT_OF_DATE_KHR) {
-							mug_innervk_inner_swapchain_resize(&res, window, p_inner);
-							vk_res = vkAcquireNextImageKHR(p_init->device, p_sc->handle, UINT64_MAX,
-								p_cmd->queue_wait_semaphore, VK_NULL_HANDLE, &p_sc->image_index
+							mug_innervk_inner_swapchain_resize(&res, p_inner);
+							vk_res = vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
+								p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
 							);
 						}
 						if (vk_res != VK_SUCCESS && vk_res != VK_SUBOPTIMAL_KHR) {
 							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
 						}
 
-					if (vkResetFences(p_init->device, 1, &p_cmd->queue_wait_fence) != VK_SUCCESS) {
+					if (vkResetFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
 						return MUG_FAILED_RESET_VK_FENCE;
 					}
 
 					/* Begin command buffer */
 
-						if (vkResetCommandBuffer(p_cmd->buffer, 0) != VK_SUCCESS) {
+						if (vkResetCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer, 0) != VK_SUCCESS) {
 							return MUG_FAILED_RESET_VK_COMMAND_BUFFER;
 						}
 
 						VkCommandBufferBeginInfo cb_ci = MU_ZERO_STRUCT(VkCommandBufferBeginInfo);
 						cb_ci.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-						if (vkBeginCommandBuffer(p_cmd->buffer, &cb_ci) != VK_SUCCESS) {
+						if (vkBeginCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer, &cb_ci) != VK_SUCCESS) {
 							return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
 						}
 
-						p_cmd->on = MU_TRUE;
+						p_inner->cmds[p_inner->now_cmd].on = MU_TRUE;
 
 					return MUG_SUCCESS;
-					if (p_init) {}
 				}
 
 				// Make sure to check if commands have even started before calling this!!
-				mugResult mug_innervk_command_end_and_submit(
-					mug_innervk_initiation* p_init,
-					mug_innervk_command* p_cmd
-				) {
-					if (!p_cmd->on) {
+				mugResult mug_innervk_command_end_and_submit(mug_innervk_inner* p_inner) {
+					if (!p_inner->cmds[p_inner->now_cmd].on) {
 						return MUG_SUCCESS;
 					}
 
 					/* End command buffer, storing all render passes */
 
-						if (vkEndCommandBuffer(p_cmd->buffer) != VK_SUCCESS) {
+						if (vkEndCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer) != VK_SUCCESS) {
 							return MUG_FAILED_END_VK_COMMAND_BUFFER;
 						}
-						p_cmd->on = MU_FALSE;
+						p_inner->cmds[p_inner->now_cmd].on = MU_FALSE;
 
 					/* Submit commands to the graphics queue, which will start the rendering */
 
@@ -43174,16 +43164,16 @@ have to block for the entire duration of it being resized.
 						VkSubmitInfo submit_info = MU_ZERO_STRUCT(VkSubmitInfo);
 						submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 						submit_info.waitSemaphoreCount = 1;
-						submit_info.pWaitSemaphores = &p_cmd->queue_wait_semaphore;
+						submit_info.pWaitSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore;
 						submit_info.pWaitDstStageMask = &wait_dst;
 						submit_info.commandBufferCount = 1;
-						submit_info.pCommandBuffers = &p_cmd->buffer;
+						submit_info.pCommandBuffers = &p_inner->cmds[p_inner->now_cmd].buffer;
 						submit_info.signalSemaphoreCount = 1;
-						submit_info.pSignalSemaphores = &p_cmd->queue_signal_semaphore;
+						submit_info.pSignalSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_signal_semaphore;
 						// ^ This sets up queue_signal_semaphore to be signaled when all of the commands are
 						// submitted to the graphics queue, which is waited for in the present function.
 
-						if (vkQueueSubmit(p_init->graphics_queue, 1, &submit_info, p_cmd->queue_wait_fence) != VK_SUCCESS) {
+						if (vkQueueSubmit(p_inner->init.graphics_queue, 1, &submit_info, p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
 							return MUG_FAILED_SUBMIT_VK_QUEUE;
 						}
 
@@ -43191,14 +43181,11 @@ have to block for the entire duration of it being resized.
 				}
 
 				// Warning: this is an expensive function.
-				mugResult mug_innervk_command_present(muWindow window, mug_innervk_inner* p_inner,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd
-				) {
+				mugResult mug_innervk_command_present(mug_innervk_inner* p_inner) {
 					mugResult res = MUG_SUCCESS;
 					VkResult vk_res = VK_SUCCESS;
 
-					if (p_cmd->on) {
+					if (p_inner->cmds[p_inner->now_cmd].on) {
 						return MUG_SUCCESS;
 					}
 
@@ -43207,14 +43194,14 @@ have to block for the entire duration of it being resized.
 						VkPresentInfoKHR pres_i = MU_ZERO_STRUCT(VkPresentInfoKHR);
 						pres_i.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 						pres_i.waitSemaphoreCount = 1;
-						pres_i.pWaitSemaphores = &p_cmd->queue_signal_semaphore;
+						pres_i.pWaitSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_signal_semaphore;
 						pres_i.swapchainCount = 1;
-						pres_i.pSwapchains = &p_sc->handle;
-						pres_i.pImageIndices = &p_sc->image_index;
+						pres_i.pSwapchains = &p_inner->sc.handle;
+						pres_i.pImageIndices = &p_inner->sc.image_index;
 
-						vk_res = vkQueuePresentKHR(p_init->present_queue, &pres_i);
+						vk_res = vkQueuePresentKHR(p_inner->init.present_queue, &pres_i);
 						if (vk_res == VK_ERROR_OUT_OF_DATE_KHR || vk_res == VK_SUBOPTIMAL_KHR) {
-							mug_innervk_inner_swapchain_resize(&res, window, p_inner);
+							mug_innervk_inner_swapchain_resize(&res, p_inner);
 						} else if (vk_res != VK_SUCCESS) {
 							return MUG_FAILED_PRESENT_VK_QUEUE;
 						}
@@ -43222,27 +43209,24 @@ have to block for the entire duration of it being resized.
 					return MUG_SUCCESS;
 				}
 
-				mugResult mug_innervk_command_get_next_swapchain(
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd
-				) {
-					if (p_cmd->on) {
+				mugResult mug_innervk_command_get_next_swapchain(mug_innervk_inner* p_inner) {
+					if (p_inner->cmds[p_inner->now_cmd].on) {
 						return MUG_SUCCESS;
 					}
 
-					if (vkWaitForFences(p_init->device, 1, &p_cmd->queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
+					if (vkWaitForFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
 						return MUG_FAILED_WAIT_FOR_VK_FENCE;
 					}
 
 					/* Start getting next swapchain image */
 
-						if (vkAcquireNextImageKHR(p_init->device, p_sc->handle, UINT64_MAX,
-							p_cmd->queue_wait_semaphore, VK_NULL_HANDLE, &p_sc->image_index
+						if (vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
+							p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
 						) != VK_SUCCESS) {
 							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
 						}
 
-					if (vkResetFences(p_init->device, 1, &p_cmd->queue_wait_fence) != VK_SUCCESS) {
+					if (vkResetFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
 						return MUG_FAILED_RESET_VK_FENCE;
 					}
 
@@ -43266,13 +43250,10 @@ have to block for the entire duration of it being resized.
 					return rp_ci;
 				}
 
-				mugResult mug_innervk_renderers_create_render_passes(
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_renderers* p_rs
-				) {
-					p_rs->unknown_to_ca.render_pass = VK_NULL_HANDLE;
-					p_rs->ca_to_present.render_pass = VK_NULL_HANDLE;
-					p_rs->ca_to_ca_pip.render_pass = VK_NULL_HANDLE;
+				mugResult mug_innervk_renderers_create_render_passes(mug_innervk_inner* p_inner) {
+					p_inner->rs.unknown_to_ca.render_pass = VK_NULL_HANDLE;
+					p_inner->rs.ca_to_present.render_pass = VK_NULL_HANDLE;
+					p_inner->rs.ca_to_ca_pip.render_pass = VK_NULL_HANDLE;
 
 					VkAttachmentDescription attr;
 					VkRenderPassCreateInfo rp_ci;
@@ -43281,7 +43262,7 @@ have to block for the entire duration of it being resized.
 
 					/* unknown_to_ca */
 
-						attr = mug_innervk_renderer_def_attachment_desc(p_sc);
+						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
 						attr.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 						attr.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -43301,14 +43282,14 @@ have to block for the entire duration of it being resized.
 						rp_ci.pSubpasses = &subpass;
 
 						if (vkCreateRenderPass(
-							p_init->device, &rp_ci, 0, &p_rs->unknown_to_ca.render_pass
+							p_inner->init.device, &rp_ci, 0, &p_inner->rs.unknown_to_ca.render_pass
 						) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_RENDER_PASS;
 						}
 
 					/* ca_to_present */
 
-						attr = mug_innervk_renderer_def_attachment_desc(p_sc);
+						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
 						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -43332,14 +43313,14 @@ have to block for the entire duration of it being resized.
 						rp_ci.pSubpasses = &subpass;
 
 						if (vkCreateRenderPass(
-							p_init->device, &rp_ci, 0, &p_rs->ca_to_present.render_pass
+							p_inner->init.device, &rp_ci, 0, &p_inner->rs.ca_to_present.render_pass
 						) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_RENDER_PASS;
 						}
 
 					/* ca_to_ca_pip */
 
-						attr = mug_innervk_renderer_def_attachment_desc(p_sc);
+						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
 						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -43360,7 +43341,7 @@ have to block for the entire duration of it being resized.
 						rp_ci.pSubpasses = &subpass;
 
 						if (vkCreateRenderPass(
-							p_init->device, &rp_ci, 0, &p_rs->ca_to_ca_pip.render_pass
+							p_inner->init.device, &rp_ci, 0, &p_inner->rs.ca_to_ca_pip.render_pass
 						) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_RENDER_PASS;
 						}
@@ -43368,47 +43349,42 @@ have to block for the entire duration of it being resized.
 					return MUG_SUCCESS;
 				}
 
-				void mug_innervk_renderers_destroy_render_passes(
-					mug_innervk_initiation* p_init, mug_innervk_renderers* p_rs
-				) {
-					if (p_rs->unknown_to_ca.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_init->device, p_rs->unknown_to_ca.render_pass, 0);
+				void mug_innervk_renderers_destroy_render_passes(mug_innervk_inner* p_inner) {
+					if (p_inner->rs.unknown_to_ca.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.unknown_to_ca.render_pass, 0);
 					}
-					if (p_rs->ca_to_present.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_init->device, p_rs->ca_to_present.render_pass, 0);
+					if (p_inner->rs.ca_to_present.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.ca_to_present.render_pass, 0);
 					}
-					if (p_rs->ca_to_ca_pip.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_init->device, p_rs->ca_to_ca_pip.render_pass, 0);
+					if (p_inner->rs.ca_to_ca_pip.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.ca_to_ca_pip.render_pass, 0);
 					}
 				}
 
-				VkFramebuffer* mug_innervk_def_framebuffers_create(VkResult* vk_result,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					VkRenderPass rp
-				) {
+				VkFramebuffer* mug_innervk_def_framebuffers_create(VkResult* vk_result, mug_innervk_inner* p_inner, VkRenderPass rp) {
 					MU_SET_RESULT(vk_result, VK_SUCCESS)
 					VkResult vkres = VK_SUCCESS;
 
-					VkFramebuffer* fbs = (VkFramebuffer*)mu_malloc(sizeof(VkFramebuffer) * p_sc->image_count);
+					VkFramebuffer* fbs = (VkFramebuffer*)mu_malloc(sizeof(VkFramebuffer) * p_inner->sc.image_count);
 					if (fbs == 0) {
 						return 0;
 					}
 
-					for (uint32_t i = 0; i < p_sc->image_count; i++) {
+					for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
 						fbs[i] = VK_NULL_HANDLE;
 					}
 
-					for (uint32_t i = 0; i < p_sc->image_count; i++) {
+					for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
 						VkFramebufferCreateInfo ci = MU_ZERO_STRUCT(VkFramebufferCreateInfo);
 						ci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 						ci.renderPass = rp;
 						ci.attachmentCount = 1;
-						ci.pAttachments = &p_sc->image_views[i];
-						ci.width = p_sc->extent.width;
-						ci.height = p_sc->extent.height;
+						ci.pAttachments = &p_inner->sc.image_views[i];
+						ci.width = p_inner->sc.extent.width;
+						ci.height = p_inner->sc.extent.height;
 						ci.layers = 1;
 
-						vkres = vkCreateFramebuffer(p_init->device, &ci, 0, &fbs[i]);
+						vkres = vkCreateFramebuffer(p_inner->init.device, &ci, 0, &fbs[i]);
 						if (vkres != VK_SUCCESS) {
 							MU_SET_RESULT(vk_result, vkres)
 							return fbs;
@@ -43418,36 +43394,27 @@ have to block for the entire duration of it being resized.
 					return fbs;
 				}
 
-				mugResult mug_innervk_renderers_create_framebuffers(
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_renderers* p_rs
-				) {
+				mugResult mug_innervk_renderers_create_framebuffers(mug_innervk_inner* p_inner) {
 					VkResult vkres = VK_SUCCESS;
 
-					p_rs->unknown_to_ca.framebuffers = mug_innervk_def_framebuffers_create(
-						&vkres, p_init, p_sc, p_rs->unknown_to_ca.render_pass
-					);
-					if (p_rs->unknown_to_ca.framebuffers == 0) {
+					p_inner->rs.unknown_to_ca.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.unknown_to_ca.render_pass);
+					if (p_inner->rs.unknown_to_ca.framebuffers == 0) {
 						return MUG_FAILED_ALLOCATE;
 					}
 					if (vkres != VK_SUCCESS) {
 						return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
 					}
 
-					p_rs->ca_to_present.framebuffers = mug_innervk_def_framebuffers_create(
-						&vkres, p_init, p_sc, p_rs->ca_to_present.render_pass
-					);
-					if (p_rs->ca_to_present.framebuffers == 0) {
+					p_inner->rs.ca_to_present.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.ca_to_present.render_pass);
+					if (p_inner->rs.ca_to_present.framebuffers == 0) {
 						return MUG_FAILED_ALLOCATE;
 					}
 					if (vkres != VK_SUCCESS) {
 						return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
 					}
 
-					p_rs->ca_to_ca_pip.framebuffers = mug_innervk_def_framebuffers_create(
-						&vkres, p_init, p_sc, p_rs->ca_to_ca_pip.render_pass
-					);
-					if (p_rs->ca_to_ca_pip.framebuffers == 0) {
+					p_inner->rs.ca_to_ca_pip.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.ca_to_ca_pip.render_pass);
+					if (p_inner->rs.ca_to_ca_pip.framebuffers == 0) {
 						return MUG_FAILED_ALLOCATE;
 					}
 					if (vkres != VK_SUCCESS) {
@@ -43457,40 +43424,30 @@ have to block for the entire duration of it being resized.
 					return MUG_SUCCESS;
 				}
 
-				void mug_innervk_renderer_destroy_framebuffers(
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_renderer* p_r
-				) {
+				void mug_innervk_renderer_destroy_framebuffers(mug_innervk_inner* p_inner, mug_innervk_renderer* p_r) {
 					if (p_r->framebuffers != 0) {
-						for (size_m i = 0; i < p_sc->image_count; i++) {
+						for (size_m i = 0; i < p_inner->sc.image_count; i++) {
 							if (p_r->framebuffers[i] == VK_NULL_HANDLE) {
 								return;
 							}
-							vkDestroyFramebuffer(p_init->device, p_r->framebuffers[i], 0);
+							vkDestroyFramebuffer(p_inner->init.device, p_r->framebuffers[i], 0);
 						}
 					}
 				}
 
-				void mug_innervk_renderers_destroy_framebuffers(
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_renderers* p_rs
-				) {
-					mug_innervk_renderer_destroy_framebuffers(p_init, p_sc, &p_rs->unknown_to_ca);
-					mug_innervk_renderer_destroy_framebuffers(p_init, p_sc, &p_rs->ca_to_present);
-					mug_innervk_renderer_destroy_framebuffers(p_init, p_sc, &p_rs->ca_to_ca_pip);
+				void mug_innervk_renderers_destroy_framebuffers(mug_innervk_inner* p_inner) {
+					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.unknown_to_ca);
+					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.ca_to_present);
+					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.ca_to_ca_pip);
 				}
 
-				mugResult mug_innervk_renderers_clear(muWindow window, mug_innervk_inner* p_inner,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd, mug_innervk_renderers* p_rs,
-					float r, float g, float b, float a
-				) {
+				mugResult mug_innervk_renderers_clear(mug_innervk_inner* p_inner, float r, float g, float b, float a) {
 					mugResult res = MUG_SUCCESS;
 
 					/* Turn on commands if they haven't been already */
 
-					if (!p_cmd->on) {
-						res = mug_innervk_command_begin(window, p_inner, p_init, p_sc, p_cmd);
+					if (!p_inner->cmds[p_inner->now_cmd].on) {
+						res = mug_innervk_command_begin(p_inner);
 						if (res != MUG_SUCCESS) {
 							return res;
 						}
@@ -43500,11 +43457,11 @@ have to block for the entire duration of it being resized.
 
 					VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
 					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					rp_ci.renderPass = p_rs->unknown_to_ca.render_pass;
-					rp_ci.framebuffer = p_rs->unknown_to_ca.framebuffers[p_sc->image_index];
+					rp_ci.renderPass = p_inner->rs.unknown_to_ca.render_pass;
+					rp_ci.framebuffer = p_inner->rs.unknown_to_ca.framebuffers[p_inner->sc.image_index];
 					rp_ci.renderArea.offset.x = 0;
 					rp_ci.renderArea.offset.y = 0;
-					rp_ci.renderArea.extent = p_sc->extent;
+					rp_ci.renderArea.extent = p_inner->sc.extent;
 
 					VkClearValue clear_value = MU_ZERO_STRUCT(VkClearValue);
 					clear_value.color.float32[0] = r;
@@ -43515,25 +43472,22 @@ have to block for the entire duration of it being resized.
 					rp_ci.clearValueCount = 1;
 					rp_ci.pClearValues = &clear_value;
 
-					vkCmdBeginRenderPass(p_cmd->buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
+					vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
 
 					/* End the render pass */
 
-					vkCmdEndRenderPass(p_cmd->buffer);
+					vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
 
 					return MUG_SUCCESS;
 				}
 
-				mugResult mug_innervk_renderers_make_presentable(muWindow window, mug_innervk_inner* p_inner,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd, mug_innervk_renderers* p_rs
-				) {
+				mugResult mug_innervk_renderers_make_presentable(mug_innervk_inner* p_inner) {
 					mugResult res = MUG_SUCCESS;
 
 					/* Turn on commands if they haven't been already */
 
-					if (!p_cmd->on) {
-						res = mug_innervk_command_begin(window, p_inner, p_init, p_sc, p_cmd);
+					if (!p_inner->cmds[p_inner->now_cmd].on) {
+						res = mug_innervk_command_begin(p_inner);
 						if (res != MUG_SUCCESS) {
 							return res;
 						}
@@ -43543,34 +43497,30 @@ have to block for the entire duration of it being resized.
 
 					VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
 					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					rp_ci.renderPass = p_rs->ca_to_present.render_pass;
-					rp_ci.framebuffer = p_rs->ca_to_present.framebuffers[p_sc->image_index];
+					rp_ci.renderPass = p_inner->rs.ca_to_present.render_pass;
+					rp_ci.framebuffer = p_inner->rs.ca_to_present.framebuffers[p_inner->sc.image_index];
 					rp_ci.renderArea.offset.x = 0;
 					rp_ci.renderArea.offset.y = 0;
-					rp_ci.renderArea.extent = p_sc->extent;
+					rp_ci.renderArea.extent = p_inner->sc.extent;
 
-					vkCmdBeginRenderPass(p_cmd->buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
+					vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
 
 					/* End the render pass */
 
-					vkCmdEndRenderPass(p_cmd->buffer);
+					vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
 
 					return MUG_SUCCESS;
 				}
 
 				// Note: load shader before this
 				// Note: render_count is discarded if p_shader->use_buffers; overridable by use_count
-				mugResult mug_innervk_renderers_render_shader(muWindow window, mug_innervk_inner* p_inner,
-					mug_innervk_initiation* p_init, mug_innervk_swapchain* p_sc,
-					mug_innervk_command* p_cmd, mug_innervk_renderers* p_rs,
-					mug_innervk_shader* p_shader, size_m buf, size_m render_count, muBool use_count
-				) {
+				mugResult mug_innervk_renderers_render_shader(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf, size_m render_count, muBool use_count) {
 					mugResult res = MUG_SUCCESS;
 
 					/* Turn on commands if they haven't been already */
 
-						if (!p_cmd->on) {
-							res = mug_innervk_command_begin(window, p_inner, p_init, p_sc, p_cmd);
+						if (!p_inner->cmds[p_inner->now_cmd].on) {
+							res = mug_innervk_command_begin(p_inner);
 							if (res != MUG_SUCCESS) {
 								return res;
 							}
@@ -43580,34 +43530,34 @@ have to block for the entire duration of it being resized.
 
 						VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
 						rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-						rp_ci.renderPass = p_rs->ca_to_ca_pip.render_pass;
-						rp_ci.framebuffer = p_rs->ca_to_ca_pip.framebuffers[p_sc->image_index];
-						rp_ci.renderArea.extent = p_sc->extent;
+						rp_ci.renderPass = p_inner->rs.ca_to_ca_pip.render_pass;
+						rp_ci.framebuffer = p_inner->rs.ca_to_ca_pip.framebuffers[p_inner->sc.image_index];
+						rp_ci.renderArea.extent = p_inner->sc.extent;
 
-						vkCmdBeginRenderPass(p_cmd->buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
+						vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
 
 					/* Bind and draw pipeline */
 
-						vkCmdBindPipeline(p_cmd->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_shader->pipeline);
+						vkCmdBindPipeline(p_inner->cmds[p_inner->now_cmd].buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_shader->pipeline);
 
 						// (Set dynamic state)
 
-						vkCmdSetScissor(p_cmd->buffer, 0, 1, &p_sc->scissor);
-						vkCmdSetViewport(p_cmd->buffer, 0, 1, &p_sc->viewport);
+						vkCmdSetScissor(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_inner->sc.scissor);
+						vkCmdSetViewport(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_inner->sc.viewport);
 
 						// (Bind revelant buffers)
 
 						if (p_shader->use_buffers) {
 							VkDeviceSize offset = 0;
-							vkCmdBindVertexBuffers(p_cmd->buffer, 0, 1, &p_shader->buffers.data[buf].vbuf.buf, &offset);
+							vkCmdBindVertexBuffers(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_shader->buffers.data[buf].vbuf.buf, &offset);
 
 							if (p_shader->use_index) {
-								vkCmdBindIndexBuffer(p_cmd->buffer, p_shader->buffers.data[buf].ibuf.buf, 0, p_shader->index_type);
+								vkCmdBindIndexBuffer(p_inner->cmds[p_inner->now_cmd].buffer, p_shader->buffers.data[buf].ibuf.buf, 0, p_shader->index_type);
 							}
 						}
 
 						if (p_shader->desc_sets[0] != VK_NULL_HANDLE) {
-							vkCmdBindDescriptorSets(p_cmd->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
+							vkCmdBindDescriptorSets(p_inner->cmds[p_inner->now_cmd].buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
 								p_shader->pipeline_layout, 0, 1, &p_shader->desc_sets[p_inner->now_cmd], 0, 0
 							);
 						}
@@ -43618,27 +43568,23 @@ have to block for the entire duration of it being resized.
 						}
 
 						if (p_shader->use_index) {
-							vkCmdDrawIndexed(p_cmd->buffer, count, 1, 0, 0, 0);
+							vkCmdDrawIndexed(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0, 0);
 						} else if (p_shader->use_buffers) {
-							vkCmdDraw(p_cmd->buffer, count, 1, 0, 0);
+							vkCmdDraw(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0);
 						} else {
-							vkCmdDraw(p_cmd->buffer, count, 1, 0, 0);
+							vkCmdDraw(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0);
 						}
 
 					/* End render pass */
 
-						vkCmdEndRenderPass(p_cmd->buffer);
+						vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
 
 					return MUG_SUCCESS;
 				}
 
 			/* Buffers */
 
-				mugResult mug_innervk_buffer_create_manual(
-					mug_innervk_initiation* p_init,
-					VkDeviceSize size, VkBufferUsageFlags usage,
-					VkMemoryPropertyFlags props,
-					VkBuffer* p_buffer, VkDeviceMemory* p_memory
+				mugResult mug_innervk_buffer_create_manual(mug_innervk_inner* p_inner, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props, VkBuffer* p_buffer, VkDeviceMemory* p_memory
 				) {
 					/* Buffer */
 
@@ -43648,16 +43594,16 @@ have to block for the entire duration of it being resized.
 						ci.usage = usage;
 						ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-						if (vkCreateBuffer(p_init->device, &ci, 0, p_buffer) != VK_SUCCESS) {
+						if (vkCreateBuffer(p_inner->init.device, &ci, 0, p_buffer) != VK_SUCCESS) {
 							return MUG_FAILED_CREATE_VK_BUFFER;
 						}
 
 					/* Memory */
 
 						VkMemoryRequirements mem_req;
-						vkGetBufferMemoryRequirements(p_init->device, *p_buffer, &mem_req);
+						vkGetBufferMemoryRequirements(p_inner->init.device, *p_buffer, &mem_req);
 						VkPhysicalDeviceMemoryProperties mem_prop;
-						vkGetPhysicalDeviceMemoryProperties(p_init->physical_device, &mem_prop);
+						vkGetPhysicalDeviceMemoryProperties(p_inner->init.physical_device, &mem_prop);
 
 						muBool found = MU_FALSE;
 						uint32_t mem_index = 0;
@@ -43671,7 +43617,7 @@ have to block for the entire duration of it being resized.
 							}
 						}
 						if (!found) {
-							vkDestroyBuffer(p_init->device, *p_buffer, 0);
+							vkDestroyBuffer(p_inner->init.device, *p_buffer, 0);
 							return MUG_FAILED_FIND_VALID_VK_MEMORY_TYPE;
 						}
 
@@ -43680,31 +43626,28 @@ have to block for the entire duration of it being resized.
 						alloc_i.allocationSize = mem_req.size;
 						alloc_i.memoryTypeIndex = mem_index;
 
-						if (vkAllocateMemory(p_init->device, &alloc_i, 0, p_memory) != VK_SUCCESS) {
-							vkDestroyBuffer(p_init->device, *p_buffer, 0);
+						if (vkAllocateMemory(p_inner->init.device, &alloc_i, 0, p_memory) != VK_SUCCESS) {
+							vkDestroyBuffer(p_inner->init.device, *p_buffer, 0);
 							return MUG_FAILED_ALLOCATE_VK_MEMORY;
 						}
 
-						vkBindBufferMemory(p_init->device, *p_buffer, *p_memory, 0);
+						vkBindBufferMemory(p_inner->init.device, *p_buffer, *p_memory, 0);
 
 					return MUG_SUCCESS;
 				}
 
 				// Note: this whole process can most likely be optimized.
-				mugResult mug_innervk_buffer_raw_copy(
-					mug_innervk_initiation* p_init, mug_innervk_command* p_cmd,
-					VkBuffer dst, VkBuffer src, VkDeviceSize size
-				) {
+				mugResult mug_innervk_buffer_raw_copy(mug_innervk_inner* p_inner, VkBuffer dst, VkBuffer src, VkDeviceSize size) {
 					/* Allocation */
 
 						VkCommandBufferAllocateInfo alloc_i = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
 						alloc_i.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 						alloc_i.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-						alloc_i.commandPool = p_cmd->pool;
+						alloc_i.commandPool = p_inner->cmds[p_inner->now_cmd].pool;
 						alloc_i.commandBufferCount = 1;
 
 						VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
-						if (vkAllocateCommandBuffers(p_init->device, &alloc_i, &cmd_buf) != VK_SUCCESS) {
+						if (vkAllocateCommandBuffers(p_inner->init.device, &alloc_i, &cmd_buf) != VK_SUCCESS) {
 							return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
 						}
 
@@ -43715,7 +43658,7 @@ have to block for the entire duration of it being resized.
 						begin_i.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
 						if (vkBeginCommandBuffer(cmd_buf, &begin_i) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_init->device, p_cmd->pool, 1, &cmd_buf);
+							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
 							return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
 						}
 
@@ -43724,7 +43667,7 @@ have to block for the entire duration of it being resized.
 						vkCmdCopyBuffer(cmd_buf, src, dst, 1, &region);
 
 						if (vkEndCommandBuffer(cmd_buf) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_init->device, p_cmd->pool, 1, &cmd_buf);
+							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
 							return MUG_FAILED_END_VK_COMMAND_BUFFER;
 						}
 
@@ -43735,21 +43678,18 @@ have to block for the entire duration of it being resized.
 						submit_i.commandBufferCount = 1;
 						submit_i.pCommandBuffers = &cmd_buf;
 
-						if (vkQueueSubmit(p_init->graphics_queue, 1, &submit_i, VK_NULL_HANDLE) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_init->device, p_cmd->pool, 1, &cmd_buf);
+						if (vkQueueSubmit(p_inner->init.graphics_queue, 1, &submit_i, VK_NULL_HANDLE) != VK_SUCCESS) {
+							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
 							return MUG_FAILED_SUBMIT_VK_QUEUE;
 						}
 
-					vkQueueWaitIdle(p_init->graphics_queue);
-					vkFreeCommandBuffers(p_init->device, p_cmd->pool, 1, &cmd_buf);
+					vkQueueWaitIdle(p_inner->init.graphics_queue);
+					vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
 					return MUG_SUCCESS;
 				}
 
 				// This function's kinda dumb now, eh
-				mug_innervk_buffer mug_innervk_buffer_create(mugResult* result,
-					mug_innervk_initiation* p_init,
-					VkDeviceSize data_size, VkBufferUsageFlagBits usage, muBool local
-				) {
+				mug_innervk_buffer mug_innervk_buffer_create(mugResult* result, mug_innervk_inner* p_inner, VkDeviceSize data_size, VkBufferUsageFlagBits usage, muBool local) {
 					mugResult res = MUG_SUCCESS;
 					mug_innervk_buffer buffer = MU_ZERO_STRUCT(mug_innervk_buffer);
 					buffer.buf = VK_NULL_HANDLE;
@@ -43759,11 +43699,7 @@ have to block for the entire duration of it being resized.
 					if (!local) {
 						props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 					}
-					res = mug_innervk_buffer_create_manual(
-						p_init, data_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage,
-						props,
-						&buffer.buf, &buffer.mem
-					);
+					res = mug_innervk_buffer_create_manual(p_inner, data_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, props, &buffer.buf, &buffer.mem);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return buffer;
@@ -43772,23 +43708,18 @@ have to block for the entire duration of it being resized.
 					return buffer;
 				}
 
-				void mug_innervk_buffer_destroy(
-					mug_innervk_initiation* p_init, mug_innervk_buffer* p_buffer
-				) {
+				void mug_innervk_buffer_destroy(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer) {
 					if (p_buffer->buf != VK_NULL_HANDLE) {
-						vkDestroyBuffer(p_init->device, p_buffer->buf, 0);
+						vkDestroyBuffer(p_inner->init.device, p_buffer->buf, 0);
 						p_buffer->buf = VK_NULL_HANDLE;
 					}
 					if (p_buffer->mem != VK_NULL_HANDLE) {
-						vkFreeMemory(p_init->device, p_buffer->mem, 0);
+						vkFreeMemory(p_inner->init.device, p_buffer->mem, 0);
 						p_buffer->mem = VK_NULL_HANDLE;
 					}
 				}
 
-				mugResult mug_innervk_buffer_transfer(
-					mug_innervk_initiation* p_init, mug_innervk_command* p_cmd,
-					mug_innervk_buffer* p_buffer, void* data, VkDeviceSize data_size
-				) {
+				mugResult mug_innervk_buffer_transfer(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer, void* data, VkDeviceSize data_size) {
 					mugResult res = MUG_SUCCESS;
 
 					// Stage buffer creation
@@ -43796,7 +43727,7 @@ have to block for the entire duration of it being resized.
 					VkBuffer stage_buf = VK_NULL_HANDLE;
 					VkDeviceMemory stage_mem = VK_NULL_HANDLE;
 					res = mug_innervk_buffer_create_manual(
-						p_init, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+						p_inner, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 						VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 						&stage_buf, &stage_mem
 					);
@@ -43808,28 +43739,26 @@ have to block for the entire duration of it being resized.
 
 					// Should use flushing here...? Gonna go with the classic Vulkan Tutorial approach.
 					void* gpu_memory = 0;
-					if (vkMapMemory(p_init->device, stage_mem, 0, data_size, 0, &gpu_memory) != VK_SUCCESS) {
-						vkDestroyBuffer(p_init->device, stage_buf, 0);
-						vkFreeMemory(p_init->device, stage_mem, 0);
+					if (vkMapMemory(p_inner->init.device, stage_mem, 0, data_size, 0, &gpu_memory) != VK_SUCCESS) {
+						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
+						vkFreeMemory(p_inner->init.device, stage_mem, 0);
 						return MUG_FAILED_MAP_VK_MEMORY;
 					}
 
 					mu_memcpy(gpu_memory, data, (size_t)data_size);
-					vkUnmapMemory(p_init->device, stage_mem);
+					vkUnmapMemory(p_inner->init.device, stage_mem);
 
 					// Copying stage buffer data into buffer
 
-					res = mug_innervk_buffer_raw_copy(
-						p_init, p_cmd, p_buffer->buf, stage_buf, data_size
-					);
+					res = mug_innervk_buffer_raw_copy(p_inner, p_buffer->buf, stage_buf, data_size);
 					if (res != MUG_SUCCESS) {
-						vkDestroyBuffer(p_init->device, stage_buf, 0);
-						vkFreeMemory(p_init->device, stage_mem, 0);
+						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
+						vkFreeMemory(p_inner->init.device, stage_mem, 0);
 						return res;
 					}
 
-					vkDestroyBuffer(p_init->device, stage_buf, 0);
-					vkFreeMemory(p_init->device, stage_mem, 0);
+					vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
+					vkFreeMemory(p_inner->init.device, stage_mem, 0);
 					return MUG_SUCCESS;
 				}
 
@@ -43837,10 +43766,7 @@ have to block for the entire duration of it being resized.
 
 				// isize is ignored if !p_shader->use_index
 				// Doesn't perform checks on p_shader->use_buffers, so don't use if the case is such.
-				size_m mug_innervk_shader_create_vbuffer(mugResult* result,
-					mug_innervk_inner* p_inner, mug_innervk_shader* p_shader,
-					size_m vsize, size_m isize, size_m render_count, size_m obj_count
-				) {
+				size_m mug_innervk_shader_create_vbuffer(mugResult* result, mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m vsize, size_m isize, size_m render_count, size_m obj_count) {
 					mugResult res = MUG_SUCCESS;
 					mumaResult muma_res = MUMA_SUCCESS;
 					mug_innervk_vbuffer s_vbuf = MU_ZERO_STRUCT(mug_innervk_vbuffer);
@@ -43849,7 +43775,7 @@ have to block for the entire duration of it being resized.
 					size_m i_vbuf = MU_NONE;
 
 					s_vbuf.vbuf = mug_innervk_buffer_create(
-						&res, &p_inner->init, (VkDeviceSize)vsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, MU_TRUE
+						&res, p_inner, (VkDeviceSize)vsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, MU_TRUE
 					);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
@@ -43858,11 +43784,11 @@ have to block for the entire duration of it being resized.
 
 					if (p_shader->use_index) {
 						s_vbuf.ibuf = mug_innervk_buffer_create(
-							&res, &p_inner->init, (VkDeviceSize)isize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, MU_TRUE
+							&res, p_inner, (VkDeviceSize)isize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, MU_TRUE
 						);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
-							mug_innervk_buffer_destroy(&p_inner->init, &s_vbuf.vbuf);
+							mug_innervk_buffer_destroy(p_inner, &s_vbuf.vbuf);
 							return i_vbuf;
 						}
 					}
@@ -43872,8 +43798,8 @@ have to block for the entire duration of it being resized.
 					);
 					if (muma_res != MUMA_SUCCESS) {
 						MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-						mug_innervk_buffer_destroy(&p_inner->init, &s_vbuf.ibuf);
-						mug_innervk_buffer_destroy(&p_inner->init, &s_vbuf.vbuf);
+						mug_innervk_buffer_destroy(p_inner, &s_vbuf.ibuf);
+						mug_innervk_buffer_destroy(p_inner, &s_vbuf.vbuf);
 						return i_vbuf;
 					}
 
@@ -43882,28 +43808,23 @@ have to block for the entire duration of it being resized.
 					return i_vbuf;
 				}
 
-				void mug_innervk_shader_destroy_vbuffer(
-					mug_innervk_inner* p_inner, mug_innervk_shader* p_shader,
-					size_m buf
-				) {
+				void mug_innervk_shader_destroy_vbuffer(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf) {
 					if (buf >= p_shader->buffers.length) {
 						return;
 					}
 					if (p_shader->buffers.data[buf].active) {
 						vkDeviceWaitIdle(p_inner->init.device);
 						if (p_shader->use_buffers) {
-							mug_innervk_buffer_destroy(&p_inner->init, &p_shader->buffers.data[buf].vbuf);
+							mug_innervk_buffer_destroy(p_inner, &p_shader->buffers.data[buf].vbuf);
 						}
 						if (p_shader->use_index) {
-							mug_innervk_buffer_destroy(&p_inner->init, &p_shader->buffers.data[buf].ibuf);
+							mug_innervk_buffer_destroy(p_inner, &p_shader->buffers.data[buf].ibuf);
 						}
 						p_shader->buffers.data[buf] = MU_ZERO_STRUCT(mug_innervk_vbuffer);
 					}
 				}
 
-				void mug_innervk_shader_deload(
-					mug_innervk_inner* p_inner, mug_innervk_shader* p_shader
-				) {
+				void mug_innervk_shader_deload(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader) {
 					if (p_shader->vert != VK_NULL_HANDLE) {
 						vkDestroyShaderModule(p_inner->init.device, p_shader->vert, 0);
 					}
@@ -43940,9 +43861,7 @@ have to block for the entire duration of it being resized.
 					mug_innervk_shader_deload(p_inner, &p_inner->shaders.rect);
 				}
 
-				void mug_innervk_shader_destroy_buffers(
-					mug_innervk_inner* p_inner, mug_innervk_shader* p_shader
-				) {
+				void mug_innervk_shader_destroy_buffers(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader) {
 					for (size_m i = 0; i < p_shader->buffers.length; i++) {
 						mug_innervk_shader_destroy_vbuffer(p_inner, p_shader, i);
 					}
@@ -44126,9 +44045,7 @@ have to block for the entire duration of it being resized.
 
 					// Note: can and should be called even if already created
 					// Note: also creates the pipeline
-					mugResult mug_innervk_rect_shaders_load(muWindow window,
-						mug_innervk_inner* p_inner, mug_innervk_shader* p_srect
-					) {
+					mugResult mug_innervk_rect_shaders_load(mug_innervk_inner* p_inner, mug_innervk_shader* p_srect) {
 						mugResult res = MUG_SUCCESS;
 
 						if (p_srect->vert != VK_NULL_HANDLE) {
@@ -44177,7 +44094,7 @@ have to block for the entire duration of it being resized.
 
 							for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
 								p_srect->dim_buffers[i] = mug_innervk_buffer_create(
-									&res, &p_inner->init, 4*2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, MU_FALSE
+									&res, p_inner, 4*2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, MU_FALSE
 								);
 								if (res != MUG_SUCCESS) {
 									mug_innervk_shader_deload(p_inner, p_srect);
@@ -44282,7 +44199,7 @@ have to block for the entire duration of it being resized.
 						/* Pipeline */
 
 							uint32_m uw=800, uh=600;
-							mu_window_get_dimensions(0, window, &uw, &uh);
+							mu_window_get_dimensions(0, p_inner->win, &uw, &uh);
 							float fw = (float)uw, fh = (float)uh;
 
 							mug_innervk_gpipeline_ci pipeline_creator = MU_ZERO_STRUCT(mug_innervk_gpipeline_ci);
@@ -44335,10 +44252,7 @@ have to block for the entire duration of it being resized.
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_inner2vk_rect_buffer_fill(
-						mug_innervk_inner* p_inner,
-						mug_innervk_vbuffer* p_buf, muRect* rects
-					) {
+					mugResult mug_inner2vk_rect_buffer_fill(mug_innervk_inner* p_inner, mug_innervk_vbuffer* p_buf, muRect* rects) {
 						mugResult res = MUG_SUCCESS;
 
 						float* vertexes = (float*)mu_malloc(sizeof(float) * p_buf->obj_count * 6 * 4);
@@ -44350,10 +44264,7 @@ have to block for the entire duration of it being resized.
 							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
 						}
 
-						res = mug_innervk_buffer_transfer(
-							&p_inner->init, &p_inner->cmds[p_inner->now_cmd],
-							&p_buf->vbuf, (void*)vertexes, sizeof(float) * p_buf->obj_count * 6 * 4
-						);
+						res = mug_innervk_buffer_transfer(p_inner, &p_buf->vbuf, (void*)vertexes, sizeof(float) * p_buf->obj_count * 6 * 4);
 						mu_free(vertexes);
 						if (res != MUG_SUCCESS) {
 							return res;
@@ -44369,10 +44280,7 @@ have to block for the entire duration of it being resized.
 							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], i, 0xFFFFFFFF);
 						}
 
-						res = mug_innervk_buffer_transfer(
-							&p_inner->init, &p_inner->cmds[p_inner->now_cmd],
-							&p_buf->ibuf, (void*)indexes, sizeof(uint32_t) * p_buf->obj_count * 5
-						);
+						res = mug_innervk_buffer_transfer(p_inner, &p_buf->ibuf, (void*)indexes, sizeof(uint32_t) * p_buf->obj_count * 5);
 						mu_free(indexes);
 						if (res != MUG_SUCCESS) {
 							return res;
@@ -44381,12 +44289,10 @@ have to block for the entire duration of it being resized.
 						return MUG_SUCCESS;
 					}
 
-					void mug_innervk_rect_buffer_update_uniforms(
-						muWindow window, mug_innervk_inner* p_inner
-					) {
+					void mug_innervk_rect_buffer_update_uniforms(mug_innervk_inner* p_inner) {
 						mugResult res = MUG_SUCCESS;
 						uint32_m w=800, h=600;
-						mu_window_get_dimensions(&res, window, &w, &h);
+						mu_window_get_dimensions(&res, p_inner->win, &w, &h);
 
 						float* p_f = (float*)p_inner->shaders.rect.dim_buffers[p_inner->now_cmd].mapped_mem;
 						if (p_f) {
@@ -44438,60 +44344,61 @@ have to block for the entire duration of it being resized.
 					mug_innervk_inner inner = MU_ZERO_STRUCT(mug_innervk_inner);
 					mugResult res = MUG_SUCCESS;
 
+					inner.win = window;
 					inner.init.use_validation_layers = MU_TRUE;
 					inner.init.debug_messenger_callback = mug_innervk_DebugUtilsMessengerCallback;
-					res = mug_innervk_initiation_create(window, &inner.init);
+					res = mug_innervk_initiation_create(&inner);
 					if (res != MUG_SUCCESS) {
-						mug_innervk_initiation_destroy(&inner.init);
+						mug_innervk_initiation_destroy(&inner);
 						MU_SET_RESULT(result, res)
 						return inner;
 					}
 
-					res = mug_innervk_swapchain_create(window, &inner.init, &inner.sc);
+					res = mug_innervk_swapchain_create(&inner);
 					if (res != MUG_SUCCESS) {
-						mug_innervk_swapchain_destroy(&inner.init, &inner.sc);
-						mug_innervk_initiation_destroy(&inner.init);
+						mug_innervk_swapchain_destroy(&inner);
+						mug_innervk_initiation_destroy(&inner);
 						MU_SET_RESULT(result, res)
 						return inner;
 					}
 
 					for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-						res = mug_innervk_command_create(&inner.init, &inner.cmds[i]);
+						res = mug_innervk_command_create(&inner, &inner.cmds[i]);
 
 						if (res != MUG_SUCCESS) {
 							for (size_m j = 0; j <= i; j++) {
-								mug_innervk_command_destroy(&inner.init, &inner.cmds[j]);
+								mug_innervk_command_destroy(&inner, &inner.cmds[j]);
 							}
 
-							mug_innervk_swapchain_destroy(&inner.init, &inner.sc);
-							mug_innervk_initiation_destroy(&inner.init);
+							mug_innervk_swapchain_destroy(&inner);
+							mug_innervk_initiation_destroy(&inner);
 							MU_SET_RESULT(result, res)
 							return inner;
 						}
 					}
 					inner.now_cmd = 0;
 
-					res = mug_innervk_renderers_create_render_passes(&inner.init, &inner.sc, &inner.rs);
+					res = mug_innervk_renderers_create_render_passes(&inner);
 					if (res != MUG_SUCCESS) {
-						mug_innervk_renderers_destroy_render_passes(&inner.init, &inner.rs);
+						mug_innervk_renderers_destroy_render_passes(&inner);
 						for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-							mug_innervk_command_destroy(&inner.init, &inner.cmds[i]);
+							mug_innervk_command_destroy(&inner, &inner.cmds[i]);
 						}
-						mug_innervk_swapchain_destroy(&inner.init, &inner.sc);
-						mug_innervk_initiation_destroy(&inner.init);
+						mug_innervk_swapchain_destroy(&inner);
+						mug_innervk_initiation_destroy(&inner);
 						MU_SET_RESULT(result, res)
 						return inner;
 					}
 
-					res = mug_innervk_renderers_create_framebuffers(&inner.init, &inner.sc, &inner.rs);
+					res = mug_innervk_renderers_create_framebuffers(&inner);
 					if (res != MUG_SUCCESS) {
-						mug_innervk_renderers_destroy_framebuffers(&inner.init, &inner.sc, &inner.rs);
-						mug_innervk_renderers_destroy_render_passes(&inner.init, &inner.rs);
+						mug_innervk_renderers_destroy_framebuffers(&inner);
+						mug_innervk_renderers_destroy_render_passes(&inner);
 						for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-							mug_innervk_command_destroy(&inner.init, &inner.cmds[i]);
+							mug_innervk_command_destroy(&inner, &inner.cmds[i]);
 						}
-						mug_innervk_swapchain_destroy(&inner.init, &inner.sc);
-						mug_innervk_initiation_destroy(&inner.init);
+						mug_innervk_swapchain_destroy(&inner);
+						mug_innervk_initiation_destroy(&inner);
 					}
 
 					return inner;
@@ -44501,36 +44408,34 @@ have to block for the entire duration of it being resized.
 					mug_innervk_shaders_deload(p_inner);
 					mug_innervk_shaders_destroy_buffers(p_inner);
 
-					mug_innervk_renderers_destroy_framebuffers(&p_inner->init, &p_inner->sc, &p_inner->rs);
-					mug_innervk_renderers_destroy_render_passes(&p_inner->init, &p_inner->rs);
+					mug_innervk_renderers_destroy_framebuffers(p_inner);
+					mug_innervk_renderers_destroy_render_passes(p_inner);
 
 					for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-						mug_innervk_command_destroy(&p_inner->init, &p_inner->cmds[i]);
+						mug_innervk_command_destroy(p_inner, &p_inner->cmds[i]);
 					}
 
-					mug_innervk_swapchain_destroy(&p_inner->init, &p_inner->sc);
-					mug_innervk_initiation_destroy(&p_inner->init);
+					mug_innervk_swapchain_destroy(p_inner);
+					mug_innervk_initiation_destroy(p_inner);
 
 					return;
 					if (result) {}
 				}
 
-				void mug_innervk_inner_swapchain_resize(mugResult* result,
-					muWindow window, mug_innervk_inner* p_inner
-				) {
+				void mug_innervk_inner_swapchain_resize(mugResult* result, mug_innervk_inner* p_inner) {
 					mugResult res = MUG_SUCCESS;
 					vkDeviceWaitIdle(p_inner->init.device);
 
-					mug_innervk_renderers_destroy_framebuffers(&p_inner->init, &p_inner->sc, &p_inner->rs);
-					mug_innervk_swapchain_destroy(&p_inner->init, &p_inner->sc);
+					mug_innervk_renderers_destroy_framebuffers(p_inner);
+					mug_innervk_swapchain_destroy(p_inner);
 
-					res = mug_innervk_swapchain_create(window, &p_inner->init, &p_inner->sc);
+					res = mug_innervk_swapchain_create(p_inner);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
 					}
 
-					res = mug_innervk_renderers_create_framebuffers(&p_inner->init, &p_inner->sc, &p_inner->rs);
+					res = mug_innervk_renderers_create_framebuffers(p_inner);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -44616,12 +44521,7 @@ have to block for the entire duration of it being resized.
 				) {
 					mugResult res = MUG_SUCCESS;
 
-					res = mug_innervk_renderers_clear(
-						p_g->win, &p_g->inner,
-						&p_g->inner.init, &p_g->inner.sc,
-						&p_g->inner.cmds[p_g->inner.now_cmd],
-						&p_g->inner.rs, r, g, b, a
-					);
+					res = mug_innervk_renderers_clear(&p_g->inner, r, g, b, a);
 					MU_SET_RESULT(result, res)
 				}
 
@@ -44633,20 +44533,13 @@ have to block for the entire duration of it being resized.
 						return;
 					}
 
-					res = mug_innervk_renderers_make_presentable(
-						p_g->win, &p_g->inner,
-						&p_g->inner.init, &p_g->inner.sc,
-						&p_g->inner.cmds[p_g->inner.now_cmd],
-						&p_g->inner.rs
-					);
+					res = mug_innervk_renderers_make_presentable(&p_g->inner);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
 					}
 
-					res = mug_innervk_command_end_and_submit(
-						&p_g->inner.init, &p_g->inner.cmds[p_g->inner.now_cmd]
-					);
+					res = mug_innervk_command_end_and_submit(&p_g->inner);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -44656,11 +44549,7 @@ have to block for the entire duration of it being resized.
 					// considering moving this to the beginning of mug_innervk_command_begin, but I'm not
 					// sure if that would be wise or even work, and I only wanna try it when mug is in a
 					// developed-enough state to do performance tests for this sort of stuff. @TODO 
-					res = mug_innervk_command_present(
-						p_g->win, &p_g->inner,
-						&p_g->inner.init, &p_g->inner.sc,
-						&p_g->inner.cmds[p_g->inner.now_cmd]
-					);
+					res = mug_innervk_command_present(&p_g->inner);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -44685,7 +44574,7 @@ have to block for the entire duration of it being resized.
 					
 					if (cosa_res == MUCOSA_SUCCESS && (width != p_g->prev_width || height != p_g->prev_height)) {
 
-						mug_innervk_inner_swapchain_resize(&res, p_g->win, &p_g->inner);
+						mug_innervk_inner_swapchain_resize(&res, &p_g->inner);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return;
@@ -44707,9 +44596,7 @@ have to block for the entire duration of it being resized.
 					) {
 						mugResult res = MUG_SUCCESS;
 
-						res = mug_innervk_rect_shaders_load(p_g->win,
-							&p_g->inner, &p_g->inner.shaders.rect
-						);
+						res = mug_innervk_rect_shaders_load(&p_g->inner, &p_g->inner.shaders.rect);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return MU_NONE;
@@ -44773,14 +44660,9 @@ have to block for the entire duration of it being resized.
 							return;
 						}
 
-						mug_innervk_rect_buffer_update_uniforms(p_g->win, &p_g->inner);
+						mug_innervk_rect_buffer_update_uniforms(&p_g->inner);
 
-						res = mug_innervk_renderers_render_shader(
-							p_g->win, &p_g->inner, &p_g->inner.init,
-							&p_g->inner.sc, &p_g->inner.cmds[p_g->inner.now_cmd],
-							&p_g->inner.rs, &p_g->inner.shaders.rect,
-							rb, 0, MU_FALSE
-						);
+						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 0, MU_FALSE);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return;
