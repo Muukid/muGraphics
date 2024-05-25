@@ -41880,6 +41880,13 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					return MUG_SUCCESS;
 				}
 
+				void mug_innergl_rect_shader_decomp(mug_innergl_rect_shader* p_s) {
+					if (p_s->program != 0) {
+						glDeleteProgram(p_s->program);
+						p_s->program = 0;
+					}
+				}
+
 				// Note: check if program exists before this...
 				void mug_inner2gl_rect_shader_render(mug_innergl_rect_shader* p_s, size_m buf, muWindow window) {
 					glPrimitiveRestartIndex(MUG_GL_PRIMITIVE_RESTART_INDEX_32);
@@ -42147,6 +42154,13 @@ ensure that rendered buffer sections don't get modified, or else UB.
 							MU_SET_RESULT(result, res)
 							return;
 						}
+					}
+
+					void mug_innergl_rect_buffer_unload_type(mugResult* result, mug_innergl_graphic* p_g) {
+						mug_innergl_rect_shader_decomp(&p_g->shaders.rect);
+
+						return;
+						if (result) {}
 					}
 
 	/* Vulkan */
@@ -44892,6 +44906,13 @@ ensure that rendered buffer sections don't get modified, or else UB.
 						}
 					}
 
+					void mug_innervk_rect_buffer_unload_type(mugResult* result, mug_innervk_graphic* p_g) {
+						mug_innervk_shader_deload(&p_g->inner, &p_g->inner.shaders.rect);
+
+						return;
+						if (result) {}
+					}
+
 	/* Cross graphics-API */
 
 		/* Graphic */
@@ -45392,6 +45413,25 @@ ensure that rendered buffer sections don't get modified, or else UB.
 							} break;
 							case MUG_VULKAN: {
 								mug_innervk_rect_buffer_resize(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count, rects);
+							} break;
+						}
+
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+					}
+
+					MUDEF void mu_rect_buffer_unload_type(mugResult* result, muGraphic graphic) {
+						MU_SET_RESULT(result, MUG_SUCCESS)
+						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
+
+						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
+
+						switch (MUG_GGFX.data[graphic].api) {
+							default: break;
+							case MUG_OPENGL: {
+								mug_innergl_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.gl);
+							} break;
+							case MUG_VULKAN: {
+								mug_innervk_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.vk);
 							} break;
 						}
 
