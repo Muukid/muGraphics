@@ -17,6 +17,7 @@ have to block for the entire duration of it being resized.
 
 @MENTION MUG_VK_LOOK_AHEAD_FRAMES
 @MENTION MUG_GL_PRIMITIVE_RESTART_INDEX_32 and MUG_GL_PRIMITIVE_RESTART_INDEX_16
+@MENTION Buffer locking.
 */
 
 #ifndef MUG_H
@@ -2112,6 +2113,7 @@ have to block for the entire duration of it being resized.
 
 			MUG_ALREADY_INITIATED,
 			MUG_ALREADY_TERMINATED,
+			MUG_ALREADY_RENDERED_BUFFER,
 
 			MUG_NOT_YET_INITIALIZED,
 
@@ -41634,6 +41636,7 @@ have to block for the entire duration of it being resized.
 					GLuint vao;
 					size_m tricount; // Unnecessary?
 					size_m rect_count;
+					muBool rendered_this_frame;
 				};
 				typedef struct mug_innergl_rect_buffer mug_innergl_rect_buffer;
 
@@ -41644,9 +41647,11 @@ have to block for the entire duration of it being resized.
 					mug_innergl_rect_buffer_arr_, mug_innergl_rect_buffer_comp
 				)
 
-				mugResult mug_inner2gl_rect_buffer_fill(mug_innergl_rect_buffer* p_rbuf,
-					muRect* rects
-				) {
+				mugResult mug_inner2gl_rect_buffer_fill(mug_innergl_rect_buffer* p_rbuf, muRect* rects) {
+					if (p_rbuf->rendered_this_frame) {
+						return MUG_ALREADY_RENDERED_BUFFER;
+					}
+
 					// Note: not sure if allocating for just glBufferData then deallocating after is fine,
 					// but we'll see. Delete this if things have been running well.
 					glBindVertexArray(p_rbuf->vao);
@@ -41709,10 +41714,7 @@ have to block for the entire duration of it being resized.
 					return MUG_SUCCESS;
 				}
 
-				size_m mug_inner2gl_rect_buffer_create(mugResult* result, 
-					mug_innergl_rect_buffers* p_rbufs,
-					muRect* rects, size_m rect_count
-				) {
+				size_m mug_inner2gl_rect_buffer_create(mugResult* result, mug_innergl_rect_buffers* p_rbufs, muRect* rects, size_m rect_count) {
 					mugResult res = MUG_SUCCESS;
 					mumaResult muma_res = MUMA_SUCCESS;
 					size_m id = MU_NONE;
@@ -41824,9 +41826,7 @@ have to block for the entire duration of it being resized.
 				}
 
 				// Note: check if program exists before this...
-				void mug_inner2gl_rect_shader_render_tricount(mug_innergl_rect_shader* p_s, 
-					size_m buf, size_m tricount, muWindow window
-				) {
+				void mug_inner2gl_rect_shader_render_tricount(mug_innergl_rect_shader* p_s, size_m buf, size_m tricount, muWindow window) {
 					glPrimitiveRestartIndex(MUG_GL_PRIMITIVE_RESTART_INDEX_32);
 					glUseProgram(p_s->program);
 
@@ -41842,6 +41842,8 @@ have to block for the entire duration of it being resized.
 					glDrawElements(GL_TRIANGLE_STRIP, tricount*3, GL_UNSIGNED_INT, 0);
 					glBindVertexArray(0);
 					glUseProgram(0);
+
+					p_s->buffers.data[buf].rendered_this_frame = MU_TRUE;
 				}
 
 		/* Shaders */
@@ -41850,6 +41852,16 @@ have to block for the entire duration of it being resized.
 				mug_innergl_rect_shader rect;
 			};
 			typedef struct mug_innergl_shaders mug_innergl_shaders;
+
+			#define mug_innergl_refresh_buffers(buf) \
+				for (size_m k = 0; k < buf.length; k++) { \
+					if (buf.data[k].active) { \
+						buf.data[k].rendered_this_frame = MU_FALSE; \
+					} \
+				}
+			void mug_innergl_refresh_shader_buffers(mug_innergl_shaders* p_shaders) {
+				mug_innergl_refresh_buffers(p_shaders->rect.buffers)
+			}
 
 		/* Graphic */
 
@@ -41922,9 +41934,7 @@ have to block for the entire duration of it being resized.
 
 			/* Main loop */
 
-				void mug_innergl_graphic_clear(mugResult* result, mug_innergl_graphic* p_g, 
-					float r, float g, float b, float a
-				) {
+				void mug_innergl_graphic_clear(mugResult* result, mug_innergl_graphic* p_g, float r, float g, float b, float a) {
 					mug_innergl_graphic_bind(p_g);
 
 					glClearColor(r, g, b, a);
@@ -41942,6 +41952,8 @@ have to block for the entire duration of it being resized.
 					if (cosa_res != MUCOSA_SUCCESS) {
 						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res));
 					}
+
+					mug_innergl_refresh_shader_buffers(&p_g->shaders);
 				}
 
 				void mug_innergl_graphic_update(mugResult* result, mug_innergl_graphic* p_g) {
@@ -41970,9 +41982,7 @@ have to block for the entire duration of it being resized.
 
 				/* Rect */
 
-					muRectBuffer mug_innergl_rect_buffer_create(mugResult* result, mug_innergl_graphic* p_g,
-						size_m rect_count, muRect* rects
-					) {
+					muRectBuffer mug_innergl_rect_buffer_create(mugResult* result, mug_innergl_graphic* p_g, size_m rect_count, muRect* rects) {
 						mugResult res = MUG_SUCCESS;
 						mug_innergl_graphic_bind(p_g);
 
@@ -41988,9 +41998,7 @@ have to block for the entire duration of it being resized.
 						return id;
 					}
 
-					muRectBuffer mug_innergl_rect_buffer_destroy(mugResult* result, mug_innergl_graphic* p_g,
-						muRectBuffer rb
-					) {
+					muRectBuffer mug_innergl_rect_buffer_destroy(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb) {
 						if (rb >= p_g->shaders.rect.buffers.length) {
 							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
 							return rb;
@@ -42005,9 +42013,7 @@ have to block for the entire duration of it being resized.
 						return MU_NONE;
 					}
 
-					void mug_innergl_rect_buffer_render(mugResult* result, mug_innergl_graphic* p_g,
-						muRectBuffer rb
-					) {
+					void mug_innergl_rect_buffer_render(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb) {
 						mugResult res = MUG_SUCCESS;
 
 						if (rb >= p_g->shaders.rect.buffers.length) {
@@ -42032,36 +42038,7 @@ have to block for the entire duration of it being resized.
 						);
 					}
 
-					void mug_innergl_rect_buffer_render_tricount(mugResult* result, mug_innergl_graphic* p_g,
-						muRectBuffer rb, size_m triangle_count
-					) {
-						mugResult res = MUG_SUCCESS;
-						
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						mug_inner2gl_rect_shader_render_tricount(
-							&p_g->shaders.rect, rb, triangle_count,
-							p_g->win
-						);
-					}
-
-					void mug_innergl_rect_buffer_fill(mugResult* result, mug_innergl_graphic* p_g,
-						muRectBuffer rb, muRect* rects
-					) {
+					void mug_innergl_rect_buffer_fill(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, muRect* rects) {
 						mugResult res = MUG_SUCCESS;
 						
 						if (rb >= p_g->shaders.rect.buffers.length) {
@@ -42362,6 +42339,7 @@ have to block for the entire duration of it being resized.
 					muBool active;
 					size_m render_count; // The count given to the draw function.
 					size_m obj_count; // The count of whatever object is represnted by this.
+					muBool rendered_this_frame;
 					mug_innervk_buffer vbuf;
 					mug_innervk_buffer ibuf;
 				};
@@ -43592,6 +43570,10 @@ have to block for the entire duration of it being resized.
 
 						vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
 
+					if (p_shader->use_buffers) {
+						p_shader->buffers.data[buf].rendered_this_frame = MU_TRUE;
+					}
+
 					return MUG_SUCCESS;
 				}
 
@@ -43750,7 +43732,6 @@ have to block for the entire duration of it being resized.
 
 					// Stage buffer data copying
 
-					// Should use flushing here...? Gonna go with the classic Vulkan Tutorial approach.
 					void* gpu_memory = 0;
 					if (vkMapMemory(p_inner->init.device, stage_mem, 0, data_size, 0, &gpu_memory) != VK_SUCCESS) {
 						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
@@ -44320,6 +44301,10 @@ have to block for the entire duration of it being resized.
 					mugResult mug_inner2vk_rect_buffer_fill(mug_innervk_inner* p_inner, mug_innervk_vbuffer* p_buf, muRect* rects) {
 						mugResult res = MUG_SUCCESS;
 
+						if (p_buf->rendered_this_frame) {
+							return MUG_ALREADY_RENDERED_BUFFER;
+						}
+
 						float* vertexes = (float*)mu_malloc(sizeof(float) * p_buf->obj_count * 6 * 4);
 						if (vertexes == 0) {
 							return MUG_FAILED_ALLOCATE;
@@ -44364,6 +44349,20 @@ have to block for the entire duration of it being resized.
 							p_f[0] = ((float)w) / 2.f;
 							p_f[1] = ((float)h) / 2.f;
 						}
+					}
+
+				/* All shader functions */
+
+					void mug_innervk_refresh_shader_buffers(mug_innervk_shader* p_shader) {
+						for (size_m b = 0; b < p_shader->buffers.length; b++) {
+							if (p_shader->buffers.data[b].active) {
+								p_shader->buffers.data[b].rendered_this_frame = MU_FALSE;
+							}
+						}
+					}
+
+					void mug_innervk_refresh_shaders_buffers(mug_innervk_inner* p_inner) {
+						mug_innervk_refresh_shader_buffers(&p_inner->shaders.rect);
 					}
 
 			/* Inner */
@@ -44622,6 +44621,8 @@ have to block for the entire duration of it being resized.
 
 					// I'm pretty sure this is where you would do this...
 					p_g->inner.now_cmd = (p_g->inner.now_cmd + 1) % MUG_VK_LOOK_AHEAD_FRAMES;
+
+					mug_innervk_refresh_shaders_buffers(&p_g->inner);
 				}
 
 				void mug_innervk_graphic_update(mugResult* result, mug_innervk_graphic* p_g) {
@@ -44772,6 +44773,7 @@ have to block for the entire duration of it being resized.
 						case MUG_SUCCESS: return "MUG_SUCCESS"; break;
 						case MUG_ALREADY_INITIATED: return "MUG_ALREADY_INITIATED"; break;
 						case MUG_ALREADY_TERMINATED: return "MUG_ALREADY_TERMINATED"; break;
+						case MUG_ALREADY_RENDERED_BUFFER: return "MUG_ALREADY_RENDERED_BUFFER"; break;
 						case MUG_NOT_YET_INITIALIZED: return "MUG_NOT_YET_INITIALIZED"; break;
 						case MUG_FAILED_ALLOCATE: return "MUG_FAILED_ALLOCATE"; break;
 						case MUG_FAILED_LOAD_GRAPHICS_API: return "MUG_FAILED_LOAD_GRAPHICS_API"; break;
