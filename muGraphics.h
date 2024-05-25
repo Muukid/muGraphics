@@ -18,6 +18,8 @@ have to block for the entire duration of it being resized.
 @MENTION MUG_VK_LOOK_AHEAD_FRAMES
 @MENTION MUG_GL_PRIMITIVE_RESTART_INDEX_32 and MUG_GL_PRIMITIVE_RESTART_INDEX_16
 @MENTION Buffer locking.
+@MENTION Subfill/Subrender operations don't do buffer locking, meaning it's up to the user to
+ensure that rendered buffer sections don't get modified, or else UB.
 */
 
 #ifndef MUG_H
@@ -2168,6 +2170,7 @@ have to block for the entire duration of it being resized.
 
 			MUG_INVALID_ID,
 			MUG_INVALID_BUFFER_ID,
+			MUG_INVALID_BUFFER_RANGE,
 
 			MUG_MUCOSA_SUCCESS,
 			MUG_MUCOSA_ALREADY_INITIALIZED,
@@ -41647,68 +41650,67 @@ have to block for the entire duration of it being resized.
 					mug_innergl_rect_buffer_arr_, mug_innergl_rect_buffer_comp
 				)
 
+				void mug_inner2gl_rect_buffer_description(void) {
+					glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), 0);
+					glEnableVertexAttribArray(0);
+
+					glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2*sizeof(float)));
+					glEnableVertexAttribArray(1);
+				}
+
 				mugResult mug_inner2gl_rect_buffer_fill(mug_innergl_rect_buffer* p_rbuf, muRect* rects) {
 					if (p_rbuf->rendered_this_frame) {
 						return MUG_ALREADY_RENDERED_BUFFER;
 					}
 
-					// Note: not sure if allocating for just glBufferData then deallocating after is fine,
-					// but we'll see. Delete this if things have been running well.
 					glBindVertexArray(p_rbuf->vao);
 
 					/* Vertexes */
 
-					if (rects != 0) {
-						GLfloat* vertexes = (GLfloat*)mu_malloc(sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4);
-						if (vertexes == 0) {
-							glBindVertexArray(0);
-							return MUG_FAILED_ALLOCATE;
+						if (rects != 0) {
+							GLfloat* vertexes = (GLfloat*)mu_malloc(sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_FAILED_ALLOCATE;
+							}
+
+							for (size_m i = 0; i < p_rbuf->rect_count; i++) {
+								mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, vertexes, GL_DYNAMIC_DRAW);
+
+							mu_free(vertexes);
+						} else {
+							glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, 0, GL_DYNAMIC_DRAW);
 						}
-
-						for (size_m i = 0; i < p_rbuf->rect_count; i++) {
-							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
-						}
-
-						glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
-						glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, vertexes, GL_DYNAMIC_DRAW);
-
-						mu_free(vertexes);
-					} else {
-						glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
-						glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, 0, GL_DYNAMIC_DRAW);
-					}
 
 					/* Indexes */
 
-					if (rects != 0) {
-						GLuint* indexes = (GLuint*)mu_malloc(sizeof(GLuint) * p_rbuf->rect_count * 5);
-						if (indexes == 0) {
-							glBindBuffer(GL_ARRAY_BUFFER, 0);
-							glBindVertexArray(0);
-							return MUG_FAILED_ALLOCATE;
+						if (rects != 0) {
+							GLuint* indexes = (GLuint*)mu_malloc(sizeof(GLuint) * p_rbuf->rect_count * 5);
+							if (indexes == 0) {
+								glBindBuffer(GL_ARRAY_BUFFER, 0);
+								glBindVertexArray(0);
+								return MUG_FAILED_ALLOCATE;
+							}
+
+							for (size_m i = 0; i < p_rbuf->rect_count; i++) {
+								mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], i, MUG_GL_PRIMITIVE_RESTART_INDEX_32);
+							}
+
+							glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
+							glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, indexes, GL_STATIC_DRAW);
+
+							mu_free(indexes);
+						} else {
+							glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
+							glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, 0, GL_STATIC_DRAW);
 						}
 
-						for (size_m i = 0; i < p_rbuf->rect_count; i++) {
-							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], i, MUG_GL_PRIMITIVE_RESTART_INDEX_32);
-						}
-
-						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
-						glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, indexes, GL_STATIC_DRAW);
-
-						mu_free(indexes);
-					} else {
-						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
-						glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, 0, GL_STATIC_DRAW);
-					}
-
-					/* Description */
-
-						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), 0);
-						glEnableVertexAttribArray(0);
-
-						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2*sizeof(float)));
-						glEnableVertexAttribArray(1);
-
+					mug_inner2gl_rect_buffer_description();
 					glBindBuffer(GL_ARRAY_BUFFER, 0);
 					glBindVertexArray(0);
 					return MUG_SUCCESS;
@@ -41774,6 +41776,54 @@ have to block for the entire duration of it being resized.
 						glDeleteBuffers(1, &p_rbuf->vbo);
 						*p_rbuf = MU_ZERO_STRUCT(mug_innergl_rect_buffer);
 					}
+				}
+
+				mugResult mug_inner2gl_rect_buffer_subfill(mug_innergl_rect_buffer* p_rbuf, size_m rect_count_offset, muRect* rects, size_m rect_count) {
+					if (rect_count_offset + rect_count > p_rbuf->rect_count) {
+						return MUG_INVALID_BUFFER_RANGE;
+					}
+
+					glBindVertexArray(p_rbuf->vao);
+
+					/* Vertexes */
+
+						GLfloat* vertexes = (GLfloat*)mu_malloc(sizeof(GLfloat) * rect_count * 6 * 4);
+						if (vertexes == 0) {
+							glBindVertexArray(0);
+							return MUG_FAILED_ALLOCATE;
+						}
+
+						for (size_m i = 0; i < rect_count; i++) {
+							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
+						}
+
+						glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
+						glBufferSubData(GL_ARRAY_BUFFER, sizeof(GLfloat) * rect_count_offset * 6 * 4, sizeof(GLfloat) * rect_count * 6 * 4, vertexes);
+
+						mu_free(vertexes);
+
+					/* Indexes */
+
+						GLuint* indexes = (GLuint*)mu_malloc(sizeof(GLuint) * rect_count * 5);
+						if (indexes == 0) {
+							glBindBuffer(GL_ARRAY_BUFFER, 0);
+							glBindVertexArray(0);
+							return MUG_FAILED_ALLOCATE;
+						}
+
+						for (size_m i = 0; i < rect_count; i++) {
+							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], rect_count_offset+i, MUG_GL_PRIMITIVE_RESTART_INDEX_32);
+						}
+
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
+						glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * rect_count_offset * 5, sizeof(GLuint) * rect_count * 5, indexes);
+
+						mu_free(indexes);
+
+					mug_inner2gl_rect_buffer_description();
+					glBindBuffer(GL_ARRAY_BUFFER, 0);
+					glBindVertexArray(0);
+					return MUG_SUCCESS;
 				}
 
 			/* Shader */
@@ -42058,6 +42108,32 @@ have to block for the entire duration of it being resized.
 						}
 
 						res = mug_inner2gl_rect_buffer_fill(&p_g->shaders.rect.buffers.data[rb], rects);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+					}
+
+					void mug_innergl_rect_buffer_subfill(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
+						mugResult res = MUG_SUCCESS;
+						
+						if (rb >= p_g->shaders.rect.buffers.length) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+						if (!p_g->shaders.rect.buffers.data[rb].active) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+						mug_innergl_graphic_bind(p_g);
+
+						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						res = mug_inner2gl_rect_buffer_subfill(&p_g->shaders.rect.buffers.data[rb], rect_count_offset, rects, rect_count);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return;
@@ -43632,7 +43708,7 @@ have to block for the entire duration of it being resized.
 				}
 
 				// Note: this whole process can most likely be optimized.
-				mugResult mug_innervk_buffer_raw_copy(mug_innervk_inner* p_inner, VkBuffer dst, VkBuffer src, VkDeviceSize size) {
+				mugResult mug_innervk_buffer_raw_copy(mug_innervk_inner* p_inner, VkBuffer dst, VkDeviceSize dst_offset, VkBuffer src, VkDeviceSize src_offset, VkDeviceSize size) {
 					/* Allocation */
 
 						VkCommandBufferAllocateInfo alloc_i = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
@@ -43658,6 +43734,8 @@ have to block for the entire duration of it being resized.
 						}
 
 						VkBufferCopy region = MU_ZERO_STRUCT(VkBufferCopy);
+						region.srcOffset = src_offset;
+						region.dstOffset = dst_offset;
 						region.size = size;
 						vkCmdCopyBuffer(cmd_buf, src, dst, 1, &region);
 
@@ -43714,7 +43792,7 @@ have to block for the entire duration of it being resized.
 					}
 				}
 
-				mugResult mug_innervk_buffer_transfer(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer, void* data, VkDeviceSize data_size) {
+				mugResult mug_innervk_buffer_transfer(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer, VkDeviceSize offset, void* data, VkDeviceSize data_size) {
 					mugResult res = MUG_SUCCESS;
 
 					// Stage buffer creation
@@ -43744,7 +43822,7 @@ have to block for the entire duration of it being resized.
 
 					// Copying stage buffer data into buffer
 
-					res = mug_innervk_buffer_raw_copy(p_inner, p_buffer->buf, stage_buf, data_size);
+					res = mug_innervk_buffer_raw_copy(p_inner, p_buffer->buf, offset, stage_buf, 0, data_size);
 					if (res != MUG_SUCCESS) {
 						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
 						vkFreeMemory(p_inner->init.device, stage_mem, 0);
@@ -44298,39 +44376,43 @@ have to block for the entire duration of it being resized.
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_inner2vk_rect_buffer_fill(mug_innervk_inner* p_inner, mug_innervk_vbuffer* p_buf, muRect* rects) {
+					mugResult mug_inner2vk_rect_buffer_fill(mug_innervk_inner* p_inner, mug_innervk_vbuffer* p_buf, size_m rect_count_offset, muRect* rects, size_m rect_count) {
 						mugResult res = MUG_SUCCESS;
 
-						if (p_buf->rendered_this_frame) {
+						if (rect_count_offset == 0 && rect_count == p_buf->obj_count && p_buf->rendered_this_frame) {
 							return MUG_ALREADY_RENDERED_BUFFER;
 						}
 
-						float* vertexes = (float*)mu_malloc(sizeof(float) * p_buf->obj_count * 6 * 4);
+						if (rect_count_offset + rect_count > p_buf->obj_count) {
+							return MUG_INVALID_BUFFER_RANGE;
+						}
+
+						float* vertexes = (float*)mu_malloc(sizeof(float) * rect_count * 6 * 4);
 						if (vertexes == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
 
-						for (size_m i = 0; i < p_buf->obj_count; i++) {
+						for (size_m i = 0; i < rect_count; i++) {
 							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
 						}
 
-						res = mug_innervk_buffer_transfer(p_inner, &p_buf->vbuf, (void*)vertexes, sizeof(float) * p_buf->obj_count * 6 * 4);
+						res = mug_innervk_buffer_transfer(p_inner, &p_buf->vbuf, sizeof(float) * rect_count_offset * 6 * 4, (void*)vertexes, sizeof(float) * rect_count * 6 * 4);
 						mu_free(vertexes);
 						if (res != MUG_SUCCESS) {
 							return res;
 						}
 
-						uint32_t* indexes = (uint32_t*)mu_malloc(sizeof(uint32_t) * p_buf->obj_count * 5);
+						uint32_t* indexes = (uint32_t*)mu_malloc(sizeof(uint32_t) * rect_count * 5);
 						if (indexes == 0) {
 							return MUG_FAILED_ALLOCATE;
 						}
 
-						for (size_m i = 0; i < p_buf->obj_count; i++) {
+						for (size_m i = 0; i < rect_count; i++) {
 							// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPipelineInputAssemblyStateCreateInfo.html
-							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], i, 0xFFFFFFFF);
+							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], rect_count_offset+i, 0xFFFFFFFF);
 						}
 
-						res = mug_innervk_buffer_transfer(p_inner, &p_buf->ibuf, (void*)indexes, sizeof(uint32_t) * p_buf->obj_count * 5);
+						res = mug_innervk_buffer_transfer(p_inner, &p_buf->ibuf, sizeof(uint32_t) * rect_count_offset * 5, (void*)indexes, sizeof(uint32_t) * rect_count * 5);
 						mu_free(indexes);
 						if (res != MUG_SUCCESS) {
 							return res;
@@ -44666,23 +44748,14 @@ have to block for the entire duration of it being resized.
 							return MU_NONE;
 						}
 
-						size_m rb = mug_innervk_shader_create_vbuffer(&res,
-							&p_g->inner, &p_g->inner.shaders.rect,
-							mug_innervk_rect_count_to_vertex_size(rect_count),
-							mug_innervk_rect_count_to_index_size(rect_count),
-							mug_innervk_rect_count_to_indcount(rect_count),
-							rect_count
-						);
+						size_m rb = mug_innervk_shader_create_vbuffer(&res, &p_g->inner, &p_g->inner.shaders.rect, mug_innervk_rect_count_to_vertex_size(rect_count), mug_innervk_rect_count_to_index_size(rect_count), mug_innervk_rect_count_to_indcount(rect_count), rect_count);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return rb;
 						}
 
 						if (rects != 0) {
-							res = mug_inner2vk_rect_buffer_fill(
-								&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb],
-								rects
-							);
+							res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], 0, rects, p_g->inner.shaders.rect.buffers.data[rb].obj_count);
 							if (res != MUG_SUCCESS) {
 								MU_SET_RESULT(result, res)
 								return rb;
@@ -44732,10 +44805,17 @@ have to block for the entire duration of it being resized.
 					void mug_innervk_rect_buffer_fill(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, muRect* rects) {
 						mugResult res = MUG_SUCCESS;
 
-						res = mug_inner2vk_rect_buffer_fill(
-							&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb],
-							rects
-						);
+						res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], 0, rects, p_g->inner.shaders.rect.buffers.data[rb].obj_count);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+					}
+
+					void mug_innervk_rect_buffer_subfill(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
+						mugResult res = MUG_SUCCESS;
+
+						res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], rect_count_offset, rects, rect_count);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return;
@@ -44819,6 +44899,7 @@ have to block for the entire duration of it being resized.
 						case MUG_UNKNOWN_GRAPHIC_API: return "MUG_UNKNOWN_GRAPHIC_API"; break;
 						case MUG_INVALID_ID: return "MUG_INVALID_ID"; break;
 						case MUG_INVALID_BUFFER_ID: return "MUG_INVALID_BUFFER_ID"; break;
+						case MUG_INVALID_BUFFER_RANGE: return "MUG_INVALID_BUFFER_RANGE"; break;
 						case MUG_MUCOSA_SUCCESS: return "MUG_MUCOSA_SUCCESS"; break;
 						case MUG_MUCOSA_ALREADY_INITIALIZED: return "MUG_MUCOSA_ALREADY_INITIALIZED"; break;
 						case MUG_MUCOSA_ALREADY_TERMINATED: return "MUG_MUCOSA_ALREADY_TERMINATED"; break;
@@ -45145,6 +45226,8 @@ have to block for the entire duration of it being resized.
 							} break;
 						}
 
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+
 						return rb;
 					}
 
@@ -45164,6 +45247,8 @@ have to block for the entire duration of it being resized.
 							} break;
 						}
 
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+
 						return rb;
 					}
 
@@ -45182,6 +45267,8 @@ have to block for the entire duration of it being resized.
 								mug_innervk_rect_buffer_render(result, &MUG_GGFX.data[graphic].gapi.vk, rb);
 							} break;
 						}
+
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
 					}
 
 					MUDEF void mu_rect_buffer_fill(mugResult* result, muGraphic graphic, muRectBuffer rb, muRect* rects) {
@@ -45199,6 +45286,27 @@ have to block for the entire duration of it being resized.
 								mug_innervk_rect_buffer_fill(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rects);
 							} break;
 						}
+
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+					}
+
+					MUDEF void mu_rect_buffer_subfill(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
+						MU_SET_RESULT(result, MUG_SUCCESS)
+						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
+
+						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
+
+						switch (MUG_GGFX.data[graphic].api) {
+							default: break;
+							case MUG_OPENGL: {
+								mug_innergl_rect_buffer_subfill(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rect_count_offset, rects, rect_count);
+							} break;
+							case MUG_VULKAN: {
+								mug_innervk_rect_buffer_subfill(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count_offset, rects, rect_count);
+							} break;
+						}
+
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
 					}
 
 	#ifdef __cplusplus
