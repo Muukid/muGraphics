@@ -2311,6 +2311,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					MUDEF muRectBuffer mu_rect_buffer_destroy(mugResult* result, muGraphic graphic, muRectBuffer rb);
 
 					MUDEF void mu_rect_buffer_render(mugResult* result, muGraphic graphic, muRectBuffer rb);
+					MUDEF void mu_rect_buffer_subrender(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, size_m rect_count);
 
 					MUDEF void mu_rect_buffer_fill(mugResult* result, muGraphic graphic, muRectBuffer rb, muRect* rects);
 					MUDEF void mu_rect_buffer_subfill(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count);
@@ -41907,6 +41908,25 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					p_s->buffers.data[buf].rendered_this_frame = MU_TRUE;
 				}
 
+				void mug_inner2gl_rect_shader_subrender(mug_innergl_rect_shader* p_s, size_m buf, muWindow window, size_m rect_offset, size_m rect_count) {
+					glPrimitiveRestartIndex(MUG_GL_PRIMITIVE_RESTART_INDEX_32);
+					glUseProgram(p_s->program);
+
+					muCOSAResult cosa_res = MUCOSA_SUCCESS;
+					uint32_m w=800,h=600;
+					mu_window_get_dimensions(&cosa_res, window, &w, &h);
+					if (cosa_res == MUCOSA_SUCCESS) {
+						glUniform2f(glGetUniformLocation(p_s->program, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+					}
+
+					glBindVertexArray(p_s->buffers.data[buf].vao);
+					glDrawElements(GL_TRIANGLE_STRIP, rect_count*6, GL_UNSIGNED_INT, (const void*)(sizeof(uint32_t) * 5 * rect_offset));
+					glBindVertexArray(0);
+					glUseProgram(0);
+
+					p_s->buffers.data[buf].rendered_this_frame = MU_TRUE;
+				}
+
 		/* Shaders */
 
 			struct mug_innergl_shaders {
@@ -42094,6 +42114,28 @@ ensure that rendered buffer sections don't get modified, or else UB.
 						}
 
 						mug_inner2gl_rect_shader_render(&p_g->shaders.rect, rb,p_g->win);
+					}
+
+					void mug_innergl_rect_buffer_subrender(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
+						mugResult res = MUG_SUCCESS;
+
+						if (rb >= p_g->shaders.rect.buffers.length) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+						if (!p_g->shaders.rect.buffers.data[rb].active) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+						mug_innergl_graphic_bind(p_g);
+
+						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						mug_inner2gl_rect_shader_subrender(&p_g->shaders.rect, rb,p_g->win, rect_count_offset, rect_count);
 					}
 
 					void mug_innergl_rect_buffer_fill(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, muRect* rects) {
@@ -42436,7 +42478,8 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 				struct mug_innervk_vbuffer {
 					muBool active;
-					size_m render_count; // The count given to the draw function.
+					size_m render_count; // The count given to the draw function. If it's indexed, this is
+					// the amount of indexes to draw.
 					size_m obj_count; // The count of whatever object is represnted by this.
 					muBool rendered_this_frame;
 					mug_innervk_buffer vbuf;
@@ -43604,7 +43647,9 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 				// Note: load shader before this
 				// Note: render_count is discarded if p_shader->use_buffers; overridable by use_count
-				mugResult mug_innervk_renderers_render_shader(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf, size_m render_count, muBool use_count) {
+				// Note: if indexed, render_count is in index count
+				// Note: if indexed, render_offset is in bytes
+				mugResult mug_innervk_renderers_render_shader(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf, size_m render_count, size_m render_offset, muBool use_count) {
 					mugResult res = MUG_SUCCESS;
 
 					/* Turn on commands if they haven't been already */
@@ -43638,11 +43683,15 @@ ensure that rendered buffer sections don't get modified, or else UB.
 						// (Bind revelant buffers)
 
 						if (p_shader->use_buffers) {
-							VkDeviceSize offset = 0;
-							vkCmdBindVertexBuffers(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_shader->buffers.data[buf].vbuf.buf, &offset);
+							VkDeviceSize ds_offset = 0;
+							if (!p_shader->use_index) {
+								// @TODO This is def incorrect lmao
+								ds_offset = render_offset;
+							}
+							vkCmdBindVertexBuffers(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_shader->buffers.data[buf].vbuf.buf, &ds_offset);
 
 							if (p_shader->use_index) {
-								vkCmdBindIndexBuffer(p_inner->cmds[p_inner->now_cmd].buffer, p_shader->buffers.data[buf].ibuf.buf, 0, p_shader->index_type);
+								vkCmdBindIndexBuffer(p_inner->cmds[p_inner->now_cmd].buffer, p_shader->buffers.data[buf].ibuf.buf, render_offset, p_shader->index_type);
 							}
 						}
 
@@ -44638,9 +44687,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 			/* Creation / Destruction */
 
-				mug_innervk_graphic mug_innervk_graphic_create_via_window(mugResult* result,
-					muByte* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info
-				) {
+				mug_innervk_graphic mug_innervk_graphic_create_via_window(mugResult* result, muByte* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info) {
 					MU_SET_RESULT(result, MUG_SUCCESS)
 
 					mug_innervk_graphic graphic = MU_ZERO_STRUCT(mug_innervk_graphic);
@@ -44699,9 +44746,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 			/* Main loop */
 
-				void mug_innervk_graphic_clear(mugResult* result, mug_innervk_graphic* p_g, 
-					float r, float g, float b, float a
-				) {
+				void mug_innervk_graphic_clear(mugResult* result, mug_innervk_graphic* p_g, float r, float g, float b, float a) {
 					mugResult res = MUG_SUCCESS;
 
 					res = mug_innervk_renderers_clear(&p_g->inner, r, g, b, a);
@@ -44832,7 +44877,28 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 						mug_innervk_rect_buffer_update_uniforms(&p_g->inner);
 
-						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 0, MU_FALSE);
+						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 0, 0, MU_FALSE);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+					}
+
+					void mug_innervk_rect_buffer_subrender(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
+						mugResult res = MUG_SUCCESS;
+
+						if (rb >= p_g->inner.shaders.rect.buffers.length) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
+							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
+							return;
+						}
+
+						mug_innervk_rect_buffer_update_uniforms(&p_g->inner);
+
+						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 5*rect_count, sizeof(uint32_t)*5*rect_count_offset, MU_TRUE);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
 							return;
@@ -45295,7 +45361,24 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 			/* Objects */
 
-				// ...
+				MUDEF void mu_graphic_unload_buffer_types(mugResult* result, muGraphic graphic) {
+					MU_SET_RESULT(result, MUG_SUCCESS)
+					MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
+
+					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
+
+					switch (MUG_GGFX.data[graphic].api) {
+						default: break;
+						case MUG_OPENGL: {
+							mug_innergl_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.gl);
+						} break;
+						case MUG_VULKAN: {
+							mug_innervk_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.vk);
+						} break;
+					}
+
+					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+				}
 
 				/* Rect */
 
@@ -45356,6 +45439,25 @@ ensure that rendered buffer sections don't get modified, or else UB.
 							} break;
 							case MUG_VULKAN: {
 								mug_innervk_rect_buffer_render(result, &MUG_GGFX.data[graphic].gapi.vk, rb);
+							} break;
+						}
+
+						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
+					}
+
+					MUDEF void mu_rect_buffer_subrender(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
+						MU_SET_RESULT(result, MUG_SUCCESS)
+						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
+
+						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
+
+						switch (MUG_GGFX.data[graphic].api) {
+							default: break;
+							case MUG_OPENGL: {
+								mug_innergl_rect_buffer_subrender(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rect_count_offset, rect_count);
+							} break;
+							case MUG_VULKAN: {
+								mug_innervk_rect_buffer_subrender(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count_offset, rect_count);
 							} break;
 						}
 
