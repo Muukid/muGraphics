@@ -41965,6 +41965,8 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					mug_innergl_graphic_bind(p_g);
 
 					glEnable(GL_PRIMITIVE_RESTART);
+					glEnable(GL_BLEND);
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 				}
 
 			/* Creation / Destruction */
@@ -42236,12 +42238,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 				typedef struct mug_innervk_gpipeline_ci mug_innervk_gpipeline_ci;
 
 				// Note: does zero the struct for you. :)
-				void mug_innervk_def_gpipeline_ci(
-					mug_innervk_gpipeline_ci* p_ci,
-					VkShaderModule* p_vert_module, VkShaderModule* p_frag_module,
-					float width, float height, VkPipelineLayout layout,
-					VkRenderPass render_pass, uint32_t subpass
-				) {
+				void mug_innervk_def_gpipeline_ci(mug_innervk_gpipeline_ci* p_ci, VkShaderModule* p_vert_module, VkShaderModule* p_frag_module, float width, float height, VkPipelineLayout layout, VkRenderPass render_pass, uint32_t subpass) {
 					*p_ci = MU_ZERO_STRUCT(mug_innervk_gpipeline_ci);
 					p_ci->pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 
@@ -42330,7 +42327,13 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 					/* Color blend state */
 
-						p_ci->blend_att.blendEnable = VK_FALSE;
+						p_ci->blend_att.blendEnable = VK_TRUE;
+						p_ci->blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+						p_ci->blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+						p_ci->blend_att.colorBlendOp = VK_BLEND_OP_ADD;
+						p_ci->blend_att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+						p_ci->blend_att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+						p_ci->blend_att.alphaBlendOp = VK_BLEND_OP_ADD;
 						p_ci->blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
 						VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
