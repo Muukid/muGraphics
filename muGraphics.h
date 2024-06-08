@@ -5,1537 +5,500 @@ No warranty implied; use at your own risk.
 
 Licensed under MIT License or public domain, whichever you prefer.
 More explicit license information at the end of file.
-
-@TODO Add Vulkan validation layer usage with custom user callback.
-@TODO Add automatic sub-allocation for buffer data that is too large to process.
-@TODO Make a system for optimal Vulkan memory allocation.
-@TODO Find a way for X11 to be fine with Vulkan existing while the window is being resized... may
-have to block for the entire duration of it being resized.
-@TODO mu_X_buffer_render_count(..., size_m X_count)
-@TODO Desired FPS.
-@TODO Abstract Vulkan uniform buffer handlers, too messy right now.
-@TODO "Shaking"; getting rid of a bunch of inactive things (for example, as of right now, in
-Vulkan, inactive object buffers are destroyed but their holding memory is not discarded.)
-
-@MENTION MUG_VK_LOOK_AHEAD_FRAMES
-@MENTION MUG_GL_PRIMITIVE_RESTART_INDEX_32 and MUG_GL_PRIMITIVE_RESTART_INDEX_16
-@MENTION Buffer locking.
-@MENTION Subfill/Subrender operations don't do buffer locking, meaning it's up to the user to
 ensure that rendered buffer sections don't get modified, or else UB.
 */
 
+/* @DOCBEGIN
+
+# muGraphics v1.0.0
+
+muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level cross-graphics-API rendering. To use it, download the `muGraphics.h` file, add it to your include path, and include it like so:
+
+```c
+#define MUG_IMPLEMENTATION
+#include "muGraphics.h"
+```
+
+More information about the general structure of a mu library is provided at [the mu library information GitHub repository.](https://github.com/Muukid/mu-library-information)
+
+# System dependencies
+
+The system dependencies for mug are dependent on muCOSA.
+
+## Linker flags
+
+The math library (`-lm`) must be linked.
+
+If the target OS being compiled for is ***Win32***, `user32.dll`, `imm32.dll`, `gdi32.dll`, and `opengl32.dll` must be linked.
+
+If the target OS being compiled for is ***X11*** (Linux), `libX11`, `libpthread`, and `libGL` must be linked.
+
+# Demos
+
+Demos that quickly show the gist of the library and how it works are available in the `demos` folder.
+
+# Licensing
+
+mug is licensed under public domain or MIT, whichever you prefer, as well as [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
+
+@DOCEND */
+
 #ifndef MUG_H
 	#define MUG_H
-	
-	/* muCOSA commit beab34d header */
+
+	// @DOCLINE # Other library dependencies
+		// @DOCLINE mug has a dependency on the following libraries:
 		
-		#define MUCOSA_OPENGL
-		#define MUCOSA_VULKAN
-		#define MUCOSA_NO_INCLUDE_VULKAN
-	
-		#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUCOSA_H) && \
-			(MUCOSA_VERSION_MAJOR != 1 || MUCOSA_VERSION_MINOR != 0 || MUCOSA_VERSION_PATCH != 0)
+		// @DOCLINE * [muCOSA v1.0.0](https://github.com/Muukid/muCOSA/releases/tag/v1.0.0).
+		// @IGNORE
+			#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUCOSA_H) && \
+				(MUCOSA_VERSION_MAJOR != 1 || MUCOSA_VERSION_MINOR != 0 || MUCOSA_VERSION_PATCH != 0)
 
-			#pragma message("[MUG] muCOSA's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
+				#pragma message("[MUG] muCOSA's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
 
-		#endif
-
-		#ifndef MUCOSA_H
-			#define MUCOSA_H
-			
-			/* muString commit 6678f59 header */
-			
-				#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUS_H) && \
-					(MUS_VERSION_MAJOR != 1 || MUS_VERSION_MINOR != 0 || MUS_VERSION_PATCH != 0)
-
-					#pragma message("[MUCOSA] muString's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
-
-				#endif
-
-				#ifndef MUS_H
-					#define MUS_H
-					
-					/* muMemoryAllocator version 1.0.0 header */
-					
-						#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUMA_H) && \
-							(MUMA_VERSION_MAJOR != 1 || MUMA_VERSION_MINOR != 0 || MUMA_VERSION_PATCH != 0)
-
-							#pragma message("[MUS] muMemoryAllocator's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
-
-						#endif
-
-						#ifndef MUMA_H
-							#define MUMA_H
-							
-							/* muUtility version 1.0.0 header */
-							
-								#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUU_H) && \
-									(MUU_VERSION_MAJOR != 1 || MUU_VERSION_MINOR != 0 || MUU_VERSION_PATCH != 0)
-
-									#pragma message("[MUMA] muUtility's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
-
-								#endif
-
-								#ifndef MUU_H
-									#define MUU_H
-									
-									#if !defined(MU_SECURE_WARNINGS) && !defined(_CRT_SECURE_NO_WARNINGS)
-										#define _CRT_SECURE_NO_WARNINGS
-									#endif
-
-									#ifdef __cplusplus
-									extern "C" { // }
-									#endif
-
-									#define MUU_VERSION_MAJOR 1
-									#define MUU_VERSION_MINOR 0
-									#define MUU_VERSION_PATCH 0
-
-									/* C standard library dependencies */
-
-										#if !defined(int8_m)      || \
-											!defined(uint8_m)     || \
-											!defined(int16_m)     || \
-											!defined(uint16_m)    || \
-											!defined(int32_m)     || \
-											!defined(uint32_m)    || \
-											!defined(int64_m)     || \
-											!defined(uint64_m)    || \
-											!defined(MU_SIZE_MAX)
-
-											#define __STDC_LIMIT_MACROS
-											#define __STDC_CONSTANT_MACROS
-											#include <stdint.h>
-
-											#ifndef int8_m
-												#ifdef INT8_MAX
-													#define int8_m int8_t
-												#else
-													#define int8_m char
-												#endif
-											#endif
-
-											#ifndef uint8_m
-												#ifdef UINT8_MAX
-													#define uint8_m uint8_t
-												#else
-													#define uint8_m unsigned char
-												#endif
-											#endif
-
-											#ifndef int16_m
-												#ifdef INT16_MAX
-													#define int16_m int16_t
-												#else
-													#define int16_m short
-												#endif
-											#endif
-
-											#ifndef uint16_m
-												#ifdef UINT16_MAX
-													#define uint16_m uint16_t
-												#else
-													#define uint16_m unsigned short
-												#endif
-											#endif
-
-											#ifndef int32_m
-												#ifdef INT32_MAX
-													#define int32_m int32_t
-												#else
-													#define int32_m long
-												#endif
-											#endif
-
-											#ifndef uint32_m
-												#ifdef UINT32_MAX
-													#define uint32_m uint32_t
-												#else
-													#define uint32_m unsigned long
-												#endif
-											#endif
-
-											#ifndef int64_m
-												#ifdef INT64_MAX
-													#define int64_m int64_t
-												#else
-													#define int64_m long long
-												#endif
-											#endif
-
-											#ifndef uint64_m
-												#ifdef UINT64_MAX
-													#define uint64_m uint64_t
-												#else
-													#define uint64_m unsigned long long
-												#endif
-											#endif
-
-											#ifndef MU_SIZE_MAX
-												#define MU_SIZE_MAX SIZE_MAX
-											#endif
-
-										#endif
-
-										#if !defined(size_m)
-
-											#include <stddef.h>
-
-											#ifndef size_m
-												#define size_m size_t
-											#endif
-
-										#endif
-
-										#if !defined(muBool)   || \
-											!defined(MU_TRUE)  || \
-											!defined(MU_FALSE)
-
-											#include <stdbool.h>
-
-											#ifndef muBool
-												#define muBool bool
-											#endif
-
-											#ifndef MU_TRUE
-												#define MU_TRUE true
-											#endif
-
-											#ifndef MU_FALSE
-												#define MU_FALSE false
-											#endif
-
-										#endif
-
-									/* Useful macros */
-
-										#ifndef MUDEF
-											#ifdef MU_STATIC
-												#define MUDEF static
-											#else
-												#define MUDEF extern
-											#endif
-										#endif
-
-										#ifndef MU_ZERO_STRUCT
-											#ifdef __cplusplus
-												#define MU_ZERO_STRUCT(s) {}
-											#else
-												#define MU_ZERO_STRUCT(s) (s){0}
-											#endif
-										#endif
-
-										#ifndef MU_ZERO_STRUCT_CONST
-											#ifdef __cplusplus
-												#define MU_ZERO_STRUCT_CONST(s) {}
-											#else
-												#define MU_ZERO_STRUCT_CONST(s) {0}
-											#endif
-										#endif
-
-										#ifndef muByte
-											#define muByte uint8_m
-										#endif
-
-										#ifndef mu_rle_uint8
-											#define mu_rle_uint8(b) ((uint8_m)b[0] << 0)
-										#endif
-										#ifndef mu_rbe_uint8
-											#define mu_rbe_uint8(b) ((uint8_m)b[0] << 0)
-										#endif
-
-										#ifndef mu_rle_uint16
-											#define mu_rle_uint16(b) ((uint16_m)b[0] << 0 | (uint16_m)b[1] << 8)
-										#endif
-										#ifndef mu_rbe_uint16
-											#define mu_rbe_uint16(b) ((uint16_m)b[1] << 0 | (uint16_m)b[0] << 8)
-										#endif
-
-										#ifndef mu_rle_uint32
-											#define mu_rle_uint32(b) ((uint32_m)b[0] << 0 | (uint32_m)b[1] << 8 | (uint32_m)b[2] << 16 | (uint32_m)b[3] << 24)
-										#endif
-										#ifndef mu_rbe_uint32
-											#define mu_rbe_uint32(b) ((uint32_m)b[3] << 0 | (uint32_m)b[2] << 8 | (uint32_m)b[1] << 16 | (uint32_m)b[0] << 24)
-										#endif
-
-										#ifndef mu_rle_uint64
-											#define mu_rle_uint64(b) ((uint64_m)b[0] << 0 | (uint64_m)b[1] << 8 | (uint64_m)b[2] << 16 | (uint64_m)b[3] << 24 | (uint64_m)b[4] << 32 | (uint64_m)b[5] << 40 | (uint64_m)b[6] << 48 | (uint64_m)b[7] << 56)
-										#endif
-										#ifndef mu_rbe_uint64
-											#define mu_rbe_uint64(b) ((uint64_m)b[7] << 0 | (uint64_m)b[6] << 8 | (uint64_m)b[5] << 16 | (uint64_m)b[4] << 24 | (uint64_m)b[3] << 32 | (uint64_m)b[2] << 40 | (uint64_m)b[1] << 48 | (uint64_m)b[0] << 56)
-										#endif
-
-										#ifndef mu_wle_uint8
-											#define mu_wle_uint8(b, i) b[0] = (uint8_m)(i >> 0);
-										#endif
-										#ifndef mu_wbe_uint8
-											#define mu_wbe_uint8(b, i) b[0] = (uint8_m)(i >> 0);
-										#endif
-
-										#ifndef mu_wle_uint16
-											#define mu_wle_uint16(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8);
-										#endif
-										#ifndef mu_wbe_uint16
-											#define mu_wbe_uint16(b, i) b[1] = (uint8_m)(i >> 0); b[0] = (uint8_m)(i >> 8);
-										#endif
-
-										#ifndef mu_wle_uint32
-											#define mu_wle_uint32(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8); b[2] = (uint8_m)(i >> 16); b[3] = (uint8_m)(i >> 24);
-										#endif
-										#ifndef mu_wbe_uint32
-											#define mu_wbe_uint32(b, i) b[3] = (uint8_m)(i >> 0); b[2] = (uint8_m)(i >> 8); b[1] = (uint8_m)(i >> 16); b[0] = (uint8_m)(i >> 24);
-										#endif
-
-										#ifndef mu_wle_uint64
-											#define mu_wle_uint64(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8); b[2] = (uint8_m)(i >> 16); b[3] = (uint8_m)(i >> 24); b[4] = (uint8_m)(i >> 32); b[5] = (uint8_m)(i >> 40); b[6] = (uint8_m)(i >> 48); b[7] = (uint8_m)(i >> 56);
-										#endif
-										#ifndef mu_wbe_uint64
-											#define mu_wbe_uint64(b, i) b[7] = (uint8_m)(i >> 0); b[6] = (uint8_m)(i >> 8); b[5] = (uint8_m)(i >> 16); b[4] = (uint8_m)(i >> 24); b[3] = (uint8_m)(i >> 32); b[2] = (uint8_m)(i >> 40); b[1] = (uint8_m)(i >> 48); b[0] = (uint8_m)(i >> 56);
-										#endif
-
-										#ifndef MU_NULL_PTR
-											#define MU_NULL_PTR 0
-										#endif
-
-										#ifndef MU_NULL
-											#define MU_NULL 0
-										#endif
-
-										#ifndef MU_NONE
-											#define MU_NONE MU_SIZE_MAX
-										#endif
-
-										#ifndef MU_SET_RESULT
-											#define MU_SET_RESULT(res, val) if(res!=MU_NULL_PTR){*res=val;}
-										#endif
-
-										#ifndef MU_ASSERT
-											#define MU_ASSERT(cond, res, val, after) if(!(cond)){MU_SET_RESULT(res, val) after}
-										#endif
-
-										#define MU_ENUM(name, ...) enum _##name{__VA_ARGS__};typedef enum _##name _##name; typedef size_m name;
-
-										#if !defined(MU_WIN32) && !defined(MU_UNIX)
-											#if defined(WIN32) || defined(_WIN32)
-												#define MU_WIN32
-											#elif defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
-												#define MU_UNIX
-											#endif
-										#endif
-
-										#define MU_HRARRAY_DEFAULT_FUNC(name) \
-											muBool name##_comp(name t0, name t1) { \
-												return t0.active == t1.active; \
-											} \
-											\
-											void name##_on_creation(name* p) { \
-												if (p != MU_NULL_PTR) { \
-													MU_LOCK_CREATE(p->lock, p->lock_active) \
-												} \
-											} \
-											void name##_on_destruction(name* p) { \
-												if (p != MU_NULL_PTR) { \
-													MU_LOCK_DESTROY(p->lock, p->lock_active) \
-												} \
-											} \
-											void name##_on_hold(name* p) { \
-												if (p != MU_NULL_PTR) { \
-													MU_LOCK_LOCK(p->lock, p->lock_active) \
-												} \
-											} \
-											void name##_on_release(name* p) { \
-												if (p != MU_NULL_PTR) { \
-													MU_LOCK_UNLOCK(p->lock, p->lock_active) \
-												} \
-											} \
-											\
-											mu_dynamic_hrarray_declaration( \
-												name##_array, name, name##_, name##_comp, \
-												name##_on_creation, name##_on_destruction, name##_on_hold, name##_on_release \
-											)
-
-										#define MU_SAFEFUNC(result, lib_prefix, context, fail_return) \
-											MU_SET_RESULT(result, lib_prefix##SUCCESS) \
-											MU_ASSERT(context != MU_NULL_PTR, result, lib_prefix##NOT_YET_INITIALIZED, fail_return) \
-
-										#define MU_HOLD(result, item, da, context, lib_prefix, fail_return, da_prefix) \
-											MU_ASSERT(item < da.length, result, lib_prefix##INVALID_ID, fail_return) \
-											da_prefix##hold_element(0, &da, item); \
-											MU_ASSERT(da.data[item].active, result, lib_prefix##INVALID_ID, da_prefix##release_element(0, &da, item); fail_return)
-
-										#define MU_RELEASE(da, item, da_prefix) \
-											da_prefix##release_element(0, &da, item);
-
-									#ifdef __cplusplus
-									}
-									#endif
-
-								#endif /* MUU_H */
-							
-							#ifdef __cplusplus
-								extern "C" {
-							#endif
-
-							#define MUMA_VERSION_MAJOR 1
-							#define MUMA_VERSION_MINOR 0
-							#define MUMA_VERSION_PATCH 0
-
-							/* C standard library dependencies */
-
-								#if !defined(mu_malloc)  || \
-									!defined(mu_free)    || \
-									!defined(mu_realloc)
-
-									#include <stdlib.h>
-
-									#ifndef mu_malloc
-										#define mu_malloc malloc
-									#endif
-
-									#ifndef mu_free
-										#define mu_free free
-									#endif
-
-									#ifndef mu_realloc
-										#define mu_realloc realloc
-									#endif
-
-								#endif
-
-								#if !defined(mu_memset)  || \
-									!defined(mu_memcpy)  || \
-									!defined(mu_memmove)
-
-									#include <string.h>
-
-									#ifndef mu_memset
-										#define mu_memset memset
-									#endif
-
-									#ifndef mu_memcpy
-										#define mu_memcpy memcpy
-									#endif
-
-									#ifndef mu_memmove
-										#define mu_memmove memmove
-									#endif
-
-								#endif
-
-							/* Enums */
-
-								MU_ENUM(mumaResult, 
-									MUMA_SUCCESS,
-
-									MUMA_FAILED_TO_ALLOCATE,
-									MUMA_INVALID_INDEX,
-									MUMA_INVALID_SHIFT_AMOUNT,
-									MUMA_NOT_FOUND
-								)
-
-							/* Functions */
-
-								#ifdef MUMA_NAMES
-									MUDEF const char* muma_result_get_name(mumaResult result);
-								#endif
-
-							/* API macro functionality */
-
-								#define mu_dynamic_array_declaration(struct_name, type, function_name_prefix, type_comparison_func) \
-									\
-									struct struct_name { \
-										type* data; \
-										size_m allocated_length; \
-										size_m length; \
-									}; typedef struct struct_name struct_name; \
-									\
-									struct_name function_name_prefix##create(mumaResult* result, size_m length) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										struct_name s = MU_ZERO_STRUCT(struct_name); \
-										s.data = MU_NULL_PTR; \
-										s.allocated_length = length; \
-										s.length = length; \
-										\
-										if (s.length == 0) { \
-											return s; \
-										} \
-										\
-										s.data = (type*)mu_malloc(sizeof(type)*s.allocated_length); \
-										if (s.data == 0) { \
-											MU_SET_RESULT(result, MUMA_FAILED_TO_ALLOCATE) \
-											s.allocated_length = 0; \
-											s.length = 0; \
-											return s; \
-										} \
-										\
-										mu_memset(s.data, 0, sizeof(type)*s.allocated_length);\
-										return s;\
-									} \
-									\
-									struct_name function_name_prefix##destroy(mumaResult* result, struct_name s) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (s.data != MU_NULL_PTR) { \
-											mu_free(s.data); \
-											s.data = MU_NULL_PTR; \
-										} \
-										\
-										s.allocated_length = 0; \
-										s.length = 0; \
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##resize(mumaResult* result, struct_name s, size_m length) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (s.length == length) { \
-											return s; \
-										} \
-										\
-										if (s.data == MU_NULL_PTR) { \
-											if (length == 0) { \
-												return s; \
-											} \
-											\
-											mumaResult res = MUMA_SUCCESS; \
-											s = function_name_prefix##create(&res, length); \
-											if (res != MUMA_SUCCESS) { \
-												MU_SET_RESULT(result, res) \
-												return s; \
-											} \
-										} \
-										\
-										if (length == 0) { \
-											s.length = 0; \
-											mu_memset(s.data, 0, sizeof(type)*s.allocated_length); \
-											return s; \
-										} \
-										\
-										size_m old_length = s.length; \
-										size_m old_allocated_length = s.allocated_length; \
-										s.length = length; \
-										\
-										if ((s.length > s.allocated_length) || (s.length < s.allocated_length/2)) { \
-											while (s.length > s.allocated_length) { \
-												s.allocated_length *= 2; \
-											} \
-											while (s.length < s.allocated_length/2) { \
-												s.allocated_length /= 2; \
-											} \
-											\
-											type* new_data = (type*)mu_realloc(s.data, sizeof(type) * s.allocated_length); \
-											if (new_data == 0) { \
-												s.length = old_length; \
-												s.allocated_length = old_allocated_length; \
-												MU_SET_RESULT(result, MUMA_FAILED_TO_ALLOCATE) \
-												return s; \
-											} \
-											\
-											s.data = new_data; \
-										} \
-										\
-										if (old_length < s.length) { \
-											mu_memset(&s.data[old_length], 0, sizeof(type)*(s.allocated_length-old_length)); \
-										} \
-										\
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##lshift(mumaResult* result, struct_name s, size_m index, size_m amount) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s.length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return s; \
-										} \
-										\
-										if (amount == 0) { \
-											return s; \
-										} \
-										\
-										if (amount > index) { \
-											MU_SET_RESULT(result, MUMA_INVALID_SHIFT_AMOUNT) \
-											return s; \
-										} \
-										\
-										mu_memmove(&s.data[index-amount], &s.data[index], sizeof(type)*(s.length-index)); \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										s = function_name_prefix##resize(&res, s, s.length-amount); \
-										if (res != MUMA_SUCCESS) { \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##rshift(mumaResult* result, struct_name s, size_m index, size_m amount) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s.length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return s; \
-										} \
-										\
-										if (amount == 0) { \
-											return s; \
-										} \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										s = function_name_prefix##resize(&res, s, s.length+amount); \
-										if (res != MUMA_SUCCESS) { \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										/* I have genuinely no idea why it needs to have a -1. It crashes if you don't. */\
-										/* And lshift doesn't need one. Why?? */ \
-										mu_memmove(&s.data[index+amount], &s.data[index], sizeof(type)*((s.length-index)-1)); \
-										mu_memset(&s.data[index], 0, sizeof(type)*(amount)); \
-										\
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##multiinsert(mumaResult* result, struct_name s, size_m index, type* insert, size_m count) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										s = function_name_prefix##rshift(&res, s, index, count); \
-										if (res != MUMA_SUCCESS) { \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										mu_memcpy(&s.data[index], insert, sizeof(type)*count); \
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##insert(mumaResult* result, struct_name s, size_m index, type insert) { \
-										return function_name_prefix##multiinsert(result, s, index, &insert, 1); \
-									} \
-									\
-									struct_name function_name_prefix##multierase(mumaResult* result, struct_name s, size_m index, size_m count) { \
-										return function_name_prefix##lshift(result, s, index+count, count); \
-									} \
-									\
-									struct_name function_name_prefix##erase(mumaResult* result, struct_name s, size_m index) { \
-										return function_name_prefix##multierase(result, s, index, 1); \
-									} \
-									struct_name function_name_prefix##clear(mumaResult* result, struct_name s) { \
-										return function_name_prefix##destroy(result, s); \
-									} \
-									\
-									struct_name function_name_prefix##multipush(mumaResult* result, struct_name s, type* push, size_m count) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										s = function_name_prefix##resize(&res, s, s.length+count); \
-										if (res != MUMA_SUCCESS) { \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										mu_memcpy(&s.data[s.length-count], push, sizeof(type)*count); \
-										return s; \
-									} \
-									\
-									struct_name function_name_prefix##push(mumaResult* result, struct_name s, type push) { \
-										return function_name_prefix##multipush(result, s, &push, 1); \
-									} \
-									\
-									struct_name function_name_prefix##multipop(mumaResult* result, struct_name s, size_m count) { \
-										return function_name_prefix##resize(result, s, s.length-count); \
-									} \
-									\
-									struct_name function_name_prefix##pop(mumaResult* result, struct_name s) { \
-										return function_name_prefix##multipop(result, s, 1); \
-									} \
-									\
-									size_m function_name_prefix##find(mumaResult* result, struct_name s, type find) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										for (size_m i = 0; i < s.length; i++) { \
-											if (type_comparison_func(find, s.data[i])) { \
-												return i; \
-											} \
-										} \
-										\
-										MU_SET_RESULT(result, MUMA_NOT_FOUND) \
-										return MU_NONE; \
-									} \
-									\
-									struct_name function_name_prefix##find_push(mumaResult* result, struct_name s, type find, size_m* p_index) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										size_m index = function_name_prefix##find(&res, s, find); \
-										if (index != MU_NONE) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = index; \
-											} \
-											return s; \
-										} \
-										if (res != MUMA_SUCCESS && res != MUMA_NOT_FOUND) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = MU_NONE; \
-											} \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										s = function_name_prefix##push(&res, s, find); \
-										if (res != MUMA_SUCCESS) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = MU_NONE; \
-											} \
-											MU_SET_RESULT(result, res) \
-											return s; \
-										} \
-										\
-										if (p_index != MU_NULL_PTR) { \
-											*p_index = s.length-1; \
-										} \
-										return s; \
-									}
-
-								#define mu_dynamic_hrarray_declaration( \
-									struct_name, type, function_name_prefix, type_comparison_func, \
-									on_creation, on_destruction, on_hold, on_release \
-								) \
-									\
-									struct struct_name { \
-										type* data; \
-										size_m allocated_length; \
-										size_m length; \
-									}; typedef struct struct_name struct_name; \
-									\
-									struct_name function_name_prefix##create(mumaResult* result, size_m length) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										struct_name s = MU_ZERO_STRUCT(struct_name); \
-										s.data = MU_NULL_PTR; \
-										s.allocated_length = length; \
-										s.length = length; \
-										\
-										if (s.length == 0) { \
-											return s; \
-										} \
-										\
-										s.data = (type*)mu_malloc(sizeof(type)*s.allocated_length); \
-										if (s.data == 0) { \
-											MU_SET_RESULT(result, MUMA_FAILED_TO_ALLOCATE) \
-											s.allocated_length = 0; \
-											s.length = 0; \
-											return s; \
-										} \
-										\
-										mu_memset(s.data, 0, sizeof(type)*s.allocated_length); \
-										\
-										for (size_m i = 0; i < s.length; i++) { \
-											on_creation(&s.data[i]); \
-										} \
-										return s;\
-									} \
-									\
-									void function_name_prefix##hold_element(mumaResult* result, struct_name* s, size_m index) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s->length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return; \
-										} \
-										\
-										on_hold(&s->data[index]); \
-									} \
-									\
-									void function_name_prefix##release_element(mumaResult* result, struct_name* s, size_m index) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s->length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return; \
-										} \
-										\
-										on_release(&s->data[index]); \
-									} \
-									\
-									void function_name_prefix##destroy(mumaResult* result, struct_name* s) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										for (size_m i = 0; i < s->length; i++) { \
-											function_name_prefix##hold_element(0, s, i); \
-										} \
-										\
-										for (size_m i = 0; i < s->length; i++) { \
-											on_destruction(&s->data[i]); \
-										} \
-										\
-										if (s->data != MU_NULL_PTR) { \
-											mu_free(s->data); \
-											s->data = MU_NULL_PTR; \
-										} \
-										\
-										s->allocated_length = 0; \
-										s->length = 0; \
-									} \
-									\
-									void function_name_prefix##inner_resize(mumaResult* result, struct_name* s, size_m length, muBool cd) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (s->length == length) { \
-											return; \
-										} \
-										\
-										if (s->data == MU_NULL_PTR) { \
-											if (length == 0) { \
-												return; \
-											} \
-											\
-											mumaResult res = MUMA_SUCCESS; \
-											*s = function_name_prefix##create(&res, length); \
-											if (res != MUMA_SUCCESS) { \
-												MU_SET_RESULT(result, res) \
-												return; \
-											} \
-										} \
-										\
-										if (length == 0) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												on_destruction(&s->data[i]); \
-											} \
-											s->length = 0; \
-											mu_memset(s->data, 0, sizeof(type)*s->allocated_length); \
-											return; \
-										} \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##hold_element(0, s, i); \
-											} \
-										} \
-										\
-										size_m old_length = s->length; \
-										size_m old_allocated_length = s->allocated_length; \
-										s->length = length; \
-										\
-										/* Note: this is really dangerous, because it's not guaranteed that the  */ \
-										/* reallocation will follow through. If it doesn't, we've now called the */ \
-										/* destroy function on a bunch of elements that still exist. I can't     */ \
-										/* really think of a better way of doing it than this right now, though. */ \
-										if (cd && old_length > s->length) { \
-											for (size_m i = s->length; i < old_length; i++) { \
-												on_destruction(&s->data[i]); \
-											} \
-										} \
-										\
-										if ((s->length > s->allocated_length) || (s->length < s->allocated_length/2)) { \
-											while (s->length > s->allocated_length) { \
-												s->allocated_length *= 2; \
-											} \
-											while (s->length < s->allocated_length/2) { \
-												s->allocated_length /= 2; \
-											} \
-											\
-											type* new_data = (type*)mu_realloc(s->data, sizeof(type) * s->allocated_length); \
-											if (new_data == 0) { \
-												s->length = old_length; \
-												s->allocated_length = old_allocated_length; \
-												if (cd) { \
-													for (size_m i = 0; i < s->length; i++) { \
-														function_name_prefix##release_element(0, s, i); \
-													} \
-												} \
-												MU_SET_RESULT(result, MUMA_FAILED_TO_ALLOCATE) \
-												return; \
-											} \
-											\
-											s->data = new_data; \
-										} \
-										\
-										if (old_length < s->length) { \
-											mu_memset(&s->data[old_length], 0, sizeof(type)*(s->allocated_length-old_length)); \
-											\
-											if (cd) { \
-												for (size_m i = old_length; i < s->length; i++) { \
-													on_creation(&s->data[i]); \
-												} \
-											} \
-										} \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < s->length && i < old_length; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-										} \
-									} \
-									\
-									void function_name_prefix##resize(mumaResult* result, struct_name* s, size_m length) { \
-										function_name_prefix##inner_resize(result, s, length, MU_TRUE); \
-									} \
-									\
-									void function_name_prefix##inner_lshift(mumaResult* result, struct_name* s, size_m index, size_m amount, muBool cd) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s->length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return; \
-										} \
-										\
-										if (amount == 0) { \
-											return; \
-										} \
-										\
-										if (amount > index) { \
-											MU_SET_RESULT(result, MUMA_INVALID_SHIFT_AMOUNT) \
-											return; \
-										} \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##hold_element(0, s, i); \
-											} \
-										} \
-										\
-										/* Dangerous; resize may fail after this */ \
-										if (cd) { \
-											for (size_m i = index-amount; i < index; i++) { \
-												on_destruction(&s->data[i]); \
-											} \
-										} \
-										\
-										mu_memmove(&s->data[index-amount], &s->data[index], sizeof(type)*(s->length-index)); \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										function_name_prefix##inner_resize(&res, s, s->length-amount, MU_FALSE); \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-										} \
-										\
-										if (res != MUMA_SUCCESS) { \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-									} \
-									\
-									void function_name_prefix##lshift(mumaResult* result, struct_name* s, size_m index, size_m amount) { \
-										function_name_prefix##inner_lshift(result, s, index, amount, MU_TRUE); \
-									} \
-									\
-									void function_name_prefix##inner_rshift(mumaResult* result, struct_name* s, size_m index, size_m amount, muBool cd) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										if (index >= s->length) { \
-											MU_SET_RESULT(result, MUMA_INVALID_INDEX) \
-											return; \
-										} \
-										\
-										if (amount == 0) { \
-											return; \
-										} \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##hold_element(0, s, i); \
-											} \
-										} \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										function_name_prefix##inner_resize(&res, s, s->length+amount, MU_FALSE); \
-										if (res != MUMA_SUCCESS) { \
-											if (cd) { \
-												for (size_m i = 0; i < s->length; i++) { \
-													function_name_prefix##release_element(0, s, i); \
-												} \
-											} \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-										\
-										mu_memmove(&s->data[index+amount], &s->data[index], sizeof(type)*((s->length-index)-1)); \
-										\
-										if (cd) { \
-											for (size_m i = 0; i < index; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-											for (size_m i = index+amount; i < s->length; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-										} \
-										\
-										mu_memset(&s->data[index], 0, sizeof(type)*(amount)); \
-										\
-										if (cd) { \
-											for (size_m i = index; i < index+amount; i++) { \
-												on_creation(&s->data[i]); \
-											} \
-										} \
-									} \
-									\
-									void function_name_prefix##rshift(mumaResult* result, struct_name* s, size_m index, size_m amount) { \
-										function_name_prefix##inner_rshift(result, s, index, amount, MU_TRUE); \
-									} \
-									\
-									void function_name_prefix##multiinsert(mumaResult* result, struct_name* s, size_m index, type* insert, size_m count) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										for (size_m i = 0; i < s->length; i++) { \
-											function_name_prefix##hold_element(0, s, i); \
-										} \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										function_name_prefix##inner_rshift(&res, s, index, count, MU_FALSE); \
-										if (res != MUMA_SUCCESS) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-										\
-										mu_memcpy(&s->data[index], insert, sizeof(type)*count); \
-										\
-										for (size_m i = 0; i < index; i++) { \
-											function_name_prefix##release_element(0, s, i); \
-										} \
-										for (size_m i = index+count; i < s->length; i++) { \
-											function_name_prefix##release_element(0, s, i); \
-										} \
-										\
-										for (size_m i = index; i < index+count; i++) { \
-											on_creation(&s->data[i]); \
-										} \
-									} \
-									\
-									void function_name_prefix##insert(mumaResult* result, struct_name* s, size_m index, type insert) { \
-										function_name_prefix##multiinsert(result, s, index, &insert, 1); \
-									} \
-									\
-									void function_name_prefix##multierase(mumaResult* result, struct_name* s, size_m index, size_m count) { \
-										function_name_prefix##lshift(result, s, index+count, count); \
-									} \
-									\
-									void function_name_prefix##erase(mumaResult* result, struct_name* s, size_m index) { \
-										function_name_prefix##multierase(result, s, index, 1); \
-									} \
-									void function_name_prefix##clear(mumaResult* result, struct_name* s) { \
-										function_name_prefix##destroy(result, s); \
-									} \
-									\
-									void function_name_prefix##multipush(mumaResult* result, struct_name* s, type* push, size_m count) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										size_m old_length = s->length; \
-										for (size_m i = 0; i < s->length; i++) { \
-											function_name_prefix##hold_element(0, s, i); \
-										} \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										function_name_prefix##inner_resize(&res, s, s->length+count, MU_FALSE); \
-										if (res != MUMA_SUCCESS) { \
-											for (size_m i = 0; i < s->length; i++) { \
-												function_name_prefix##release_element(0, s, i); \
-											} \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-										\
-										mu_memcpy(&s->data[s->length-count], push, sizeof(type)*count); \
-										\
-										for (size_m i = 0; i < old_length; i++) { \
-											function_name_prefix##release_element(0, s, i); \
-										} \
-										\
-										for (size_m i = s->length-count; i < s->length; i++) { \
-											on_creation(&s->data[i]); \
-										} \
-									} \
-									\
-									void function_name_prefix##push(mumaResult* result, struct_name* s, type push) { \
-										function_name_prefix##multipush(result, s, &push, 1); \
-									} \
-									\
-									void function_name_prefix##multipop(mumaResult* result, struct_name* s, size_m count) { \
-										function_name_prefix##resize(result, s, s->length-count); \
-									} \
-									\
-									void function_name_prefix##pop(mumaResult* result, struct_name* s) { \
-										function_name_prefix##multipop(result, s, 1); \
-									} \
-									\
-									size_m function_name_prefix##find(mumaResult* result, struct_name* s, type find) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										for (size_m i = 0; i < s->length; i++) { \
-											function_name_prefix##hold_element(0, s, i); \
-											if (type_comparison_func(find, s->data[i])) { \
-												function_name_prefix##release_element(0, s, i); \
-												return i; \
-											} \
-											function_name_prefix##release_element(0, s, i); \
-										} \
-										\
-										MU_SET_RESULT(result, MUMA_NOT_FOUND) \
-										return MU_NONE; \
-									} \
-									\
-									void function_name_prefix##find_push(mumaResult* result, struct_name* s, type find, size_m* p_index) { \
-										MU_SET_RESULT(result, MUMA_SUCCESS) \
-										\
-										mumaResult res = MUMA_SUCCESS; \
-										size_m index = function_name_prefix##find(&res, s, find); \
-										if (index != MU_NONE) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = index; \
-											} \
-											return; \
-										} \
-										if (res != MUMA_SUCCESS && res != MUMA_NOT_FOUND) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = MU_NONE; \
-											} \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-										\
-										function_name_prefix##push(&res, s, find); \
-										if (res != MUMA_SUCCESS) { \
-											if (p_index != MU_NULL_PTR) { \
-												*p_index = MU_NONE; \
-											} \
-											MU_SET_RESULT(result, res) \
-											return; \
-										} \
-										\
-										if (p_index != MU_NULL_PTR) { \
-											*p_index = s->length-1; \
-										} \
-									}
-
-							#ifdef __cplusplus
-								}
-							#endif
-
-						#endif /* MUMA_H */
-
-					/* muMultithreading version 1.0.0 header (only if thread safe) */
-					// CHANGES:
-					// * Removed muma header inclusion because this library already has it.
-					#ifdef MU_THREADSAFE
-						#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUM_H) && \
-							(MUM_VERSION_MAJOR != 1 || MUM_VERSION_MINOR != 0 || MUM_VERSION_PATCH != 0)
-
-							#pragma message("[MUS] muMultithreading's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
-
-						#endif
-
-						#ifndef MUM_H
-							#define MUM_H
-
-							#ifdef __cplusplus
-							extern "C" { // }
-							#endif
-
-							#define MUM_VERSION_MAJOR 1
-							#define MUM_VERSION_MINOR 0
-							#define MUM_VERSION_PATCH 0
-
-							/* Enums */
-
-								MU_ENUM(mumResult,
-									MUM_SUCCESS,
-
-									MUM_MUMA_SUCCESS,
-									MUM_MUMA_FAILED_TO_ALLOCATE,
-									MUM_MUMA_INVALID_INDEX,
-									MUM_MUMA_INVALID_SHIFT_AMOUNT,
-									MUM_MUMA_NOT_FOUND,
-
-									MUM_ALLOCATION_FAILED,
-
-									MUM_ALREADY_INITIALIZED,
-									MUM_ALREADY_TERMINATED,
-									MUM_NOT_YET_INITIALIZED,
-
-									MUM_CREATE_CALL_FAILED,
-									MUM_DESTROY_CALL_FAILED,
-									MUM_WAIT_CALL_FAILED,
-									MUM_LOCK_CALL_FAILED,
-									MUM_UNLOCK_CALL_FAILED,
-									MUM_GET_RETURN_VALUE_CALL_FAILED,
-
-									MUM_INVALID_ID,
-
-									MUM_THREAD_TIMED_OUT,
-									MUM_PREVIOUS_THREAD_CLOSED_BEFORE_LOCK
-								)
-
-							/* Macros */
-
-								#define muThread size_m
-								#define muMutex size_m
-								#define muSpinlock size_m
-
-								#ifdef MU_SPINLOCK
-									#define muLock muSpinlock
-									#define mu_lock_create mu_spinlock_create
-									#define mu_lock_destroy mu_spinlock_destroy
-									#define mu_lock_lock mu_spinlock_lock
-									#define mu_lock_unlock mu_spinlock_unlock
-								#else
-									#define muLock muMutex
-									#define mu_lock_create mu_mutex_create
-									#define mu_lock_destroy mu_mutex_destroy
-									#define mu_lock_lock mu_mutex_lock
-									#define mu_lock_unlock mu_mutex_unlock
-								#endif
-
-							/* Incomplete types */
-
-								typedef struct mumContext mumContext;
-
-							/* Global variables */
-
-								MUDEF mumContext* mum_global_context;
-
-							/* Functions */
-
-								/* Names */
-
-									#ifdef MUM_NAMES
-										MUDEF const char* mum_result_get_name(mumResult result);
-									#endif
-
-								/* Initiation/Termination */
-
-									MUDEF void mum_init(mumResult* result);
-									MUDEF void mum_term(mumResult* result);
-
-								/* Thread */
-
-									MUDEF muThread mu_thread_create(mumResult* result, void (*start)(void* args), void* args);
-									MUDEF muThread mu_thread_destroy(mumResult* result, muThread thread);
-
-									MUDEF void mu_thread_exit(void* ret);
-									MUDEF void mu_thread_wait(mumResult* result, muThread thread);
-									MUDEF void* mu_thread_get_return_value(mumResult* result, muThread thread);
-
-								/* Mutex */
-
-									MUDEF muMutex mu_mutex_create(mumResult* result);
-									MUDEF muMutex mu_mutex_destroy(mumResult* result, muMutex mutex);
-
-									MUDEF void mu_mutex_lock(mumResult* result, muMutex mutex);
-									MUDEF void mu_mutex_unlock(mumResult* result, muMutex mutex);
-
-								/* Spinlock */
-
-									MUDEF muSpinlock mu_spinlock_create(mumResult* result);
-									MUDEF muSpinlock mu_spinlock_destroy(mumResult* result, muSpinlock spinlock);
-
-									MUDEF void mu_spinlock_lock(mumResult* result, muSpinlock spinlock);
-									MUDEF void mu_spinlock_unlock(mumResult* result, muSpinlock spinlock);
-
-							#ifdef __cplusplus
-							}
-							#endif
-
-						#endif
-					#endif
-
-					#ifdef __cplusplus
-					extern "C" { // }
-					#endif
-
-					#define MUS_VERSION_MAJOR 1
-					#define MUS_VERSION_MINOR 0
-					#define MUS_VERSION_PATCH 0
-
-					/* C standard library dependencies */
-
-						#if !defined(mu_log10) || \
-							!defined(mu_floor) || \
-							!defined(mu_pow)   || \
-							!defined(mu_fmod)
-
-							#include <math.h>
-
-							#ifndef mu_log10
-								#define mu_log10 log10
-							#endif
-
-							#ifndef mu_floor
-								#define mu_floor floor
-							#endif
-
-							#ifndef mu_pow
-								#define mu_pow pow
-							#endif
-
-							#ifndef mu_fmod
-								#define mu_fmod fmod
-							#endif
-
-						#endif
-
-					/* Incomplete types */
-
-						typedef struct musContext musContext;
-
-					/* Global variables */
-
-						MUDEF musContext* mus_global_context;
-
-					/* Macros */
-
-						#define muCodePoint size_m
-						#define muString size_m
-
-					/* Enums */
-
-						MU_ENUM(musResult,
-							MUS_SUCCESS,
-
-							MUS_ALREADY_INITIALIZED,
-							MUS_ALLOCATION_FAILED,
-							MUS_ALREADY_TERMINATED,
-							MUS_NOT_YET_INITIALIZED,
-
-							MUS_UNKNOWN_CHARACTER_ENCODING,
-
-							MUS_CHARACTER_CANNOT_BE_ENCODED,
-
-							MUS_INVALID_CHARACTER_ENCODING,
-							MUS_INVALID_CODE_POINT_SIZE,
-							MUS_INVALID_DATA_SIZE,
-							MUS_INVALID_DATA_POINTER,
-							MUS_INVALID_OFFSET,
-							MUS_INVALID_ID,
-							MUS_INVALID_DATA,
-
-							MUS_INSUFFICIENT_DATA_SIZE,
-
-							MUS_NONMATCHING_CHARACTER_ENCODING,
-
-							MUS_OVERFLOW,
-
-							MUS_MUMA_SUCCESS,
-							MUS_MUMA_FAILED_TO_ALLOCATE,
-							MUS_MUMA_INVALID_INDEX,
-							MUS_MUMA_INVALID_SHIFT_AMOUNT,
-							MUS_MUMA_NOT_FOUND
-						)
-
-						MU_ENUM(muCharacterEncoding,
-							MU_UNKNOWN_CHARACTER_ENCODING,
-							MU_ASCII,
-							MU_UTF8,
-						)
-
-					/* Functions */
-
-						/* Names */
-
-							#ifdef MUS_NAMES
-								MUDEF const char* mus_result_get_name(musResult result);
-							#endif
-
-						/* Initiation / Termination */
-
-							MUDEF void mus_init(musResult* result);
-							MUDEF void mus_term(musResult* result);
-
-						/* String functions */
-
-							/* Creation / Destruction */
-
-								MUDEF muString mu_string_create(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-								MUDEF muString mu_string_destroy(musResult* result, muString string);
-								MUDEF muString mu_string_duplicate(musResult* result, muString string);
-
-							/* Data */
-
-								MUDEF muByte* mu_string_get_raw_data(musResult* result, muString string, size_m* size);
-
-							/* Character encoding */
-
-								MUDEF muCharacterEncoding mu_string_get_character_encoding(musResult* result, muString string);
-								MUDEF void mu_string_convert_character_encoding(musResult* result, muString string, muCharacterEncoding desired_encoding);
-
-							/* Code point */
-
-								MUDEF size_m mu_string_get_code_point_length(musResult* result, muString string);
-
-								MUDEF size_m mu_string_get_code_point_offset(musResult* result, muString string, size_m offset, size_m index);
-
-								MUDEF muCodePoint mu_string_get_code_point(musResult* result, muString string, size_m offset);
-								MUDEF void mu_string_set_code_point(musResult* result, muString string, muCodePoint code_point, size_m offset);
-
-							/* Insert */
-
-								MUDEF void mu_string_insert_raw_string(musResult* result, muString string, muCharacterEncoding encoding, muByte* data, size_m data_size, size_m offset);
-
-								MUDEF void mu_string_insert_integer(musResult* result, muString string, int64_m i, size_m offset);
-								MUDEF void mu_string_insert_float(musResult* result, muString string, float d, size_m decimal_places, size_m offset);
-								MUDEF void mu_string_insert_double(musResult* result, muString string, double d, size_m decimal_places, size_m offset);
-
-						/* Raw string functions */
-
-							/* Conversion */
-
-								MUDEF size_m mu_raw_string_get_character_encoding_conversion_size(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, muCharacterEncoding desired_encoding);
-								MUDEF void mu_raw_string_convert_character_encoding(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, muCharacterEncoding output_encoding, muByte* output_data, size_m output_data_size);
-
-							/* Integer/Float/Double conversion */
-
-								MUDEF size_m mu_raw_string_get_integer_conversion_size(musResult* result, muCharacterEncoding encoding, int64_m i);
-								MUDEF void mu_raw_string_convert_to_integer(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, int64_m i);
-								MUDEF int64_m mu_raw_string_get_integer(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-
-								MUDEF size_m mu_raw_string_get_float_conversion_size(musResult* result, muCharacterEncoding encoding, float d, size_m decimal_places);
-								MUDEF void mu_raw_string_convert_to_float(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, float d, size_m decimal_places);
-								MUDEF float mu_raw_string_get_float(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-
-								MUDEF size_m mu_raw_string_get_double_conversion_size(musResult* result, muCharacterEncoding encoding, double d, size_m decimal_places);
-								MUDEF void mu_raw_string_convert_to_double(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, double d, size_m decimal_places);
-								MUDEF double mu_raw_string_get_double(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-
-						/* Cross-encoding functions */
-
-							MUDEF size_m mu_character_encoding_get_code_point_size(musResult* result, muCharacterEncoding encoding, muCodePoint code_point);
-							MUDEF muCodePoint mu_character_encoding_get_code_point(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-							MUDEF void mu_character_encoding_set_code_point(musResult* result, muCharacterEncoding encoding, muCodePoint code_point, muByte* data, size_m data_size);
-
-							MUDEF muBool mu_character_encoding_verify_raw_string(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-							MUDEF size_m mu_character_encoding_get_raw_string_code_point_length(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size);
-							MUDEF size_m mu_character_encoding_get_raw_string_code_point_offset(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, size_m offset, size_m index);
-
-						/* Encoding-specific functions */
-
-							/* ASCII */
-
-								MUDEF size_m mu_ASCII_get_code_point_size(musResult* result, muCodePoint code_point);
-								MUDEF muCodePoint mu_ASCII_get_code_point(musResult* result, muByte* data, size_m data_size);
-								MUDEF void mu_ASCII_set_code_point(musResult* result, muCodePoint code_point, muByte* data, size_m data_size);
-
-								MUDEF muBool mu_ASCII_verify_raw_string(musResult* result, muByte* data, size_m data_size);
-								MUDEF size_m mu_ASCII_get_raw_string_first_code_point_index(musResult* result, muByte* data, size_m data_size);
-								MUDEF size_m mu_ASCII_get_raw_string_code_point_length(musResult* result, muByte* data, size_m data_size);
-								MUDEF size_m mu_ASCII_get_raw_string_code_point_offset(musResult* result, muByte* data, size_m data_size, size_m offset, size_m index);
-
-							/* UTF-8 */
-
-								MUDEF size_m mu_UTF8_get_code_point_size(musResult* result, muCodePoint code_point);
-								MUDEF muCodePoint mu_UTF8_get_code_point(musResult* result, muByte* data, size_m data_size);
-								MUDEF void mu_UTF8_set_code_point(musResult* result, muCodePoint code_point, muByte* data, size_m data_size);
-
-								MUDEF muBool mu_UTF8_verify_raw_string(musResult* result, muByte* data, size_m data_size);
-								MUDEF size_m mu_UTF8_get_raw_string_code_point_length(musResult* result, muByte* data, size_m data_size);
-								MUDEF size_m mu_UTF8_get_raw_string_code_point_offset(musResult* result, muByte* data, size_m data_size, size_m offset, size_m index);
-
-						/* Code point */
-
-							/* Uppercase/Lowercase */
-
-								MUDEF muCodePoint mu_code_point_lowercase(musResult* result, muCharacterEncoding encoding, muCodePoint code_point);
-								MUDEF muCodePoint mu_code_point_uppercase(musResult* result, muCharacterEncoding encoding, muCodePoint code_point);
-
-					#ifdef __cplusplus
-					}
-					#endif
-				#endif /* MUS_H */
-
-			#ifdef __cplusplus
-			extern "C" { // }
 			#endif
 
-			#define MUCOSA_VERSION_MAJOR 1
-			#define MUCOSA_VERSION_MINOR 0
-			#define MUCOSA_VERSION_PATCH 0
+			#define MUCOSA_OPENGL
+			#define MUCOSA_VULKAN
 
-			/* C standard library dependencies */
+			#ifndef MUCOSA_H
+				#define MUCOSA_H
+				
+				// @DOCLINE # Other library dependencies
+				// @DOCLINE muCOSA has a dependency on:
+				
+				// @DOCLINE [muUtility v1.1.0](https://github.com/Muukid/muUtility/releases/tag/v1.1.0).
+				// @IGNORE
+				/* muUtility v1.1.0 header */
+				
+					#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUU_H) && \
+						(MUU_VERSION_MAJOR != 1 || MUU_VERSION_MINOR != 1 || MUU_VERSION_PATCH != 0)
 
-				#if !defined(mu_strlen) || \
-					!defined(mu_strcmp)
+						#pragma message("[MUCOSA] muUtility's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
 
-					#include <string.h>
-
-					#ifndef mu_strlen
-						#define mu_strlen strlen
 					#endif
 
-					#ifndef mu_strcmp
-						#define mu_strcmp strcmp
-					#endif
-
-				#endif
-
-				#if !defined(mu_setlocale)
-
-					#include <locale.h>
-
-					#ifndef mu_setlocale
-						#define mu_setlocale setlocale
-					#endif
-
-				#endif
-
-				#if !defined(mu_fflush) || \
-					!defined(mu_stdout)
-
-					#include <stdio.h>
-
-					#ifndef mu_fflush
-						#define mu_fflush fflush
-					#endif
-
-					#ifndef mu_stdout
-						#define mu_stdout stdout
-					#endif
-
-				#endif
-
-			/* Incomplete types */
-
-				typedef struct muCOSAContext muCOSAContext;
-
-			/* Global variables */
-
-				MUDEF muCOSAContext* muCOSA_global_context;
-
-			/* Macros */
-
-				/* Objects */
-
-					#define muWindow size_m
-
-				/* States */
-
-					#define muButtonState muBool
-					#define MU_BUTTON_STATE_RELEASED 0
-					#define MU_BUTTON_STATE_HELD 1
-
-					#define muState muBool
-					#define MU_ON 1
-					#define MU_OFF 0
-
-				/* OS macros */
-
-					#ifndef MUCOSA_NO_AUTOMATIC_API
-
-						#ifdef MU_UNIX
-							#define MUCOSA_X11
+					#ifndef MUU_H
+						#define MUU_H
+						
+						// @DOCLINE # Secure warnings
+						// @DOCLINE mu libraries often use non-secure functions that will trigger warnings on certain compilers. These warnings are, to put it lightly, dumb, so the header section of muUtility defines `_CRT_SECURE_NO_WARNINGS`. However, it is not guaranteed that this definition will actually turn the warnings off, which at that point, they have to be manually turned off by the user.
+						#if !defined(MU_SECURE_WARNINGS) && !defined(_CRT_SECURE_NO_WARNINGS)
+							#define _CRT_SECURE_NO_WARNINGS
 						#endif
 
-						#ifdef MU_WIN32
-							#define MUCOSA_WIN32
+						#ifdef __cplusplus
+						extern "C" { // }
 						#endif
 
-					#endif
+						// @DOCLINE # C standard library dependencies
+
+							// @DOCLINE muUtility has several C standard library dependencies, all of which are overridable by defining them before the inclusion of its header. The following is a list of those dependencies:
+
+							// @DOCLINE ## `stdint.h` dependencies
+							#if !defined(int8_m)      || \
+								!defined(uint8_m)     || \
+								!defined(int16_m)     || \
+								!defined(uint16_m)    || \
+								!defined(int32_m)     || \
+								!defined(uint32_m)    || \
+								!defined(int64_m)     || \
+								!defined(uint64_m)    || \
+								!defined(MU_SIZE_MAX)
+
+								#define __STDC_LIMIT_MACROS
+								#define __STDC_CONSTANT_MACROS
+								#include <stdint.h>
+
+								// @DOCLINE `int8_m`: equivalent to `int8_t` if `INT8_MAX` is defined, `char` if otherwise
+								#ifndef int8_m
+									#ifdef INT8_MAX
+										#define int8_m int8_t
+									#else
+										#define int8_m char
+									#endif
+								#endif
+
+								// @DOCLINE `uint8_m`: equivalent to `uint8_t` if `UINT8_MAX` is defined, `unsigned char` if otherwise
+								#ifndef uint8_m
+									#ifdef UINT8_MAX
+										#define uint8_m uint8_t
+									#else
+										#define uint8_m unsigned char
+									#endif
+								#endif
+
+								// @DOCLINE `int16_m`: equivalent to `int16_t` if `INT16_MAX` is defined, `short` if otherwise
+								#ifndef int16_m
+									#ifdef INT16_MAX
+										#define int16_m int16_t
+									#else
+										#define int16_m short
+									#endif
+								#endif
+
+								// @DOCLINE `uint16_m`: equivalent to `uint16_t` if `UINT16_MAX` is defined, `unsigned short` if otherwise
+								#ifndef uint16_m
+									#ifdef UINT16_MAX
+										#define uint16_m uint16_t
+									#else
+										#define uint16_m unsigned short
+									#endif
+								#endif
+
+								// @DOCLINE `int32_m`: equivalent to `int32_t` if `INT32_MAX` is defined, `long` if otherwise
+								#ifndef int32_m
+									#ifdef INT32_MAX
+										#define int32_m int32_t
+									#else
+										#define int32_m long
+									#endif
+								#endif
+
+								// @DOCLINE `uint32_m`: equivalent to `uint32_t` if `UINT32_MAX` is defined, `unsigned long` if otherwise
+								#ifndef uint32_m
+									#ifdef UINT32_MAX
+										#define uint32_m uint32_t
+									#else
+										#define uint32_m unsigned long
+									#endif
+								#endif
+
+								// @DOCLINE `int64_m`: equivalent to `int64_t` if `INT64_MAX` is defined, `long long` if otherwise
+								#ifndef int64_m
+									#ifdef INT64_MAX
+										#define int64_m int64_t
+									#else
+										#define int64_m long long
+									#endif
+								#endif
+
+								// @DOCLINE `uint64_m`: equivalent to `uint64_t` if `UINT64_MAX` is defined, `unsigned long long` if otherwise
+								#ifndef uint64_m
+									#ifdef UINT64_MAX
+										#define uint64_m uint64_t
+									#else
+										#define uint64_m unsigned long long
+									#endif
+								#endif
+
+								// @DOCLINE `MU_SIZE_MAX`: equivalent to `SIZE_MAX`
+								#ifndef MU_SIZE_MAX
+									#define MU_SIZE_MAX SIZE_MAX
+								#endif
+
+							#endif
+
+							// @DOCLINE ## `stddef.h` dependencies
+							#if !defined(size_m)
+
+								#include <stddef.h>
+
+								// @DOCLINE `size_m`: equivalent to `size_t`
+								#ifndef size_m
+									#define size_m size_t
+								#endif
+
+							#endif
+
+							// @DOCLINE ## `stdbool.h` dependencies
+							#if !defined(muBool)   || \
+								!defined(MU_TRUE)  || \
+								!defined(MU_FALSE)
+
+								#include <stdbool.h>
+
+								// @DOCLINE `muBool`: equivalent to `bool`
+								#ifndef muBool
+									#define muBool bool
+								#endif
+
+								// @DOCLINE `MU_TRUE`: equivalent to `true`
+								#ifndef MU_TRUE
+									#define MU_TRUE true
+								#endif
+
+								// @DOCLINE `MU_FALSE`: equivalent to `false`
+								#ifndef MU_FALSE
+									#define MU_FALSE false
+								#endif
+
+							#endif
+
+						// @DOCLINE # Macros
+
+							// @DOCLINE ## Version
+
+								// @DOCLINE The macros `MUU_VERSION_MAJOR`, `MUU_VERSION_MINOR`, and `MUU_VERSION_PATCH` are defined to match its respective release version, following the formatting of `MAJOR.MINOR.PATCH`.
+
+								#define MUU_VERSION_MAJOR 1
+								#define MUU_VERSION_MINOR 1
+								#define MUU_VERSION_PATCH 0
+
+							// @DOCLINE ## `MUDEF`
+
+								// @DOCLINE The `MUDEF` macro is a macro used by virtually all mu libraries, which is generally added before a header-defined variable or function. Its default value is `extern`, but can be changed to `static` by defining `MU_STATIC` before the header section of muUtility is defined. Its value can also be overwritten entirely to anything else by directly defining `MUDEF`.
+
+								#ifndef MUDEF
+									#ifdef MU_STATIC
+										#define MUDEF static
+									#else
+										#define MUDEF extern
+									#endif
+								#endif
+
+							// @DOCLINE ## Zero struct
+
+								// @DOCLINE There are two macros, `MU_ZERO_STRUCT` and `MU_ZERO_STRUCT_CONST`, which are macro functions used to zero-out a struct's contents, with their only parameter being the struct type. The reason this needs to be defined is because the way C and C++ syntax handles an empty struct are different, and need to be adjusted for.
+
+								#ifndef MU_ZERO_STRUCT
+									#ifdef __cplusplus
+										#define MU_ZERO_STRUCT(s) {}
+									#else
+										#define MU_ZERO_STRUCT(s) (s){0}
+									#endif
+								#endif
+
+								#ifndef MU_ZERO_STRUCT_CONST
+									#ifdef __cplusplus
+										#define MU_ZERO_STRUCT_CONST(s) {}
+									#else
+										#define MU_ZERO_STRUCT_CONST(s) {0}
+									#endif
+								#endif
+
+							// @DOCLINE ## Byte
+
+								// @DOCLINE Several macros are defined to interact with the idea of a byte.
+
+								// @DOCLINE The macro `muByte` exists as a macro for `uint8_m`, and represents a byte as a type.
+
+								#ifndef muByte
+									#define muByte uint8_m
+								#endif
+
+								// @DOCLINE There are also several macro functions used to read and write to bytes. These macros are:
+
+								// @DOCLINE `mu_rle_uint8(b)`: Creates an expression of type `uint8_m` that reads the value stored in the 1-byte-length little-endian byte array `b`.
+								#ifndef mu_rle_uint8
+									#define mu_rle_uint8(b) ((uint8_m)b[0] << 0)
+								#endif
+								// @DOCLINE `mu_rbe_uint8(b)`: Creates an expression of type `uint8_m` that reads the value stored in the 1-byte-length big-endian byte array `b`.
+								#ifndef mu_rbe_uint8
+									#define mu_rbe_uint8(b) ((uint8_m)b[0] << 0)
+								#endif
+
+								// @DOCLINE `mu_rle_uint16(b)`: Creates an expression of type `uint16_m` that reads the value stored in the 2-byte-length little-endian byte array `b`.
+								#ifndef mu_rle_uint16
+									#define mu_rle_uint16(b) ((uint16_m)b[0] << 0 | (uint16_m)b[1] << 8)
+								#endif
+								// @DOCLINE `mu_rbe_uint16(b)`: Creates an expression of type `uint16_m` that reads the value stored in the 2-byte-length big-endian byte array `b`.
+								#ifndef mu_rbe_uint16
+									#define mu_rbe_uint16(b) ((uint16_m)b[1] << 0 | (uint16_m)b[0] << 8)
+								#endif
+
+								// @DOCLINE `mu_rle_uint32(b)`: Creates an expression of type `uint32_m` that reads the value stored in the 4-byte-length little-endian byte array `b`.
+								#ifndef mu_rle_uint32
+									#define mu_rle_uint32(b) ((uint32_m)b[0] << 0 | (uint32_m)b[1] << 8 | (uint32_m)b[2] << 16 | (uint32_m)b[3] << 24)
+								#endif
+								// @DOCLINE `mu_rbe_uint32(b)`: Creates an expression of type `uint32_m` that reads the value stored in the 4-byte-length big-endian byte array `b`.
+								#ifndef mu_rbe_uint32
+									#define mu_rbe_uint32(b) ((uint32_m)b[3] << 0 | (uint32_m)b[2] << 8 | (uint32_m)b[1] << 16 | (uint32_m)b[0] << 24)
+								#endif
+
+								// @DOCLINE `mu_rle_uint64(b)`: Creates an expression of type `uint64_m` that reads the value stored in the 8-byte-length little-endian byte array `b`.
+								#ifndef mu_rle_uint64
+									#define mu_rle_uint64(b) ((uint64_m)b[0] << 0 | (uint64_m)b[1] << 8 | (uint64_m)b[2] << 16 | (uint64_m)b[3] << 24 | (uint64_m)b[4] << 32 | (uint64_m)b[5] << 40 | (uint64_m)b[6] << 48 | (uint64_m)b[7] << 56)
+								#endif
+								// @DOCLINE `mu_rbe_uint64(b)`: Creates an expression of type `uint64_m` that reads the value stored in the 8-byte-length big-endian byte array `b`.
+								#ifndef mu_rbe_uint64
+									#define mu_rbe_uint64(b) ((uint64_m)b[7] << 0 | (uint64_m)b[6] << 8 | (uint64_m)b[5] << 16 | (uint64_m)b[4] << 24 | (uint64_m)b[3] << 32 | (uint64_m)b[2] << 40 | (uint64_m)b[1] << 48 | (uint64_m)b[0] << 56)
+								#endif
+
+								// @DOCLINE `mu_wle_uint8(b, i)`: Reads the given contents of the 1-byte-length little-endian byte array `b` into the given `uint8_m` variable `i`.
+								#ifndef mu_wle_uint8
+									#define mu_wle_uint8(b, i) b[0] = (uint8_m)(i >> 0);
+								#endif
+								// @DOCLINE `mu_wbe_uint8(b, i)`: Reads the given contents of the 1-byte-length big-endian byte array `b` into the given `uint8_m` variable `i`.
+								#ifndef mu_wbe_uint8
+									#define mu_wbe_uint8(b, i) b[0] = (uint8_m)(i >> 0);
+								#endif
+
+								// @DOCLINE `mu_wle_uint16(b, i)`: Reads the given contents of the 2-byte-length little-endian byte array `b` into the given `uint16_m` variable `i`.
+								#ifndef mu_wle_uint16
+									#define mu_wle_uint16(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8);
+								#endif
+								// @DOCLINE `mu_wbe_uint16(b, i)`: Reads the given contents of the 2-byte-length big-endian byte array `b` into the given `uint16_m` variable `i`.
+								#ifndef mu_wbe_uint16
+									#define mu_wbe_uint16(b, i) b[1] = (uint8_m)(i >> 0); b[0] = (uint8_m)(i >> 8);
+								#endif
+
+								// @DOCLINE `mu_wle_uint32(b, i)`: Reads the given contents of the 4-byte-length little-endian byte array `b` into the given `uint32_m` variable `i`.
+								#ifndef mu_wle_uint32
+									#define mu_wle_uint32(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8); b[2] = (uint8_m)(i >> 16); b[3] = (uint8_m)(i >> 24);
+								#endif
+								// @DOCLINE `mu_wbe_uint32(b, i)`: Reads the given contents of the 4-byte-length big-endian byte array `b` into the given `uint32_m` variable `i`.
+								#ifndef mu_wbe_uint32
+									#define mu_wbe_uint32(b, i) b[3] = (uint8_m)(i >> 0); b[2] = (uint8_m)(i >> 8); b[1] = (uint8_m)(i >> 16); b[0] = (uint8_m)(i >> 24);
+								#endif
+
+								// @DOCLINE `mu_wle_uint64(b, i)`: Reads the given contents of the 8-byte-length little-endian byte array `b` into the given `uint64_m` variable `i`.
+								#ifndef mu_wle_uint64
+									#define mu_wle_uint64(b, i) b[0] = (uint8_m)(i >> 0); b[1] = (uint8_m)(i >> 8); b[2] = (uint8_m)(i >> 16); b[3] = (uint8_m)(i >> 24); b[4] = (uint8_m)(i >> 32); b[5] = (uint8_m)(i >> 40); b[6] = (uint8_m)(i >> 48); b[7] = (uint8_m)(i >> 56);
+								#endif
+								// @DOCLINE `mu_wbe_uint64(b, i)`: Reads the given contents of the 8-byte-length big-endian byte array `b` into the given `uint64_m` variable `i`.
+								#ifndef mu_wbe_uint64
+									#define mu_wbe_uint64(b, i) b[7] = (uint8_m)(i >> 0); b[6] = (uint8_m)(i >> 8); b[5] = (uint8_m)(i >> 16); b[4] = (uint8_m)(i >> 24); b[3] = (uint8_m)(i >> 32); b[2] = (uint8_m)(i >> 40); b[1] = (uint8_m)(i >> 48); b[0] = (uint8_m)(i >> 56);
+								#endif
+
+							// @DOCLINE ## Null values
+
+								// @DOCLINE The `MU_NULL_PTR` macro is a macro value used to represent a null pointer. It is simply 0.
+								#ifndef MU_NULL_PTR
+									#define MU_NULL_PTR 0
+								#endif
+
+								// @DOCLINE The `MU_NULL` macro is a macro value used to represent a null value. It is simply 0.
+								#ifndef MU_NULL
+									#define MU_NULL 0
+								#endif
+
+							// @DOCLINE ## Set result
+
+								/* @DOCBEGIN The `MU_SET_RESULT(res, val)` macro is a macro function that checks if the given parameter `res` is a null pointer. If it is, it does nothing, but if it isn't, it sets its value to the given parameter `val`. This macro saves a lot of code, shrinking down what would be this:
+
+								```c
+								if (result != MU_NULL_PTR) {
+								    *result = ...;
+								}
+								```
+
+								into this:
+								
+								```c
+								MU_SET_RESULT(result, ...)
+								```
+
+								@DOCEND */
+
+								#ifndef MU_SET_RESULT
+									#define MU_SET_RESULT(res, val) if(res!=MU_NULL_PTR){*res=val;}
+								#endif
+
+							// @DOCLINE ## Enum
+
+								/* @DOCBEGIN
+
+								The `MU_ENUM(name, ...)` macro is a macro function used to declare an enumerator. The reason why one would prefer this over the traditional way of declaring enumerators is because it actually makes it a `size_m` which can avoid errors on certain compilers (looking at you, Microsoft) in regards to treating enumerators like values. It expands like this:
+
+								```c
+								enum _##name{
+								    __VA_ARGS__
+								};
+								typedef enum _##name _##name;
+								typedef size_m name;
+								```
+
+								@DOCEND */
+
+								#define MU_ENUM(name, ...) enum _##name{__VA_ARGS__};typedef enum _##name _##name; typedef size_m name;
+
+							// @DOCLINE ## Operating system recognition
+
+								/* @DOCBEGIN The macros `MU_WIN32` or `MU_UNIX` are defined (if neither were defined before) in order to allow mu libraries to easily check if they're running on a Windows or Unix system.
+
+								`MU_WIN32` will be defined if `WIN32` or `_WIN32` are defined, one of which is usually pre-defined on Windows systems.
+
+								`MU_UNIX` will be defined if `__unix__` is defined or both `__APPLE__` and `__MACH__` are defined.
+
+								@DOCEND */
+
+								#if !defined(MU_WIN32) && !defined(MU_UNIX)
+									#if defined(WIN32) || defined(_WIN32)
+										#define MU_WIN32
+									#elif defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+										#define MU_UNIX
+									#endif
+								#endif
+
+						#ifdef __cplusplus
+						}
+						#endif
+
+					#endif /* MUU_H */
+				// @ATTENTION
+
+				// @DOCLINE Note that mu libraries store their dependencies within their files, so you don't need to import these dependencies yourself.
+				// @DOCLINE Note that the libraries listed may also have other dependencies that they also include that aren't listed here.
+
+				/* @DOCBEGIN
+
+				## Demo library dependencies
+
+				The demos have an `include` folder for other files needed to compile the demos, which is usually for other library dependencies. These library dependencies are:
+
+				[glad](https://github.com/Dav1dde/glad); specifically generated with [this generator on these settings](http://glad.sh/#api=gl%3Acore%3D3.3&extensions=&generator=c&options=HEADER_ONLY%2CLOADER).
+
+				[vkbind](https://github.com/mackron/vkbind).
+
+				The files for these libraries are all self-contained in the `include` folder found in the `demos` folder.
+
+				@DOCEND */
+
+				#ifdef __cplusplus
+				extern "C" { // }
+				#endif
+
+				// @DOCLINE # Macros
+
+					// @DOCLINE ## `muWindow`
+
+						// @DOCLINE The macro `muWindow` is a void pointer that muCOSA uses to allocate and keep track of a window's data, defined below: @NLNT
+						#define muWindow void*
+
+					// @DOCLINE ## States
+
+						// @DOCLINE Two macros are defined to represent the state of something. These are:
+
+						// @DOCLINE `muButtonState`: the state of a button (`MU_BUTTON_STATE_RELEASED` (0) meaning the button is not being held, and `MU_BUTTON_STATE_HELD` (1) meaning the button is being held), represented with the type `muBool`.
+						#define muButtonState muBool
+						#define MU_BUTTON_STATE_RELEASED 0
+						#define MU_BUTTON_STATE_HELD 1
+
+						// @DOCLINE `muState`: the state of something (`MU_ON` (1) meaning *on* and `MU_OFF` (0) meaning *off*), represented with the type `muBool`.
+						#define muState muBool
+						#define MU_ON 1
+						#define MU_OFF 0
+
+					// @DOCLINE ## Window system definitions
+
+						// @DOCLINE The window systems defined by muCOSA are automatically handled based on what system is running; Unix systems automatically define `MUCOSA_X11` and Win32 systems automatically define `MUCOSA_WIN32`. This automatic choice can be disabled via defining `MUCOSA_NO_AUTOMATIC_API`, and then the user has to manually define these themselves.
+
+						// @DOCLINE This behaviour is handled in the header of muCOSA.
+
+						#ifndef MUCOSA_NO_AUTOMATIC_API
+
+							#ifdef MU_UNIX
+								#define MUCOSA_X11
+							#endif
+
+							#ifdef MU_WIN32
+								#define MUCOSA_WIN32
+							#endif
+
+						#endif
+
+					// @DOCLINE ## Locale modification
+
+						// @DOCLINE On X11, in order for text input to fully work, it is recommended to set the locale to "". This is automatically performed unless `MUCOSA_NO_LOCALE_MOD` is defined before the implementation of muCOSA is defined.
+
+					// @DOCLINE ## Version macro
+
+						// @DOCLINE muCOSA defines three macros to define the version of muCOSA: `MUCOSA_VERSION_MAJOR`, `MUCOSA_VERSION_MINOR`, and `MUCOSA_VERSION_PATCH`, following the format of `vMAJOR.MINOR.PATCH`.
+
+						#define MUCOSA_VERSION_MAJOR 1
+						#define MUCOSA_VERSION_MINOR 0
+						#define MUCOSA_VERSION_PATCH 0
 
 					#if defined(MUCOSA_VULKAN) && !defined(MUCOSA_NO_INCLUDE_VULKAN)
 						#ifdef MUCOSA_WIN32
@@ -1545,781 +508,1610 @@ ensure that rendered buffer sections don't get modified, or else UB.
 						#endif
 					#endif
 
-			/* Enums */
+				// @DOCLINE # Enums
 
-				MU_ENUM(muCOSAResult,
-					MUCOSA_SUCCESS,
+					MU_ENUM(muCOSAResult,
+						/* @DOCBEGIN
+						## Result enumerator
+						
+						muCOSA uses the `muCOSAResult` enumerator to represent how a function went. It has the following possible values:
 
-					MUCOSA_ALREADY_INITIALIZED,
-					MUCOSA_ALREADY_TERMINATED,
-					MUCOSA_ALREADY_ACTIVE,
-					MUCOSA_ALREADY_INACTIVE,
+						@DOCEND */
 
-					MUCOSA_NOT_YET_INITIALIZED,
+						// @DOCLINE `@NLFT`: the task succeeded.
+						MUCOSA_SUCCESS,
 
-					MUCOSA_ALLOCATION_FAILED,
+						// @DOCLINE `@NLFT`: the functionality being requested to be activated is already active.
+						MUCOSA_ALREADY_ACTIVE,
 
-					MUCOSA_UNKNOWN_WINDOW_SYSTEM,
-					MUCOSA_UNKNOWN_GRAPHICS_API,
-					MUCOSA_UNKNOWN_KEYBOARD_KEY,
-					MUCOSA_UNKNOWN_KEYBOARD_STATE,
-					MUCOSA_UNKNOWN_MOUSE_BUTTON,
-					MUCOSA_UNKNOWN_WINDOW_HANDLE,
+						// @DOCLINE `@NLFT`: memory necessary to perform the task failed to allocate.
+						MUCOSA_ALLOCATION_FAILED,
 
-					MUCOSA_UNSUPPORTED_WINDOW_SYSTEM,
-					MUCOSA_UNSUPPORTED_FEATURE, // Could mean that it rather can't be (or hasn't been) implemented, or that
-					// the specific thing you're trying to do won't work on this device/OS for some reason (for example, on X11,
-					// an Atom needed for that task can't be found).
-					MUCOSA_UNSUPPORTED_OPENGL_FEATURE, // Something relating to OpenGL isn't supported or couldn't be found.
-					MUCOSA_UNSUPPORTED_GRAPHICS_API, // Graphics API function was called when that API
-					// wasn't explicity defined.
+						// @DOCLINE `@NLFT`: a window system enumerator value given is an invalid value or is not supported on this system.
+						MUCOSA_UNKNOWN_WINDOW_SYSTEM,
+						// @DOCLINE `@NLFT`: a graphics API enumerator value given is an invalid value.
+						MUCOSA_UNKNOWN_GRAPHICS_API,
+						// @DOCLINE `@NLFT`: a window handle API enumerator value given is an invalid value or is not supported on this system.
+						MUCOSA_UNKNOWN_WINDOW_HANDLE,
 
-					MUCOSA_FAILED_CONNECTION_TO_SERVER,
-					MUCOSA_FAILED_CREATE_WINDOW,
-					MUCOSA_FAILED_LOAD_FUNCTIONS,
-					MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER, // Not fatal
-					MUCOSA_FAILED_CREATE_OPENGL_CONTEXT,
-					MUCOSA_FAILED_LOAD_OPENGL_CONTEXT,
-					MUCOSA_FAILED_USE_PIXEL_FORMAT, // Not fatal
-					MUCOSA_FAILED_JOIN_THREAD,
-					MUCOSA_FAILED_CREATE_THREAD,
-					MUCOSA_FAILED_CREATE_INPUT_METHOD, // (X11)
-					MUCOSA_FAILED_GET_INPUT_STYLES, // (X11)
-					MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE, // (X11)
-					MUCOSA_FAILED_CREATE_INPUT_CONTEXT, // (X11)
-					MUCOSA_FAILED_REGISTER_WINDOW_CLASS, // (Win32)
-					MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR, // (Win32)
-					MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8, // (Win32)
-					MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS, // (Win32)
-					MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW, // (Win32)
-					MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT, // (Win32)
-					MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT, // (Win32)
-					MUCOSA_FAILED_SET_PIXEL_FORMAT, // (Win32)
-					MUCOSA_FAILED_QUERY_WINDOW_INFO, // (Win32)
-					MUCOSA_FAILED_SET_WINDOW_INFO, // (Win32)
-					MUCOSA_FAILED_GET_IMM_CONTEXT, // (Win32)
-					MUCOSA_FAILED_LET_IMM_CONTEXT, // (Win32)
-					MUCOSA_FAILED_GLOBAL_ALLOCATION, // (Win32)
-					MUCOSA_FAILED_GLOBAL_LOCK, // (Win32)
-					MUCOSA_FAILED_HOLD_CLIPBOARD, // (Win32)
-					MUCOSA_FAILED_SET_CLIPBOARD, // (Win32)
+						// @DOCLINE `@NLFT`: an OpenGL feature necessary to perform the task is not available.
+						MUCOSA_UNSUPPORTED_OPENGL_FEATURE,
+						// @DOCLINE `@NLFT`: the graphics API being requested has not been defined (for example, if you're trying to use OpenGL, `MUCOSA_OPENGL` must be defined before the inclusion of the header file).
+						MUCOSA_UNSUPPORTED_GRAPHICS_API,
 
-					MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS,
-					MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS,
-					MUCOSA_INVALID_ID,
-					MUCOSA_INVALID_SAMPLE_COUNT,
-					MUCOSA_INVALID_DIMENSIONS, // Often caused by width/height being outside of min/max width/height
-					MUCOSA_INVALID_POINTER, // Like if you pass in a null pointer when a real pointer is
-					// expected.
-					MUCOSA_INVALID_WINDOW_STATE, // For example, when you try to focus a window that is
-					// invisible or minimized in X11 (but only sometimes, IT'S COMPLICATED).
-					MUCOSA_INVALID_TIME, // Like if you try passing a negative value to sleep for example.
+						// @DOCLINE `@NLFT`: a Display object could not be opened. This is X11 exclusive.
+						MUCOSA_FAILED_CONNECTION_TO_SERVER,
+						// @DOCLINE `@NLFT`: the call to create the window failed.
+						MUCOSA_FAILED_CREATE_WINDOW,
+						// @DOCLINE `@NLFT`: the function given to the window creation function returned a bad value.
+						MUCOSA_FAILED_LOAD_FUNCTIONS,
+						// @DOCLINE `@NLFT`: the OpenGL context could not be created.
+						MUCOSA_FAILED_CREATE_OPENGL_CONTEXT,
+						// @DOCLINE `@NLFT`: the created OpenGL context could not be loaded or made the current OpenGL context.
+						MUCOSA_FAILED_LOAD_OPENGL_CONTEXT,
+						// @DOCLINE `@NLFT`: a thread necessary to perform the task could not be created.
+						MUCOSA_FAILED_CREATE_THREAD,
+						// @DOCLINE `@NLFT`: an input method for text input could not be created. This is X11 exclusive.
+						MUCOSA_FAILED_CREATE_INPUT_METHOD, // (X11)
+						// @DOCLINE `@NLFT`: the input styles for text input could not be retrieved. This is X11 exclusive.
+						MUCOSA_FAILED_GET_INPUT_STYLES, // (X11)
+						// @DOCLINE `@NLFT`: a compatible input style for muCOSA's API for text input could not be created. This is X11 exclusive.
+						MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE, // (X11)
+						// @DOCLINE `@NLFT`: the input context for text input could not be created. This is X11 exclusive.
+						MUCOSA_FAILED_CREATE_INPUT_CONTEXT, // (X11)
+						// @DOCLINE `@NLFT`: the window class necessary to create a window could not be registered. This is Win32 exclusive.
+						MUCOSA_FAILED_REGISTER_WINDOW_CLASS, // (Win32)
+						// @DOCLINE `@NLFT`: a string conversion from UTF-8 to wide-character necessary to perform the task could not be performed. This is Win32 exclusive.
+						MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR, // (Win32)
+						// @DOCLINE `@NLFT`: a string conversion from wide-character to UTF-8 necessary to perform the task could not be performed. This is Win32 exclusive.
+						MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8, // (Win32)
+						// @DOCLINE `@NLFT`: the temporary WGL window class necessary to create a valid WGL context could not be registered. This is Win32 exclusive.
+						MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS, // (Win32)
+						// @DOCLINE `@NLFT`: the temporary WGL window necessary to create a valid WGL context could not be created. This is Win32 exclusive.
+						MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW, // (Win32)
+						// @DOCLINE `@NLFT`: a compatible pixel format for OpenGL could not be found. This is Win32 exclusive.
+						MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT, // (Win32)
+						// @DOCLINE `@NLFT`: the pixel format for OpenGL could not be described. This is Win32 exclusive.
+						MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT, // (Win32)
+						// @DOCLINE `@NLFT`: the pixel format for OpenGL could not be set. This is Win32 exclusive.
+						MUCOSA_FAILED_SET_PIXEL_FORMAT, // (Win32)
+						// @DOCLINE `@NLFT`: the requested information about the window could not be retrieved at the current moment. This is Win32 exclusive.
+						MUCOSA_FAILED_QUERY_WINDOW_INFO, // (Win32)
+						// @DOCLINE `@NLFT`: the requested information about the window could be set at the current moment. This is Win32 exclusive.
+						MUCOSA_FAILED_SET_WINDOW_INFO, // (Win32)
+						// @DOCLINE `@NLFT`: the IME context could not be associated with the given window. This is Win32 exclusive.
+						MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT, // (Win32)
+						// @DOCLINE `@NLFT`: global memory necessary to perform the task could not be allocated. This is Win32 exclusive.
+						MUCOSA_FAILED_GLOBAL_ALLOCATION, // (Win32)
+						// @DOCLINE `@NLFT`: global memory necessary to perform the task could not be locked. This is Win32 exclusive.
+						MUCOSA_FAILED_GLOBAL_LOCK, // (Win32)
+						// @DOCLINE `@NLFT`: the clipboard could not be held successfully. This is Win32 exclusive.
+						MUCOSA_FAILED_HOLD_CLIPBOARD, // (Win32)
+						// @DOCLINE `@NLFT`: the clipboard could not be set successfully. This is Win32 exclusive.
+						MUCOSA_FAILED_SET_CLIPBOARD, // (Win32)
 
-					MUCOSA_NONEXISTENT_DEVICE, // For example, you requested the position of the cursor,
-					// but there is no cursor. For whatever reason, lmao.
+						// @DOCLINE `@NLFT`: the min/max booleans specified in the window create info struct are invalid or don't make sense.
+						MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS,
+						// @DOCLINE `@NLFT`: the min/max dimensions specified are invalid or don't make sense.
+						MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS,
+						// @DOCLINE `@NLFT`: the sample count given is invalid; it must be a positive power of two with a maximum value of 16.
+						MUCOSA_INVALID_SAMPLE_COUNT,
+						// @DOCLINE `@NLFT`: the state of the window is invalid to perform the given task.
+						MUCOSA_INVALID_WINDOW_STATE,
 
-					MUCOSA_OVERSIZED_CLIPBOARD, // Clipboard was too big to copy. As of right now, on X11,
-					// this is triggered by INCR not being implemented, which is my bad and should be done
-					// at some point.
+						// @DOCLINE `@NLFT`: a device necessary to perform the task is not available.
+						MUCOSA_NONEXISTENT_DEVICE,
 
-					MUCOSA_WINDOW_NON_RESIZABLE,
+						// @DOCLINE `@NLFT`: the clipboard was too large to perform the task necessary. This can occur on X11 with reasonable clipboard sizes due to INCR not being implemented at this moment.
+						MUCOSA_OVERSIZED_CLIPBOARD,
+					)
+					// @DOCLINE Unless specified otherwise above, if the result of a function does not equal `MUCOSA_SUCCESS`, whatever the function was supposed to do failed, and it will be as if the function was never called (meaning the function call had no permanent effect).
 
-					MUCOSA_MUMA_SUCCESS,
-					MUCOSA_MUMA_FAILED_TO_ALLOCATE,
-					MUCOSA_MUMA_INVALID_INDEX,
-					MUCOSA_MUMA_INVALID_SHIFT_AMOUNT,
-					MUCOSA_MUMA_NOT_FOUND,
-				)
+					MU_ENUM(muWindowSystem,
+						/* @DOCBEGIN
+						## Window system
+						
+						The enum `muWindowSystem` defines a window system. It has these possible values:
 
-				MU_ENUM(muWindowSystem,
-					MU_WINDOW_SYSTEM_UNKNOWN,
+						@DOCEND */
+						// @DOCLINE `@NLFT`: an unknown window system.
+						MU_WINDOW_SYSTEM_UNKNOWN,
 
-					MU_WINDOW_SYSTEM_AUTO,
-					MU_WINDOW_SYSTEM_X11,
-					MU_WINDOW_SYSTEM_WIN32,
-				)
+						// @DOCLINE `@NLFT`: choose the window system automatically.
+						MU_WINDOW_SYSTEM_AUTO,
+						// @DOCLINE `@NLFT`: the [X11 window system](https://en.wikipedia.org/wiki/X_Window_System).
+						MU_WINDOW_SYSTEM_X11,
+						// @DOCLINE `@NLFT`: the [Win32 Windows API](https://en.wikipedia.org/wiki/Windows_API#Major_versions).
+						MU_WINDOW_SYSTEM_WIN32,
+					)
 
-				MU_ENUM(muWindowHandle,
-					MU_WINDOWS_HWND,
-					MU_X11_DISPLAY,
-					MU_X11_WINDOW,
-					MU_X11_PARENT_WINDOW,
-				)
+					MU_ENUM(muWindowHandle,
+						// @DOCLINE ## Window handle
+						// @DOCLINE The enum `muWindowHandle` defines a window handle. It has these possible values:
 
-				MU_ENUM(muGraphicsAPI,
-					MU_NO_GRAPHICS_API,
+						// @DOCLINE `@NLFT`: Win32's [HWND](https://learn.microsoft.com/en-us/windows/win32/winprog/windows-data-types#HWND).
+						MU_WINDOWS_HWND,
+						// @DOCLINE `@NLFT`: a pointer to X11's [Display](https://tronche.com/gui/x/xlib/display/opening.html#Display).
+						MU_X11_DISPLAY,
+						// @DOCLINE `@NLFT`: X11's [Window](https://tronche.com/gui/x/xlib/window/).
+						MU_X11_WINDOW,
+						// @DOCLINE `@NLFT`: X11's [parent Window](https://tronche.com/gui/x/xlib/window-information/XQueryTree.html).
+						MU_X11_PARENT_WINDOW,
+					)
 
-					MU_OPENGL_1_0,
-					MU_OPENGL_1_1,
-					MU_OPENGL_1_2,
-					MU_OPENGL_1_2_1,
-					MU_OPENGL_1_3,
-					MU_OPENGL_1_4,
-					MU_OPENGL_1_5,
-					MU_OPENGL_2_0,
-					MU_OPENGL_2_1,
-					MU_OPENGL_3_0,
-					MU_OPENGL_3_1,
-					MU_OPENGL_3_2_CORE,
-					MU_OPENGL_3_2_COMPATIBILITY,
-					MU_OPENGL_3_3_CORE,
-					MU_OPENGL_3_3_COMPATIBILITY,
-					MU_OPENGL_4_0_CORE,
-					MU_OPENGL_4_0_COMPATIBILITY,
-					MU_OPENGL_4_1_CORE,
-					MU_OPENGL_4_1_COMPATIBILITY,
-					MU_OPENGL_4_2_CORE,
-					MU_OPENGL_4_2_COMPATIBILITY,
-					MU_OPENGL_4_3_CORE,
-					MU_OPENGL_4_3_COMPATIBILITY,
-					MU_OPENGL_4_4_CORE,
-					MU_OPENGL_4_4_COMPATIBILITY,
-					MU_OPENGL_4_5_CORE,
-					MU_OPENGL_4_5_COMPATIBILITY,
-					MU_OPENGL_4_6_CORE,
-					MU_OPENGL_4_6_COMPATIBILITY
-				)
-				#define MUCOSA_OPENGL_FIRST MU_OPENGL_1_0
-				#define MUCOSA_OPENGL_LAST MU_OPENGL_4_6_COMPATIBILITY
+					MU_ENUM(muGraphicsAPI,
+						// @DOCLINE ## Graphics API
+						// @DOCLINE The enum `muGraphicsAPI` defines a graphics API. It has these possible values:
 
-				MU_ENUM(muCursorStyle,
-					MU_CURSOR_STYLE_UNKNOWN=0,
+						// @DOCLINE `@NLFT`: no graphics API.
+						MU_NO_GRAPHICS_API,
 
-					// Taken from LÖVE
-					// https://love2d.org/wiki/CursorType
-					// @TODO Add invisible
-					MU_CURSOR_STYLE_DEFAULT,
-					MU_CURSOR_STYLE_ARROW,
-					MU_CURSOR_STYLE_IBEAM,
-					MU_CURSOR_STYLE_WAIT,
-					MU_CURSOR_STYLE_WAIT_ARROW,
-					MU_CURSOR_STYLE_CROSSHAIR,
-					MU_CURSOR_STYLE_HAND,
-					MU_CURSOR_STYLE_SIZE_EAST_WEST,
-					MU_CURSOR_STYLE_SIZE_NORTH_SOUTH,
-					MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST,
-					MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST,
-					MU_CURSOR_STYLE_SIZE_ALL,
-					MU_CURSOR_STYLE_NO
-				)
+						// @DOCLINE `@NLFT`: [OpenGL v1.0](https://registry.khronos.org/OpenGL/specs/gl/glspec10.pdf).
+						MU_OPENGL_1_0,
+						// @DOCLINE `@NLFT`: [OpenGL v1.1](https://registry.khronos.org/OpenGL/specs/gl/glspec11.pdf).
+						MU_OPENGL_1_1,
+						// @DOCLINE `@NLFT`: [OpenGL v1.2](https://registry.khronos.org/OpenGL/specs/gl/glspec121.pdf).
+						MU_OPENGL_1_2,
+						// @DOCLINE `@NLFT`: [OpenGL v1.2.1](https://registry.khronos.org/OpenGL/specs/gl/glspec121.pdf).
+						MU_OPENGL_1_2_1,
+						// @DOCLINE `@NLFT`: [OpenGL v1.3](https://registry.khronos.org/OpenGL/specs/gl/glspec13.pdf).
+						MU_OPENGL_1_3,
+						// @DOCLINE `@NLFT`: [OpenGL v1.4](https://registry.khronos.org/OpenGL/specs/gl/glspec14.pdf).
+						MU_OPENGL_1_4,
+						// @DOCLINE `@NLFT`: [OpenGL v1.5](https://registry.khronos.org/OpenGL/specs/gl/glspec15.pdf).
+						MU_OPENGL_1_5,
+						// @DOCLINE `@NLFT`: [OpenGL v2.0](https://registry.khronos.org/OpenGL/specs/gl/glspec20.pdf).
+						MU_OPENGL_2_0,
+						// @DOCLINE `@NLFT`: [OpenGL v2.1](https://registry.khronos.org/OpenGL/specs/gl/glspec21.pdf).
+						MU_OPENGL_2_1,
+						// @DOCLINE `@NLFT`: [OpenGL v3.0](https://registry.khronos.org/OpenGL/specs/gl/glspec30.pdf).
+						MU_OPENGL_3_0,
+						// @DOCLINE `@NLFT`: [OpenGL v3.1](https://registry.khronos.org/OpenGL/specs/gl/glspec31.pdf).
+						MU_OPENGL_3_1,
+						// @DOCLINE `@NLFT`: [OpenGL v3.2 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec32.core.pdf).
+						MU_OPENGL_3_2_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v3.2 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec32.compatibility.pdf).
+						MU_OPENGL_3_2_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v3.3 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec33.core.pdf).
+						MU_OPENGL_3_3_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v3.3 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec33.compatibility.pdf).
+						MU_OPENGL_3_3_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.0 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec40.core.pdf).
+						MU_OPENGL_4_0_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.0 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec40.compatibility.pdf).
+						MU_OPENGL_4_0_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.1 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec41.core.pdf).
+						MU_OPENGL_4_1_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.1 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec41.compatibility.pdf).
+						MU_OPENGL_4_1_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.2 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec42.core.pdf).
+						MU_OPENGL_4_2_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.2 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec42.compatibility.pdf).
+						MU_OPENGL_4_2_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.3 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec43.core.pdf).
+						MU_OPENGL_4_3_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.3 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec43.compatibility.pdf).
+						MU_OPENGL_4_3_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.4 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec44.core.pdf).
+						MU_OPENGL_4_4_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.4 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec44.compatibility.pdf).
+						MU_OPENGL_4_4_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.5 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec45.core.pdf).
+						MU_OPENGL_4_5_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.5 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec45.compatibility.pdf).
+						MU_OPENGL_4_5_COMPATIBILITY,
+						// @DOCLINE `@NLFT`: [OpenGL v4.6 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf).
+						MU_OPENGL_4_6_CORE,
+						// @DOCLINE `@NLFT`: [OpenGL v4.6 Compatibility](https://registry.khronos.org/OpenGL/specs/gl/glspec46.compatibility.pdf).
+						MU_OPENGL_4_6_COMPATIBILITY
+					)
+					// @DOCLINE The macros `MUCOSA_OPENGL_FIRST` and `MUCOSA_OPENGL_LAST` are also used to define the first and last valid graphics APIs (those being `MU_OPENGL_1_0` and `MU_OPENGL_4_6_COMPATIBILITY` respectively).
+					#define MUCOSA_OPENGL_FIRST MU_OPENGL_1_0
+					#define MUCOSA_OPENGL_LAST MU_OPENGL_4_6_COMPATIBILITY
+				
+					MU_ENUM(muCursorStyle,
+						// @DOCLINE ## Cursor style
+						// @DOCLINE The enum `muCursorStyle` defines what a cursor looks like. It has these possible values:
 
-				MU_ENUM(muKeyboardKey,
-					MU_KEYBOARD_KEY_UNKNOWN,
+						// @DOCLINE `@NLFT`: unknown cursor style.
+						MU_CURSOR_STYLE_UNKNOWN=0,
 
-					// Note: this list is by no means complete;
-					// missing many basic ASCII characters like:
-					// ~ \ [] ; . /
-					// Plan to add more later.
+						// @DOCLINE `@NLFT`: undefined cursor style.
+						MU_CURSOR_STYLE_DEFAULT,
+						// @DOCLINE `@NLFT`: the normal arrow-looking cursor style (equivalent to `IDC_ARROW` in Win32).
+						MU_CURSOR_STYLE_ARROW,
+						// @DOCLINE `@NLFT`: the text-select cursor style (equivalent to `IDC_IBEAM` in Win32).
+						MU_CURSOR_STYLE_IBEAM,
+						// @DOCLINE `@NLFT`: the waiting/busy/loading cursor style (equivalent to `IDC_WAIT` in Win32).
+						MU_CURSOR_STYLE_WAIT,
+						// @DOCLINE `@NLFT`: the waiting/busy/loading cursor style but with the arrow cursor as well (equivalent to `IDC_APPSTARTING` in Win32).
+						MU_CURSOR_STYLE_WAIT_ARROW,
+						// @DOCLINE `@NLFT`: the crosshair cursor style (equivalent to `IDC_CROSS` in Win32).
+						MU_CURSOR_STYLE_CROSSHAIR,
+						// @DOCLINE `@NLFT`: the finger-pointing/link-select cursor style (equivalent to `IDC_HAND` in Win32).
+						MU_CURSOR_STYLE_HAND,
+						// @DOCLINE `@NLFT`: the resize cursor style, pointing left to right (equivalent to `IDC_SIZEWE` in Win32).
+						MU_CURSOR_STYLE_SIZE_EAST_WEST,
+						// @DOCLINE `@NLFT`: the resize cursor style, pointing up to down (equivalent to `IDC_SIZENS` in Win32).
+						MU_CURSOR_STYLE_SIZE_NORTH_SOUTH,
+						// @DOCLINE `@NLFT`: the resize cursor style, pointing top-right to bottom-left (equivalent to `IDC_SIZENESW` in Win32).
+						MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST,
+						// @DOCLINE `@NLFT`: the resize cursor style, pointing top-left to bottom-right (equivalent to `IDC_SIZENWSE` in Win32).
+						MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST,
+						// @DOCLINE `@NLFT`: the move/resize-all cursor style, pointing in all directions (equivalent to `IDC_SIZEALL` in Win32).
+						MU_CURSOR_STYLE_SIZE_ALL,
+						// @DOCLINE `@NLFT`: the disallowing/error/not-allowed cursor style (equivalent to `IDC_NO` in Win32).
+						MU_CURSOR_STYLE_NO
+					)
 
-					MU_KEYBOARD_KEY_BACKSPACE,
-					MU_KEYBOARD_KEY_TAB,
-					MU_KEYBOARD_KEY_CLEAR,
-					MU_KEYBOARD_KEY_RETURN,
-					MU_KEYBOARD_KEY_PAUSE,
-					MU_KEYBOARD_KEY_ESCAPE,
-					MU_KEYBOARD_KEY_MODECHANGE,
-					MU_KEYBOARD_KEY_SPACE,
-					MU_KEYBOARD_KEY_PRIOR,
-					MU_KEYBOARD_KEY_NEXT,
-					MU_KEYBOARD_KEY_END,
-					MU_KEYBOARD_KEY_HOME,
-					MU_KEYBOARD_KEY_LEFT,
-					MU_KEYBOARD_KEY_UP,
-					MU_KEYBOARD_KEY_RIGHT,
-					MU_KEYBOARD_KEY_DOWN,
-					MU_KEYBOARD_KEY_SELECT,
-					MU_KEYBOARD_KEY_PRINT,
-					MU_KEYBOARD_KEY_EXECUTE,
-					MU_KEYBOARD_KEY_INSERT,
-					MU_KEYBOARD_KEY_DELETE,
-					MU_KEYBOARD_KEY_HELP,
-					MU_KEYBOARD_KEY_0,
-					MU_KEYBOARD_KEY_1,
-					MU_KEYBOARD_KEY_2,
-					MU_KEYBOARD_KEY_3,
-					MU_KEYBOARD_KEY_4,
-					MU_KEYBOARD_KEY_5,
-					MU_KEYBOARD_KEY_6,
-					MU_KEYBOARD_KEY_7,
-					MU_KEYBOARD_KEY_8,
-					MU_KEYBOARD_KEY_9,
-					MU_KEYBOARD_KEY_A,
-					MU_KEYBOARD_KEY_B,
-					MU_KEYBOARD_KEY_C,
-					MU_KEYBOARD_KEY_D,
-					MU_KEYBOARD_KEY_E,
-					MU_KEYBOARD_KEY_F,
-					MU_KEYBOARD_KEY_G,
-					MU_KEYBOARD_KEY_H,
-					MU_KEYBOARD_KEY_I,
-					MU_KEYBOARD_KEY_J,
-					MU_KEYBOARD_KEY_K,
-					MU_KEYBOARD_KEY_L,
-					MU_KEYBOARD_KEY_M,
-					MU_KEYBOARD_KEY_N,
-					MU_KEYBOARD_KEY_O,
-					MU_KEYBOARD_KEY_P,
-					MU_KEYBOARD_KEY_Q,
-					MU_KEYBOARD_KEY_R,
-					MU_KEYBOARD_KEY_S,
-					MU_KEYBOARD_KEY_T,
-					MU_KEYBOARD_KEY_U,
-					MU_KEYBOARD_KEY_V,
-					MU_KEYBOARD_KEY_W,
-					MU_KEYBOARD_KEY_X,
-					MU_KEYBOARD_KEY_Y,
-					MU_KEYBOARD_KEY_Z,
-					MU_KEYBOARD_KEY_LEFT_WINDOWS,
-					MU_KEYBOARD_KEY_RIGHT_WINDOWS,
-					MU_KEYBOARD_KEY_NUMPAD_0,
-					MU_KEYBOARD_KEY_NUMPAD_1,
-					MU_KEYBOARD_KEY_NUMPAD_2,
-					MU_KEYBOARD_KEY_NUMPAD_3,
-					MU_KEYBOARD_KEY_NUMPAD_4,
-					MU_KEYBOARD_KEY_NUMPAD_5,
-					MU_KEYBOARD_KEY_NUMPAD_6,
-					MU_KEYBOARD_KEY_NUMPAD_7,
-					MU_KEYBOARD_KEY_NUMPAD_8,
-					MU_KEYBOARD_KEY_NUMPAD_9,
-					MU_KEYBOARD_KEY_MULTIPLY,
-					MU_KEYBOARD_KEY_ADD,
-					MU_KEYBOARD_KEY_SEPARATOR,
-					MU_KEYBOARD_KEY_SUBTRACT,
-					MU_KEYBOARD_KEY_DECIMAL,
-					MU_KEYBOARD_KEY_DIVIDE,
-					MU_KEYBOARD_KEY_F1,
-					MU_KEYBOARD_KEY_F2,
-					MU_KEYBOARD_KEY_F3,
-					MU_KEYBOARD_KEY_F4,
-					MU_KEYBOARD_KEY_F5,
-					MU_KEYBOARD_KEY_F6,
-					MU_KEYBOARD_KEY_F7,
-					MU_KEYBOARD_KEY_F8,
-					MU_KEYBOARD_KEY_F9,
-					MU_KEYBOARD_KEY_F10,
-					MU_KEYBOARD_KEY_F11,
-					MU_KEYBOARD_KEY_F12,
-					MU_KEYBOARD_KEY_F13,
-					MU_KEYBOARD_KEY_F14,
-					MU_KEYBOARD_KEY_F15,
-					MU_KEYBOARD_KEY_F16,
-					MU_KEYBOARD_KEY_F17,
-					MU_KEYBOARD_KEY_F18,
-					MU_KEYBOARD_KEY_F19,
-					MU_KEYBOARD_KEY_F20,
-					MU_KEYBOARD_KEY_F21,
-					MU_KEYBOARD_KEY_F22,
-					MU_KEYBOARD_KEY_F23,
-					MU_KEYBOARD_KEY_F24,
-					MU_KEYBOARD_KEY_NUMLOCK,
-					MU_KEYBOARD_KEY_SCROLL,
-					MU_KEYBOARD_KEY_LEFT_SHIFT,
-					MU_KEYBOARD_KEY_RIGHT_SHIFT,
-					MU_KEYBOARD_KEY_LEFT_CONTROL,
-					MU_KEYBOARD_KEY_RIGHT_CONTROL,
-					MU_KEYBOARD_KEY_LEFT_MENU,
-					MU_KEYBOARD_KEY_RIGHT_MENU,
-					MU_KEYBOARD_KEY_ATTN,
-					MU_KEYBOARD_KEY_CRSEL,
-					MU_KEYBOARD_KEY_EXSEL,
-					MU_KEYBOARD_KEY_EREOF,
-					MU_KEYBOARD_KEY_PLAY,
-					MU_KEYBOARD_KEY_PA1,
-				)
-				#define MU_KEYBOARD_KEY_FIRST MU_KEYBOARD_KEY_BACKSPACE
-				#define MU_KEYBOARD_KEY_LAST MU_KEYBOARD_KEY_PA1
+					MU_ENUM(muKeyboardKey,
+						// @DOCLINE ## Keyboard key
+						// @DOCLINE The enum `muKeyboardKey` defines a keyboard key. It has these possible values:
 
-				MU_ENUM(muKeyboardState,
-					MU_KEYBOARD_STATE_UNKNOWN,
+						// @DOCLINE `@NLFT`: unknown key.
+						MU_KEYBOARD_KEY_UNKNOWN,
 
-					MU_KEYBOARD_STATE_CAPS_LOCK,
-					MU_KEYBOARD_STATE_SCROLL_LOCK,
-					MU_KEYBOARD_STATE_NUM_LOCK,
-				)
-				#define MU_KEYBOARD_STATE_FIRST MU_KEYBOARD_STATE_CAPS_LOCK
-				#define MU_KEYBOARD_STATE_LAST MU_KEYBOARD_STATE_NUM_LOCK
+						// @DOCLINE `@NLFT`: the [backspace key](https://en.wikipedia.org/wiki/Backspace).
+						MU_KEYBOARD_KEY_BACKSPACE,
+						// @DOCLINE `@NLFT`: the [tab key](https://en.wikipedia.org/wiki/Tab_key).
+						MU_KEYBOARD_KEY_TAB,
+						// @DOCLINE `@NLFT`: the [clear key](https://en.wikipedia.org/wiki/Clear_key).
+						MU_KEYBOARD_KEY_CLEAR,
+						// @DOCLINE `@NLFT`: the [return key](https://en.wikipedia.org/wiki/Return_key).
+						MU_KEYBOARD_KEY_RETURN,
+						// @DOCLINE `@NLFT`: the [pause key](https://en.wikipedia.org/wiki/Pause_key).
+						MU_KEYBOARD_KEY_PAUSE,
+						// @DOCLINE `@NLFT`: the [escape key](https://en.wikipedia.org/wiki/Escape_key).
+						MU_KEYBOARD_KEY_ESCAPE,
+						// @DOCLINE `@NLFT`: the [modechange key](https://en.wikipedia.org/wiki/Language_input_keys).
+						MU_KEYBOARD_KEY_MODECHANGE,
+						// @DOCLINE `@NLFT`: the [space key](https://en.wikipedia.org/wiki/Space_bar).
+						MU_KEYBOARD_KEY_SPACE,
+						// @DOCLINE `@NLFT`: the [page up key](https://en.wikipedia.org/wiki/Page_Up_and_Page_Down_keys).
+						MU_KEYBOARD_KEY_PRIOR,
+						// @DOCLINE `@NLFT`: the [page down key](https://en.wikipedia.org/wiki/Page_Up_and_Page_Down_keys).
+						MU_KEYBOARD_KEY_NEXT,
+						// @DOCLINE `@NLFT`: the [end key](https://en.wikipedia.org/wiki/End_key).
+						MU_KEYBOARD_KEY_END,
+						// @DOCLINE `@NLFT`: the [home key](https://en.wikipedia.org/wiki/Home_key).
+						MU_KEYBOARD_KEY_HOME,
+						// @DOCLINE `@NLFT`: the [left key](https://en.wikipedia.org/wiki/Arrow_keys).
+						MU_KEYBOARD_KEY_LEFT,
+						// @DOCLINE `@NLFT`: the [up key](https://en.wikipedia.org/wiki/Arrow_keys).
+						MU_KEYBOARD_KEY_UP,
+						// @DOCLINE `@NLFT`: the [right key](https://en.wikipedia.org/wiki/Arrow_keys).
+						MU_KEYBOARD_KEY_RIGHT,
+						// @DOCLINE `@NLFT`: the [down key](https://en.wikipedia.org/wiki/Arrow_keys).
+						MU_KEYBOARD_KEY_DOWN,
+						// @DOCLINE `@NLFT`: the [select key](https://stackoverflow.com/questions/23995537/what-is-the-select-key).
+						MU_KEYBOARD_KEY_SELECT,
+						// @DOCLINE `@NLFT`: the [print key](https://en.wikipedia.org/wiki/Print_Screen).
+						MU_KEYBOARD_KEY_PRINT,
+						// @DOCLINE `@NLFT`: the execute key.
+						MU_KEYBOARD_KEY_EXECUTE,
+						// @DOCLINE `@NLFT`: the [insert key](https://en.wikipedia.org/wiki/Insert_key).
+						MU_KEYBOARD_KEY_INSERT,
+						// @DOCLINE `@NLFT`: the [delete key](https://en.wikipedia.org/wiki/Delete_key).
+						MU_KEYBOARD_KEY_DELETE,
+						// @DOCLINE `@NLFT`: the [help key](https://en.wikipedia.org/wiki/Help_key).
+						MU_KEYBOARD_KEY_HELP,
+						// @DOCLINE `@NLFT`: the [0 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_0,
+						// @DOCLINE `@NLFT`: the [1 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_1,
+						// @DOCLINE `@NLFT`: the [2 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_2,
+						// @DOCLINE `@NLFT`: the [3 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_3,
+						// @DOCLINE `@NLFT`: the [4 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_4,
+						// @DOCLINE `@NLFT`: the [5 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_5,
+						// @DOCLINE `@NLFT`: the [6 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_6,
+						// @DOCLINE `@NLFT`: the [7 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_7,
+						// @DOCLINE `@NLFT`: the [8 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_8,
+						// @DOCLINE `@NLFT`: the [9 key](https://en.wikipedia.org/wiki/Numerical_digit).
+						MU_KEYBOARD_KEY_9,
+						// @DOCLINE `@NLFT`: the [A key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_A,
+						// @DOCLINE `@NLFT`: the [B key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_B,
+						// @DOCLINE `@NLFT`: the [C key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_C,
+						// @DOCLINE `@NLFT`: the [D key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_D,
+						// @DOCLINE `@NLFT`: the [E key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_E,
+						// @DOCLINE `@NLFT`: the [F key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_F,
+						// @DOCLINE `@NLFT`: the [G key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_G,
+						// @DOCLINE `@NLFT`: the [H key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_H,
+						// @DOCLINE `@NLFT`: the [I key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_I,
+						// @DOCLINE `@NLFT`: the [J key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_J,
+						// @DOCLINE `@NLFT`: the [K key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_K,
+						// @DOCLINE `@NLFT`: the [L key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_L,
+						// @DOCLINE `@NLFT`: the [M key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_M,
+						// @DOCLINE `@NLFT`: the [N key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_N,
+						// @DOCLINE `@NLFT`: the [O key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_O,
+						// @DOCLINE `@NLFT`: the [P key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_P,
+						// @DOCLINE `@NLFT`: the [Q key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_Q,
+						// @DOCLINE `@NLFT`: the [R key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_R,
+						// @DOCLINE `@NLFT`: the [S key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_S,
+						// @DOCLINE `@NLFT`: the [T key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_T,
+						// @DOCLINE `@NLFT`: the [U key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_U,
+						// @DOCLINE `@NLFT`: the [V key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_V,
+						// @DOCLINE `@NLFT`: the [W key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_W,
+						// @DOCLINE `@NLFT`: the [X key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_X,
+						// @DOCLINE `@NLFT`: the [Y key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_Y,
+						// @DOCLINE `@NLFT`: the [Z key](https://en.wikipedia.org/wiki/Keyboard_layout#Character_keys).
+						MU_KEYBOARD_KEY_Z,
+						// @DOCLINE `@NLFT`: the left [Windows](https://en.wikipedia.org/wiki/Windows_key)/[super](https://en.wikipedia.org/wiki/Super_key_(keyboard_button))/[command](https://en.wikipedia.org/wiki/Command_key) key.
+						MU_KEYBOARD_KEY_LEFT_WINDOWS,
+						// @DOCLINE `@NLFT`: the right [Windows](https://en.wikipedia.org/wiki/Windows_key)/[super](https://en.wikipedia.org/wiki/Super_key_(keyboard_button))/[command](https://en.wikipedia.org/wiki/Command_key) key.
+						MU_KEYBOARD_KEY_RIGHT_WINDOWS,
+						// @DOCLINE `@NLFT`: the [0 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_0,
+						// @DOCLINE `@NLFT`: the [1 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_1,
+						// @DOCLINE `@NLFT`: the [2 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_2,
+						// @DOCLINE `@NLFT`: the [3 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_3,
+						// @DOCLINE `@NLFT`: the [4 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_4,
+						// @DOCLINE `@NLFT`: the [5 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_5,
+						// @DOCLINE `@NLFT`: the [6 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_6,
+						// @DOCLINE `@NLFT`: the [7 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_7,
+						// @DOCLINE `@NLFT`: the [8 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_8,
+						// @DOCLINE `@NLFT`: the [9 numpad key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_NUMPAD_9,
+						// @DOCLINE `@NLFT`: the [multiply key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_MULTIPLY,
+						// @DOCLINE `@NLFT`: the [add key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_ADD,
+						// @DOCLINE `@NLFT`: the [separator key](https://stackoverflow.com/questions/67916923/what-physical-key-maps-to-keycode-108-vk-separator).
+						MU_KEYBOARD_KEY_SEPARATOR,
+						// @DOCLINE `@NLFT`: the [subtract key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_SUBTRACT,
+						// @DOCLINE `@NLFT`: the [decimal key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_DECIMAL,
+						// @DOCLINE `@NLFT`: the [divide key](https://en.wikipedia.org/wiki/Numeric_keypad).
+						MU_KEYBOARD_KEY_DIVIDE,
+						// @DOCLINE `@NLFT`: the [F1 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F1,
+						// @DOCLINE `@NLFT`: the [F2 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F2,
+						// @DOCLINE `@NLFT`: the [F3 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F3,
+						// @DOCLINE `@NLFT`: the [F4 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F4,
+						// @DOCLINE `@NLFT`: the [F5 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F5,
+						// @DOCLINE `@NLFT`: the [F6 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F6,
+						// @DOCLINE `@NLFT`: the [F7 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F7,
+						// @DOCLINE `@NLFT`: the [F8 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F8,
+						// @DOCLINE `@NLFT`: the [F9 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F9,
+						// @DOCLINE `@NLFT`: the [F10 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F10,
+						// @DOCLINE `@NLFT`: the [F11 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F11,
+						// @DOCLINE `@NLFT`: the [F12 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F12,
+						// @DOCLINE `@NLFT`: the [F13 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F13,
+						// @DOCLINE `@NLFT`: the [F14 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F14,
+						// @DOCLINE `@NLFT`: the [F15 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F15,
+						// @DOCLINE `@NLFT`: the [F16 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F16,
+						// @DOCLINE `@NLFT`: the [F17 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F17,
+						// @DOCLINE `@NLFT`: the [F18 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F18,
+						// @DOCLINE `@NLFT`: the [F19 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F19,
+						// @DOCLINE `@NLFT`: the [F20 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F20,
+						// @DOCLINE `@NLFT`: the [F21 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F21,
+						// @DOCLINE `@NLFT`: the [F22 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F22,
+						// @DOCLINE `@NLFT`: the [F23 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F23,
+						// @DOCLINE `@NLFT`: the [F24 key](https://en.wikipedia.org/wiki/Function_key).
+						MU_KEYBOARD_KEY_F24,
+						// @DOCLINE `@NLFT`: the [Num Lock key](https://en.wikipedia.org/wiki/Num_Lock).
+						MU_KEYBOARD_KEY_NUMLOCK,
+						// @DOCLINE `@NLFT`: the [Scroll Lock key](https://en.wikipedia.org/wiki/Scroll_Lock).
+						MU_KEYBOARD_KEY_SCROLL,
+						// @DOCLINE `@NLFT`: the [left shift key](https://en.wikipedia.org/wiki/Shift_key).
+						MU_KEYBOARD_KEY_LEFT_SHIFT,
+						// @DOCLINE `@NLFT`: the [right shift key](https://en.wikipedia.org/wiki/Shift_key).
+						MU_KEYBOARD_KEY_RIGHT_SHIFT,
+						// @DOCLINE `@NLFT`: the [left control key](https://en.wikipedia.org/wiki/Control_key).
+						MU_KEYBOARD_KEY_LEFT_CONTROL,
+						// @DOCLINE `@NLFT`: the [right control key](https://en.wikipedia.org/wiki/Control_key).
+						MU_KEYBOARD_KEY_RIGHT_CONTROL,
+						// @DOCLINE `@NLFT`: the [left menu key](https://en.wikipedia.org/wiki/Menu_key).
+						MU_KEYBOARD_KEY_LEFT_MENU,
+						// @DOCLINE `@NLFT`: the [right menu key](https://en.wikipedia.org/wiki/Menu_key).
+						MU_KEYBOARD_KEY_RIGHT_MENU,
+						// @DOCLINE `@NLFT`: the [ATTN key](https://www.ibm.com/support/pages/apar/II04992).
+						MU_KEYBOARD_KEY_ATTN,
+						// @DOCLINE `@NLFT`: the [CRSEL key](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.keys?view=windowsdesktop-8.0).
+						MU_KEYBOARD_KEY_CRSEL,
+						// @DOCLINE `@NLFT`: the [EXSEL key](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.keys?view=windowsdesktop-8.0).
+						MU_KEYBOARD_KEY_EXSEL,
+						// @DOCLINE `@NLFT`: the [EREOF key](https://www.ibm.com/docs/en/wsfz-and-o/1.1?topic=descriptions-ereof-erase-end-field-key-statement).
+						MU_KEYBOARD_KEY_EREOF,
+						// @DOCLINE `@NLFT`: the play key.
+						MU_KEYBOARD_KEY_PLAY,
+						// @DOCLINE `@NLFT`: the [PA1 key](https://www.ibm.com/docs/en/zos-basic-skills?topic=ispf-keyboard-keys-functions).
+						MU_KEYBOARD_KEY_PA1,
+					)
+					// @DOCLINE The macros `MU_KEYBOARD_KEY_FIRST` and `MU_KEYBOARD_KEY_LAST` are also used to define the first and last valid keyboard keys (those being `MU_KEYBOARD_KEY_BACKSPACE` and `MU_KEYBOARD_KEY_PA1` respectively).
+					#define MU_KEYBOARD_KEY_FIRST MU_KEYBOARD_KEY_BACKSPACE
+					#define MU_KEYBOARD_KEY_LAST MU_KEYBOARD_KEY_PA1
+					// @DOCLINE Note that this list is by no means exhaustive, and is even missing some basic keys like the semicolon key (in which case, the only realistic way of getting input would be to use text input, which is not a very good idea considering that it causes virtual keyboards to appear); I plan to add more keys later.
 
-				MU_ENUM(muMouseButton,
-					MU_MOUSE_BUTTON_UNKNOWN,
+					MU_ENUM(muKeyboardState,
+						// @DOCLINE ## Keyboard state
+						// @DOCLINE The enum `muKeyboardState` defines a keyboard state. It has these possible values:
 
-					MU_MOUSE_BUTTON_LEFT,
-					MU_MOUSE_BUTTON_RIGHT,
-					MU_MOUSE_BUTTON_MIDDLE,
-				)
-				#define MU_MOUSE_BUTTON_FIRST MU_MOUSE_BUTTON_LEFT
-				#define MU_MOUSE_BUTTON_LAST MU_MOUSE_BUTTON_MIDDLE
+						// @DOCLINE `@NLFT`: unknown keyboard state.
+						MU_KEYBOARD_STATE_UNKNOWN,
 
-			/* Struct */
+						// @DOCLINE `@NLFT`: [caps lock state](https://en.wikipedia.org/wiki/Caps_Lock).
+						MU_KEYBOARD_STATE_CAPS_LOCK,
+						// @DOCLINE `@NLFT`: [scroll lock state](https://en.wikipedia.org/wiki/Scroll_Lock).
+						MU_KEYBOARD_STATE_SCROLL_LOCK,
+						// @DOCLINE `@NLFT`: [num lock state](https://en.wikipedia.org/wiki/Num_Lock).
+						MU_KEYBOARD_STATE_NUM_LOCK,
+					)
+					// @DOCLINE The macros `MU_KEYBOARD_STATE_FIRST` and `MU_KEYBOARD_STATE_LAST` are also used to define the first and last valid keyboard states (those being `MU_KEYBOARD_STATE_CAPS_LOCK` and `MU_KEYBOARD_STATE_NUM_LOCK` respectively).
+					#define MU_KEYBOARD_STATE_FIRST MU_KEYBOARD_STATE_CAPS_LOCK
+					#define MU_KEYBOARD_STATE_LAST MU_KEYBOARD_STATE_NUM_LOCK
 
-				struct muPixelFormat {
-					uint16_m red_bits;
-					uint16_m green_bits;
-					uint16_m blue_bits;
-					uint16_m alpha_bits;
+					MU_ENUM(muMouseButton,
+						// @DOCLINE ## Mouse button
+						// @DOCLINE The enum `muMouseButton` defines a [mouse button](https://en.wikipedia.org/wiki/Mouse_button). It has these possible values:
 
-					uint16_m depth_bits;
-					uint16_m stencil_bits;
+						// @DOCLINE `@NLFT`: unknown mouse button.
+						MU_MOUSE_BUTTON_UNKNOWN,
 
-					uint8_m samples; // Max: 16, must be a power of 2
-				};
-				typedef struct muPixelFormat muPixelFormat;
+						// @DOCLINE `@NLFT`: left mouse button.
+						MU_MOUSE_BUTTON_LEFT,
+						// @DOCLINE `@NLFT`: right mouse button.
+						MU_MOUSE_BUTTON_RIGHT,
+						// @DOCLINE `@NLFT`: middle mouse button.
+						MU_MOUSE_BUTTON_MIDDLE,
+					)
+					// @DOCLINE The macros `MU_MOUSE_BUTTON_FIRST` and `MU_MOUSE_BUTTON_LAST` are also used to define the first and last valid mouse buttons (those being `MU_MOUSE_BUTTON_LEFT` and `MU_MOUSE_BUTTON_MIDDLE` respectively).
+					#define MU_MOUSE_BUTTON_FIRST MU_MOUSE_BUTTON_LEFT
+					#define MU_MOUSE_BUTTON_LAST MU_MOUSE_BUTTON_MIDDLE
 
-				struct muWindowCreateInfo {
-					muPixelFormat pixel_format;
+				// @DOCLINE # Structs
 
-					muBool visible;
-					muBool resizable;
+					// @DOCLINE ## Context
 
-					muBool minimized;
-					muBool maximized;
+						// @DOCLINE The struct `muCOSAContext` is used to reference a muCOSA context. It has one member, `result` (of type `muCOSAResult`), that represents the result of the latest non-explicit result-checking function call.
+						struct muCOSAContext {
+							muCOSAResult result;
 
-					int32_m x;
-					int32_m y;
+							void* inner;
+						};
+						typedef struct muCOSAContext muCOSAContext;
 
-					uint32_m min_width;
-					uint32_m min_height;
-					uint32_m max_width;
-					uint32_m max_height;
+					// @DOCLINE ## Pixel format
 
-					muCursorStyle cursor_style; // <-- Not permanant, only existing as the style first used upon the window's creation
+						// @DOCLINE The struct `muPixelFormat` is used to reference a pixel format. It has the following members:
 
-					void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
-					void (*position_callback)(muWindow window, int32_m x, int32_m y);
-					void (*focus_callback)(muWindow window, muBool focused);
-					void (*maximize_callback)(muWindow window, muBool maximized);
-					void (*minimize_callback)(muWindow window, muBool minimized);
+						struct muPixelFormat {
+							// @DOCLINE `red_bits`: the amount of bits used for the red channel, expressed with the type `uint16_m`. Its default value is 8.
+							uint16_m red_bits;
+							// @DOCLINE `green_bits`: the amount of bits used for the green channel, expressed with the type `uint16_m`. Its default value is 8.
+							uint16_m green_bits;
+							// @DOCLINE `blue_bits`: the amount of bits used for the blue channel, expressed with the type `uint16_m`. Its default value is 8.
+							uint16_m blue_bits;
+							// @DOCLINE `alpha_bits`: the amount of bits used for the alpha channel, expressed with the type `uint16_m`. Its default value is 0.
+							uint16_m alpha_bits;
 
-					void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
-					void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
+							// @DOCLINE `depth_bits`: the amount of bits used for the depth channel, expressed with the type `uint16_m`. Its default value is 0.
+							uint16_m depth_bits;
+							// @DOCLINE `stencil_bits`: the amount of bits used for the stencil channel, expressed with the type `uint16_m`. Its default value is 0.
+							uint16_m stencil_bits;
 
-					void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
-					void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
-					void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
-				};
-				typedef struct muWindowCreateInfo muWindowCreateInfo;
+							// @DOCLINE `samples`: the amount of samples used for sampling, expressed with the type `uint8_m`. Its default value is 1. This value must be a power of 2, and its max value is 16.
+							uint8_m samples;
+						};
+						typedef struct muPixelFormat muPixelFormat;
 
-			/* Functions */
+					// @DOCLINE ## Window create info
 
-				/* Names */
+						// @DOCLINE The struct `muWindowCreateInfo` is used to reference advanced attributes about a window. It has the following members:
 
-					#ifdef MUCOSA_NAMES
-						MUDEF const char* muCOSA_result_get_name(muCOSAResult result);
+						struct muWindowCreateInfo {
+							// @DOCLINE `pixel_format`: the pixel format of the window surface (applies only if the graphics API of the window is not `MU_NO_GRAPHICS_API`), expressed with the type `muPixelFormat`.
+							muPixelFormat pixel_format;
 
-						MUDEF const char* mu_window_system_get_name(muWindowSystem system);
-						MUDEF const char* mu_window_system_get_nice_name(muWindowSystem system);
+							// @DOCLINE `visible`: a `muBool` representing the window's visibility.
+							muBool visible;
+							// @DOCLINE `resizable`: a `muBool` representing whether or not the window can be resized.
+							muBool resizable;
 
-						MUDEF const char* mu_window_handle_get_name(muWindowHandle handle);
-						MUDEF const char* mu_window_handle_get_nice_name(muWindowHandle handle);
+							// @DOCLINE `minimized`: a `muBool` representing the window's minimized state.
+							muBool minimized;
+							// @DOCLINE `maximized`: a `muBool` representing the window's maximized state.
+							muBool maximized;
 
-						MUDEF const char* mu_graphics_api_get_name(muGraphicsAPI api);
-						MUDEF const char* mu_graphics_api_get_nice_name(muGraphicsAPI api);
+							// @DOCLINE `x`: the window's x position, expressed with the type `int32_m`.
+							int32_m x;
+							// @DOCLINE `y`: the window's y position, expressed with the type `int32_m`.
+							int32_m y;
 
-						MUDEF const char* mu_cursor_style_get_name(muCursorStyle style);
-						MUDEF const char* mu_cursor_style_get_nice_name(muCursorStyle style);
+							// @DOCLINE `min_width`: the minimum width of the window, expressed with the type `uint32_m`.
+							uint32_m min_width;
+							// @DOCLINE `min_height`: the minimum height of the window, expressed with the type `uint32_m`.
+							uint32_m min_height;
+							// @DOCLINE `max_width`: the maximum width of the window, expressed with the type `uint32_m`.
+							uint32_m max_width;
+							// @DOCLINE `max_height`: the maximum height of the window, expressed with the type `uint32_m`.
+							uint32_m max_height;
 
-						MUDEF const char* mu_keyboard_key_get_name(muKeyboardKey key);
-						MUDEF const char* mu_keyboard_key_get_nice_name(muKeyboardKey key);
+							// @DOCLINE `cursor_style`: the cursor style of the window, expressed with the type `muCursorStyle`. This style is not permanant, only existing as the style first used upon the window's creation.
+							muCursorStyle cursor_style;
 
-						MUDEF const char* mu_keyboard_state_get_name(muKeyboardState state);
-						MUDEF const char* mu_keyboard_state_get_nice_name(muKeyboardState state);
+							// @DOCLINE `dimensions_callback`: the callback used for changes in the window's dimensions, defined below: @NLNT
+							void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
+							// @DOCLINE `position_callback`: the callback used for changes in the window's position, defined below: @NLNT
+							void (*position_callback)(muWindow window, int32_m x, int32_m y);
+							// @DOCLINE `focus_callback`: the callback used for changes in the window's focused state, defined below: @NLNT
+							void (*focus_callback)(muWindow window, muBool focused);
+							// @DOCLINE `maximize_callback`: the callback used for changes in the window's maximized state, defined below: @NLNT
+							void (*maximize_callback)(muWindow window, muBool maximized);
+							// @DOCLINE `minimize_callback`: the callback used for changes in the window's minimized state, defined below: @NLNT
+							void (*minimize_callback)(muWindow window, muBool minimized);
 
-						MUDEF const char* mu_mouse_button_get_name(muMouseButton button);
-						MUDEF const char* mu_mouse_button_get_nice_name(muMouseButton button);
+							// @DOCLINE `keyboard_key_callback`: the callback used for changes in the window's keyboard key states, defined below: @NLNT
+							void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
+							// @DOCLINE `keyboard_state_callback`: the callback used for changes in the window's keyboard state states, defined below: @NLNT
+							void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
+
+							// @DOCLINE `cursor_position_callback`: the callback used for changes in the window's cursor position, defined below: @NLNT
+							void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
+							// @DOCLINE `mouse_button_callback`: the callback used for changes in the window's mouse button states, defined below: @NLNT
+							void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
+							// @DOCLINE `scroll_callback`: the callback used for changes in the window's scroll level, defined below: @NLNT
+							void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
+						};
+						typedef struct muWindowCreateInfo muWindowCreateInfo;
+
+				// @DOCLINE # Functions
+
+					// @DOCLINE ## Context functions
+
+						MUDEF muCOSAContext* muCOSA_global_context;
+
+						// @DOCLINE ### Creation and destruction
+
+							// @DOCLINE #### Creation
+
+								// @DOCLINE The function `muCOSA_context_create` creates a context, defined below: @NLNT
+								MUDEF void muCOSA_context_create(muCOSAContext* context, muWindowSystem system, muBool set_context);
+								// @DOCLINE Note that the result of this function is stored within `context->result`.
+								// @DOCLINE Note that, upon success, this function automatically calls `muCOSA_context_create` on the created context unless `set_context` is equal to `MU_FALSE`.
+
+							// @DOCLINE #### Destruction
+
+								// @DOCLINE The function `muCOSA_context_destroy` destroys a context, defined below: @NLNT
+								MUDEF void muCOSA_context_destroy(muCOSAContext* context);
+								// @DOCLINE Note that this function cannot fail.
+
+						// @DOCLINE ### Context setting
+
+							// @DOCLINE The function `muCOSA_context_set` sets the global context to the given context, defined below: @NLNT
+							MUDEF void muCOSA_context_set(muCOSAContext* context);
+							// @DOCLINE Note that this function can be automatically called on a created context with the function `muCOSA_context_create`.
+							// @DOCLINE Note that the global context can also be accessed manually via the global variable `muCOSA_global_context`, although this is not recommended.
+
+						// @DOCLINE ### Context window information
+
+							// @DOCLINE The function `muCOSA_context_get_window_system` retrieves the window system of a given context, defined below: @NLNT
+							MUDEF muWindowSystem muCOSA_context_get_window_system(muCOSAContext* context);
+
+					// @DOCLINE ## Window functions
+
+						// @DOCLINE ### Creation and destruction
+
+							// @DOCLINE #### Default window create info values
+
+								// @DOCLINE The default values for the `muWindowCreateInfo` struct passed into `mu_window_create` can be retrieved with the function `mu_window_default_create_info`, defined below: @NLNT
+								MUDEF muWindowCreateInfo mu_window_default_create_info(void);
+								// @DOCLINE The values filled in by this function can be found in the "Structs" section.
+
+							// @DOCLINE #### Creation
+
+								// @DOCLINE The function `muCOSA_window_create` creates a window, defined below: @NLNT
+								MUDEF muWindow muCOSA_window_create(muCOSAContext* context, muCOSAResult* result, muGraphicsAPI api, muBool (*load_functions)(void), const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_create(...) muCOSA_window_create(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_create_(result, ...) muCOSA_window_create(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Destruction
+
+								// @DOCLINE The function `muCOSA_window_destroy` destroys a window, defined below: @NLNT
+								MUDEF muWindow muCOSA_window_destroy(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_destroy(...) muCOSA_window_destroy(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_destroy_(result, ...) muCOSA_window_destroy(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Main loop functions
+
+							// @DOCLINE #### Get closed state
+
+								// @DOCLINE The function `muCOSA_window_get_closed` returns the closed state of the window, defined below: @NLNT
+								MUDEF muBool muCOSA_window_get_closed(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_closed(...) muCOSA_window_get_closed(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_closed_(result, ...) muCOSA_window_get_closed(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Close window
+
+								// @DOCLINE The function `muCOSA_window_close` closes a given window, defined below: @NLNT
+								MUDEF void muCOSA_window_close(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_close(...) muCOSA_window_close(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_close_(result, ...) muCOSA_window_close_(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Update
+
+								// @DOCLINE The function `muCOSA_window_update` updates/refreshes a window and triggers all relevant callbacks, defined below: @NLNT
+								MUDEF void muCOSA_window_update(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_update(...) muCOSA_window_update(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_update_(result, ...) muCOSA_window_update(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Swap buffers
+
+								// @DOCLINE The function `muCOSA_window_swap_buffers` swaps the image buffers of a given window if the window is associated with a graphics API, defined below: @NLNT
+								MUDEF void muCOSA_window_swap_buffers(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_swap_buffers(...) muCOSA_window_swap_buffers(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_swap_buffers_(result, ...) muCOSA_window_swap_buffers(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Get/Set window states/properties
+
+							// @DOCLINE #### Get focused state
+
+								// @DOCLINE The function `muCOSA_window_get_focused` gets the focused state of a window, defined below: @NLNT
+								MUDEF muBool muCOSA_window_get_focused(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_focused(...) muCOSA_window_get_focused(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_focused_(result, ...) muCOSA_window_get_focused(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Focus window
+
+								// @DOCLINE The function `muCOSA_window_focus` focuses a given window, defined below: @NLNT
+								MUDEF void muCOSA_window_focus(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_focus(...) muCOSA_window_focus(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_focus_(result, ...) muCOSA_window_focus(muCOSA_global_context, result, __VA_ARGS__)
+								// @DOCLINE Note that due to the nature of how most window systems are built, muCOSA_window_focus is not guaranteed to work at all times, but should at least alert the user to focus on the window.
+
+							// @DOCLINE #### Get visibility state
+
+								// @DOCLINE The function `muCOSA_window_get_visible` gets the visible state of a window, defined below: @NLNT
+								MUDEF muBool muCOSA_window_get_visible(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_visible(...) muCOSA_window_get_visible(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_visible_(result, ...) muCOSA_window_get_visible(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set visibility state
+
+								// @DOCLINE The function `muCOSA_window_set_visible` sets the visible state of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_visible(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool visible);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_visible(...) muCOSA_window_set_visible(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_visible_(result, ...) muCOSA_window_set_visible(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get position
+
+								// @DOCLINE The function `muCOSA_window_get_position` gets the position of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m* x, int32_m* y);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_position(...) muCOSA_window_get_position(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_position_(result, ...) muCOSA_window_get_position(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set position
+
+								// @DOCLINE The function `muCOSA_window_set_position` sets the position of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_position(...) muCOSA_window_set_position(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_position_(result, ...) muCOSA_window_set_position(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get dimensions
+
+								// @DOCLINE The function `muCOSA_window_get_dimensions` gets the dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* width, uint32_m* height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_dimensions(...) muCOSA_window_get_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_dimensions_(result, ...) muCOSA_window_get_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set dimensions
+
+								// @DOCLINE The function `muCOSA_window_set_dimensions` sets the dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m width, uint32_m height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_dimensions(...) muCOSA_window_set_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_dimensions_(result, ...) muCOSA_window_set_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get maximized state
+
+								// @DOCLINE The function `muCOSA_window_get_maximized` gets the maximized state of a window, defined below: @NLNT
+								MUDEF muBool muCOSA_window_get_maximized(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_maximized(...) muCOSA_window_get_maximized(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_maximized_(result, ...) muCOSA_window_get_maximized(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set maximized state
+
+								// @DOCLINE The function `muCOSA_window_set_maximized` sets the maximized state of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_maximized(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool maximized);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximized(...) muCOSA_window_set_maximized(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximized_(result, ...) muCOSA_window_set_maximized(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get minimized state
+
+								// @DOCLINE The function `muCOSA_window_get_minimized` gets the minimized state of a window, defined below: @NLNT
+								MUDEF muBool muCOSA_window_get_minimized(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_minimized(...) muCOSA_window_get_minimized(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_minimized_(result, ...) muCOSA_window_get_minimized(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set minimized state
+
+								// @DOCLINE The function `muCOSA_window_set_minimized` sets the minimized state of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_minimized(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool minimized);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimized(...) muCOSA_window_set_minimized(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimized_(result, ...) muCOSA_window_set_minimized(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get minimum dimensions
+
+								// @DOCLINE The function `muCOSA_window_get_minimum_dimensions` gets the minimum dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_minimum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* min_width, uint32_m* min_height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_minimum_dimensions(...) muCOSA_window_get_minimum_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_minimum_dimensions_(result, ...) muCOSA_window_get_minimum_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set minimum dimensions
+
+								// @DOCLINE The function `muCOSA_window_set_minimum_dimensions` sets the minimum dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_minimum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m min_width, uint32_m min_height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimum_dimensions(...) muCOSA_window_set_minimum_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimum_dimensions_(result, ...) muCOSA_window_set_minimum_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get maximum dimensions
+
+								// @DOCLINE The function `muCOSA_window_get_maximum_dimensions` gets the maximum dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_maximum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* max_width, uint32_m* max_height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_maximum_dimensions(...) muCOSA_window_get_maximum_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_maximum_dimensions_(result, ...) muCOSA_window_get_maximum_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set maximum dimensions
+
+								// @DOCLINE The function `muCOSA_window_set_maximum_dimensions` sets the maximum dimensions of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_maximum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m max_width, uint32_m max_height);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximum_dimensions(...) muCOSA_window_set_maximum_dimensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximum_dimensions_(result, ...) muCOSA_window_set_maximum_dimensions(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get cursor position
+
+								// @DOCLINE The function `muCOSA_window_get_cursor_position` gets the position of the cursor relative to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_cursor_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m* x, int32_m* y);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_cursor_position(...) muCOSA_window_get_cursor_position(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_cursor_position_(result, ...) muCOSA_window_get_cursor_position(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set cursor position
+
+								// @DOCLINE The function `muCOSA_window_set_cursor_position` sets the position of the cursor relative to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_cursor_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_position(...) muCOSA_window_set_cursor_position(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_position_(result, ...) muCOSA_window_set_cursor_position(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get cursor style
+
+								// @DOCLINE The function `muCOSA_window_get_cursor_style` gets the cursor style of a window, defined below: @NLNT
+								MUDEF muCursorStyle muCOSA_window_get_cursor_style(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_cursor_style(...) muCOSA_window_get_cursor_style(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_cursor_style_(result, ...) muCOSA_window_get_cursor_style(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set cursor style
+
+								// @DOCLINE The function `muCOSA_window_set_cursor_style` sets the cursor style of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_cursor_style(muCOSAContext* context, muCOSAResult* result, muWindow window, muCursorStyle style);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_style(...) muCOSA_window_set_cursor_style(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_style_(result, ...) muCOSA_window_set_cursor_style(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get scroll level
+
+								// @DOCLINE The function `muCOSA_window_get_scroll_level` gets the scroll level of a window, defined below: @NLNT
+								MUDEF int32_m muCOSA_window_get_scroll_level(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_scroll_level(...) muCOSA_window_get_scroll_level(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_scroll_level_(result, ...) muCOSA_window_get_scroll_level(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Set scroll level
+
+								// @DOCLINE The function `muCOSA_window_set_scroll_level` sets the scroll level of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_scroll_level(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m scroll_level);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_scroll_level(...) muCOSA_window_set_scroll_level(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_scroll_level_(result, ...) muCOSA_window_set_scroll_level(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Text input functions
+
+							// @DOCLINE #### Get text input focus
+
+								// @DOCLINE The function `muCOSA_window_get_text_input_focus` focuses text input on a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_text_input_focus(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, const char* input));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_text_input_focus(...) muCOSA_window_get_text_input_focus(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_text_input_focus_(result, ...) muCOSA_window_get_text_input_focus(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Update text cursor
+
+								// @DOCLINE The function `muCOSA_window_update_text_cursor` updates the text cursor for text input to a position relative to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_update_text_cursor(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_update_text_cursor(...) muCOSA_window_update_text_cursor(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_update_text_cursor_(result, ...) muCOSA_window_update_text_cursor(muCOSA_global_context, result, __VA_ARGS__)
+								// @DOCLINE Note that this function is safe to call even when text input is not focused on the window.
+
+							// @DOCLINE #### Let go of text input focus
+
+								// @DOCLINE The function `muCOSA_window_let_text_input_focus` lets go of the text input focus that a window has, defined below: @NLNT
+								MUDEF void muCOSA_window_let_text_input_focus(muCOSAContext* context, muCOSAResult* result, muWindow window);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_let_text_input_focus(...) muCOSA_window_let_text_input_focus(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_let_text_input_focus_(result, ...) muCOSA_window_let_text_input_focus(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Get window states/properties
+
+							// @DOCLINE #### Get frame extents
+
+								// @DOCLINE The function `muCOSA_window_get_frame_extents` gets the frame extents of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_get_frame_extents(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_frame_extents(...) muCOSA_window_get_frame_extents(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_frame_extents_(result, ...) muCOSA_window_get_frame_extents(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get keyboard key state
+
+								// @DOCLINE The function `muCOSA_window_get_keyboard_key_state` gets the state of a keyboard key in regards to a given window, defined below: @NLNT
+								MUDEF muButtonState muCOSA_window_get_keyboard_key_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muKeyboardKey key);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_keyboard_key_state(...) muCOSA_window_get_keyboard_key_state(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_keyboard_key_state_(result, ...) muCOSA_window_get_keyboard_key_state(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get keyboard state state
+
+								// @DOCLINE The function `muCOSA_window_get_keyboard_state_state` gets the state of a keyboard state in regards to a given window, defined below: @NLNT
+								MUDEF muState muCOSA_window_get_keyboard_state_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muKeyboardState state);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_keyboard_state_state(...) muCOSA_window_get_keyboard_state_state(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_keyboard_state_state_(result, ...) muCOSA_window_get_keyboard_state_state(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Get mouse button state
+
+								// @DOCLINE The function `muCOSA_window_get_mouse_button_state` gets the state of a mouse button in regards to a given window, defined below: @NLNT
+								MUDEF muButtonState muCOSA_window_get_mouse_button_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muMouseButton button);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_mouse_button_state(...) muCOSA_window_get_mouse_button_state(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_get_mouse_button_state_(result, ...) muCOSA_window_get_mouse_button_state(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Set window state/properties
+
+							// @DOCLINE #### Set title
+
+								// @DOCLINE The function `muCOSA_window_set_title` sets the title of a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_title(muCOSAContext* context, muCOSAResult* result, muWindow window, const char* title);
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_title(...) muCOSA_window_set_title(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_title_(result, ...) muCOSA_window_set_title(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Set callback functions
+
+							// @DOCLINE Note that these functions override any previous function associated with a particular callback event; there is no given way to stack callback functions.
+							// @DOCLINE Note that for all of these functions, setting the callback to 0 is safe, and will simply disable the callback.
+
+							// @DOCLINE #### Dimensions callback
+
+								// @DOCLINE The function `muCOSA_window_set_dimensions_callback` sets the callback for the event of a window's dimensions changing, defined below: @NLNT
+								MUDEF void muCOSA_window_set_dimensions_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_dimensions_callback(...) muCOSA_window_set_dimensions_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_dimensions_callback_(result, ...) muCOSA_window_set_dimensions_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Position callback
+
+								// @DOCLINE The function `muCOSA_window_set_position_callback` sets the callback for the event of a window's position changing, defined below: @NLNT
+								MUDEF void muCOSA_window_set_position_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_position_callback(...) muCOSA_window_set_position_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_position_callback_(result, ...) muCOSA_window_set_position_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Focus callback
+
+								// @DOCLINE The function `muCOSA_window_set_focus_callback` sets the callback for the event of a window's focused state changing, defined below: @NLNT
+								MUDEF void muCOSA_window_set_focus_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool focused));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_focus_callback(...) muCOSA_window_set_focus_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_focus_callback_(result, ...) muCOSA_window_set_focus_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Maximize callback
+
+								// @DOCLINE The function `muCOSA_window_set_maximize_callback` sets the callback for the event of a window's maximized state changing, defined below: @NLNT
+								MUDEF void muCOSA_window_set_maximize_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool maximized));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximize_callback(...) muCOSA_window_set_maximize_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_maximize_callback_(result, ...) muCOSA_window_set_maximize_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Minimize callback
+
+								// @DOCLINE The function `muCOSA_window_set_minimize_callback` sets the callback for the event of a window's minimized state changing, defined below: @NLNT
+								MUDEF void muCOSA_window_set_minimize_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool minimized));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimize_callback(...) muCOSA_window_set_minimize_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_minimize_callback_(result, ...) muCOSA_window_set_minimize_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Keyboard key callback
+
+								// @DOCLINE The function `muCOSA_window_set_keyboard_key_callback` sets the callback for the event of a keyboard key state changing in regards to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_keyboard_key_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_keyboard_key_callback(...) muCOSA_window_set_keyboard_key_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_keyboard_key_callback_(result, ...) muCOSA_window_set_keyboard_key_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Keyboard state callback
+
+								// @DOCLINE The function `muCOSA_window_set_keyboard_state_callback` sets the callback for the event of a keyboard state state changing in regards to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_keyboard_state_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_keyboard_state_callback(...) muCOSA_window_set_keyboard_state_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_keyboard_state_callback_(result, ...) muCOSA_window_set_keyboard_state_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Cursor position callback
+
+								// @DOCLINE The function `muCOSA_window_set_cursor_position_callback` sets the callback for the event of the cursor position changing in regards to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_cursor_position_callback(muCOSAContext* context, muCOSAResult* result, muWindow win, void (*callback)(muWindow window, int32_m x, int32_m y));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_position_callback(...) muCOSA_window_set_cursor_position_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_cursor_position_callback_(result, ...) muCOSA_window_set_cursor_position_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Mouse button callback
+
+								// @DOCLINE The function `muCOSA_window_set_mouse_button_callback` sets the callback for the event of a mouse button state changing in regards to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_mouse_button_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_mouse_button_callback(...) muCOSA_window_set_mouse_button_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_mouse_button_callback_(result, ...) muCOSA_window_set_mouse_button_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+							// @DOCLINE #### Scroll callback
+
+								// @DOCLINE The function `muCOSA_window_set_scroll_callback` sets the callback for the event of scrolling in regards to a window, defined below: @NLNT
+								MUDEF void muCOSA_window_set_scroll_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m scroll_level_add));
+								// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_scroll_callback(...) muCOSA_window_set_scroll_callback(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+								// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+								#define mu_window_set_scroll_callback_(result, ...) muCOSA_window_set_scroll_callback(muCOSA_global_context, result, __VA_ARGS__)
+
+					// @DOCLINE ## Time functions
+
+						// @DOCLINE ### Get time
+
+							// @DOCLINE The function `muCOSA_time_get` returns the time since the given muCOSA context has been created, defined below: @NLNT
+							MUDEF double muCOSA_time_get(muCOSAContext* context, muCOSAResult* result);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_get() muCOSA_time_get(muCOSA_global_context, &muCOSA_global_context->result)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_get_(result) muCOSA_time_get(muCOSA_global_context, result)
+							// @DOCLINE Note that the time can be manually changed via `muCOSA_time_set`, which would change the values returned by this function respectively.
+
+						// @DOCLINE ### Set time
+
+							// @DOCLINE The function `muCOSA_time_set` sets the time used by the given muCOSA context to refer to how long it has been since the context has been created, defined below: @NLNT
+							MUDEF void muCOSA_time_set(muCOSAContext* context, muCOSAResult* result, double time);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_set(...) muCOSA_time_set(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_set_(result, ...) muCOSA_time_set(muCOSA_global_context, result, __VA_ARGS__)
+							// @DOCLINE Note that this interferes with the values returned by `muCOSA_time_get`.
+
+						// @DOCLINE ### Sleep
+
+							// @DOCLINE The function `muCOSA_sleep` blocks for a given amount of time (in seconds), defined below: @NLNT
+							MUDEF void muCOSA_sleep(muCOSAContext* context, muCOSAResult* result, double time);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_sleep(...) muCOSA_sleep(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_sleep_(result, ...) muCOSA_sleep(muCOSA_global_context, result, __VA_ARGS__)
+
+					// @DOCLINE ## Clipboard functions
+
+						// @DOCLINE ### Get clipboard
+
+							// @DOCLINE The function `muCOSA_clipboard_get` retrieves the current global clipboard, defined below: @NLNT
+							MUDEF char* muCOSA_clipboard_get(muCOSAContext* context, muCOSAResult* result);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_clipboard_get() muCOSA_clipboard_get(muCOSA_global_context, &muCOSA_global_context->result)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_clipboard_get_(result) muCOSA_clipboard_get(muCOSA_global_context, result)
+							// @DOCLINE Note that this function can return 0 and still have gone successfully in the event of there being no global clipboard at the time of the function being called.
+
+						// @DOCLINE ### Set clipboard
+
+							// @DOCLINE The function `muCOSA_clipboard_set` sets the global clipboard, defined below: @NLNT
+							MUDEF void muCOSA_clipboard_set(muCOSAContext* context, muCOSAResult* result, const char* text, size_m text_size);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_clipboard_set(...) muCOSA_clipboard_set(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_clipboard_set_(result, ...) muCOSA_clipboard_set(muCOSA_global_context, result, __VA_ARGS__)
+
+					// @DOCLINE ## OS functions
+
+						// @DOCLINE ### Get window handle
+
+							// @DOCLINE The function `muCOSA_os_get_window_handle` retrieves a pointer to an OS-specfic handle in regards to a window: @NLNT
+							MUDEF void* muCOSA_os_get_window_handle(muCOSAContext* context, muCOSAResult* result, muWindow window, muWindowHandle handle);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_os_get_window_handle(...) muCOSA_os_get_window_handle(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_os_get_window_handle_(result, ...) muCOSA_os_get_window_handle(muCOSA_global_context, result, __VA_ARGS__)
+							/* @DOCBEGIN
+							Note that this function returns a *pointer* to the requested type; retrieving the `HWND` associated with a window in Win32 could look like this:
+
+							```c
+							void* v_ptr = muCOSA_os_get_window_handle(...);
+							HWND hwnd = *((HWND*)v_ptr);
+							```
+							
+							This also means that if the type of the requested handle itself is a pointer, the function returns a pointer *to* the pointer; retrieving the `Display` associated with a window in X11 could look like this:
+
+							```c
+							void* v_ptr = muCOSA_os_get_window_handle(...);
+							Display* dpy = *((Display**)v_ptr);
+							```
+							@DOCEND */
+
+
+					// @DOCLINE ## OpenGL functions
+
+						// @DOCLINE ### Bind window's OpenGL context
+
+							// @DOCLINE The function `muCOSA_opengl_bind_window` binds the OpenGL context associated with a given window, defined below: @NLNT
+							MUDEF void muCOSA_opengl_bind_window(muCOSAContext* context, muCOSAResult* result, muWindow window);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_opengl_bind_window(...) muCOSA_opengl_bind_window(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_opengl_bind_window_(result, ...) muCOSA_opengl_bind_window(muCOSA_global_context, result, __VA_ARGS__)
+							// @DOCLINE Note that this function must be called with a window that was created with an OpenGL graphics API as its graphics API.
+
+						// @DOCLINE ### Get OpenGL function address
+
+							// @DOCLINE The function `muCOSA_opengl_get_function_address` returns the address of a given OpenGL function if it could be found, defined below: @NLNT
+							MUDEF void* muCOSA_opengl_get_function_address(muCOSAContext* context, const char* name);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_opengl_get_function_address(...) muCOSA_opengl_get_function_address(muCOSA_global_context, __VA_ARGS__)
+							// @DOCLINE Note that there is no result-checking equivalent of this function.
+
+						// @DOCLINE ### Set OpenGL swap interval
+
+							// @DOCLINE The function `muCOSA_opengl_window_swap_interval` sets the swap interval of an OpenGL context associated with a given window, defined below: @NLNT
+							MUDEF void muCOSA_opengl_window_swap_interval(muCOSAContext* context, muCOSAResult* result, muWindow window, int interval);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_opengl_window_swap_interval(...) muCOSA_opengl_window_swap_interval(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_opengl_window_swap_interval_(result, ...) muCOSA_opengl_window_swap_interval(muCOSA_global_context, result, __VA_ARGS__)
+
+					// @DOCLINE ## Vulkan functions
+
+						// @DOCLINE ### Get Vulkan surface extensions
+
+							// @DOCLINE The function `muCOSA_vulkan_get_surface_instance_extensions` returns a list of Vulkan etensions necessary to create a window surface for the window system associated with the given muCOSA context, defined below: @NLNT
+							MUDEF const char** muCOSA_vulkan_get_surface_instance_extensions(muCOSAContext* context, muCOSAResult* result, size_m* count);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_vulkan_get_surface_instance_extensions(...) muCOSA_vulkan_get_surface_instance_extensions(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_vulkan_get_surface_instance_extensions_(result, ...) muCOSA_vulkan_get_surface_instance_extensions(muCOSA_global_context, result, __VA_ARGS__)
+
+						// @DOCLINE ### Create Vulkan window surface
+
+							// @DOCLINE The function `muCOSA_vulkan_create_window_surface` creates a Vulkan surface for a given window, defined below: @NLNT
+							MUDEF void muCOSA_vulkan_create_window_surface(muCOSAContext* context, muCOSAResult* result, muWindow window, void* vk_result, void* instance, void* allocator, void* surface);
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_vulkan_create_window_surface(...) muCOSA_vulkan_create_window_surface(muCOSA_global_context, &muCOSA_global_context->result, __VA_ARGS__)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_vulkan_create_window_surface_(result, ...) muCOSA_vulkan_create_window_surface(muCOSA_global_context, result, __VA_ARGS__)
+							// @DOCLINE Note that the parameters of this function are `void*` to allow the function to at least be defined even if Vulkan is not supported; their interpreted types are:
+							// @DOCLINE `vk_result` as `VkResult*`.
+							// @DOCLINE `instance` as `VkInstance*`.
+							// @DOCLINE `allocator` as `const VkAllocationCallbacks**`.
+							// @DOCLINE `surface` as `VkSurfaceKHR*`.
+							// @DOCLINE Note that with this function, `result` represents if anything went wrong on the muCOSA end of things (such as Vulkan support not being defined), and `vk_result` represents if a Vulkan function went wrong.
+
+					// @DOCLINE ## Name functions
+
+						// @DOCLINE There are several functions used to convert enumerator values into `const char*` representations of them, which are ***only defined if `MUCOSA_NAMES` is defined***. These are:
+
+						#ifdef MUCOSA_NAMES
+							// @DOCLINE converting `muCOSAResult` to `const char*`: @NLNT
+							MUDEF const char* muCOSA_result_get_name(muCOSAResult result);
+
+							// @DOCLINE converting `muWindowSystem` to `const char*`: @NLNT
+							MUDEF const char* mu_window_system_get_name(muWindowSystem system);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_window_system_get_nice_name(muWindowSystem system);
+
+							// @DOCLINE converting `muWindowHandle` to `const char*`: @NLNT
+							MUDEF const char* mu_window_handle_get_name(muWindowHandle handle);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_window_handle_get_nice_name(muWindowHandle handle);
+
+							// @DOCLINE converting `muGraphicsAPI` to `const char*`: @NLNT
+							MUDEF const char* mu_graphics_api_get_name(muGraphicsAPI api);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_graphics_api_get_nice_name(muGraphicsAPI api);
+
+							// @DOCLINE converting `muCursorStyle` to `const char*`: @NLNT
+							MUDEF const char* mu_cursor_style_get_name(muCursorStyle style);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_cursor_style_get_nice_name(muCursorStyle style);
+
+							// @DOCLINE converting `muKeyboardKey` to `const char*`: @NLNT
+							MUDEF const char* mu_keyboard_key_get_name(muKeyboardKey key);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_keyboard_key_get_nice_name(muKeyboardKey key);
+
+							// @DOCLINE converting `muKeyboardState` to `const char*`: @NLNT
+							MUDEF const char* mu_keyboard_state_get_name(muKeyboardState state);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_keyboard_state_get_nice_name(muKeyboardState state);
+
+							// @DOCLINE converting `muMouseButton` to `const char*`: @NLNT
+							MUDEF const char* mu_mouse_button_get_name(muMouseButton button);
+							// @DOCLINE @NLNT
+							MUDEF const char* mu_mouse_button_get_nice_name(muMouseButton button);
+						#endif
+
+						/* @DOCBEGIN
+						Note that the `nice_name` functions return nicer-looking `const char*` representations of the enum values. For example:
+
+						```c
+						mu_graphics_api_get_nice_name(MU_OPENGL_3_3_COMPATIBILITY)
+						```
+						returns
+						```c
+						"OpenGL 3.3 Compatibility"
+						```
+						and
+						```c
+						mu_graphics_api_get_name(MU_OPENGL_3_3_COMPATIBILITY)
+						```
+						returns
+						```c
+						"MU_OPENGL_3_3_COMPATIBILITY"
+						```
+						@DOCEND */
+
+				// @DOCLINE # C standard library dependencies
+
+					// @DOCLINE muCOSA has several C standard library dependencies not provided by its other library dependencies, all of which are overridable by defining them before the inclusion of its header. This is a list of all of those dependencies.
+
+					#if !defined(mu_malloc) || \
+						!defined(mu_free) || \
+						!defined(mu_realloc)
+
+						// @DOCLINE ## `stdlib.h` dependencies
+						#include <stdlib.h>
+
+						// @DOCLINE `mu_malloc`: equivalent to `malloc`.
+						#ifndef mu_malloc
+							#define mu_malloc malloc
+						#endif
+
+						// @DOCLINE `mu_free`: equivalent to `free`.
+						#ifndef mu_free
+							#define mu_free free
+						#endif
+
+						// @DOCLINE `mu_realloc`: equivalent to `realloc`.
+						#ifndef mu_realloc
+							#define mu_realloc realloc
+						#endif
+
 					#endif
 
-				/* Initiation / Termination */
+					#if !defined(mu_memcpy) || \
+						!defined(mu_memset) || \
+						!defined(mu_strlen) || \
+						!defined(mu_strcmp)
 
-					MUDEF void muCOSA_init(muCOSAResult* result, muWindowSystem window_system);
-					MUDEF void muCOSA_term(muCOSAResult* result);
+						// @DOCLINE ## `string.h` dependencies
+						#include <string.h>
 
-					MUDEF muWindowSystem muCOSA_get_current_window_system(muCOSAResult* result);
+						// @DOCLINE `mu_memcpy`: equivalent to `memcpy`.
+						#ifndef mu_memcpy
+							#define mu_memcpy memcpy
+						#endif
 
-				/* Window */
+						// @DOCLINE `mu_memset`: equivalent to `memset`.
+						#ifndef mu_memset
+							#define mu_memset memset
+						#endif
 
-					/* Creation / Destruction */
+						// @DOCLINE `mu_strlen`: equivalent to `strlen`.
+						#ifndef mu_strlen
+							#define mu_strlen strlen
+						#endif
 
-						MUDEF muWindowCreateInfo mu_window_default_create_info(void);
+						// @DOCLINE `mu_strcmp`: equivalent to `strcmp`.
+						#ifndef mu_strcmp
+							#define mu_strcmp strcmp
+						#endif
 
-						MUDEF muWindow mu_window_create(muCOSAResult* result, 
-							muGraphicsAPI api, muBool (*load_functions)(void),
-							muByte* name, uint16_m width, uint16_m height,
-							muWindowCreateInfo create_info
-						);
+					#endif
 
-						MUDEF muWindow mu_window_destroy(muCOSAResult* result, muWindow window);
+					#if !defined(mu_fflush) || \
+						!defined(mu_stdout)
 
-					/* Main loop */
+						// @DOCLINE ## `stdio.h` dependencies
+						#include <stdio.h>
 
-						MUDEF muBool mu_window_get_closed(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_close(muCOSAResult* result, muWindow window);
+						// @DOCLINE `mu_fflush`: equivalent to `fflush`.
+						#ifndef mu_fflush
+							#define mu_fflush fflush
+						#endif
 
-						// "Update" gathers input and such, should be called first and THEN frame logic
-						MUDEF void mu_window_update(muCOSAResult* result, muWindow window);
-						// "Swap buffers" simply puts what's been drawing on frames
-						MUDEF void mu_window_swap_buffers(muCOSAResult* result, muWindow window);
+						// @DOCLINE `mu_stdout`: equivalent to `stdout`.
+						#ifndef mu_stdout
+							#define mu_stdout stdout
+						#endif
 
-					/* Get / Set */
+					#endif
 
-						MUDEF muBool mu_window_get_focused(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_focus(muCOSAResult* result, muWindow window);
+					#if !defined(mu_setlocale) || \
+						!defined(MU_LC_CTYPE)
 
-						MUDEF muBool mu_window_get_visible(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_set_visible(muCOSAResult* result, muWindow window, muBool visible);
+						// @DOCLINE ## `locale.h` dependencies
+						#include <locale.h>
 
-						MUDEF void mu_window_get_position(muCOSAResult* result, muWindow window, int32_m* x, int32_m* y);
-						MUDEF void mu_window_set_position(muCOSAResult* result, muWindow window, int32_m x, int32_m y);
+						// @DOCLINE `mu_setlocale`: equivalent to `setlocale`.
+						#ifndef mu_setlocale
+							#define mu_setlocale setlocale
+						#endif
 
-						MUDEF void mu_window_get_dimensions(muCOSAResult* result, muWindow window, uint32_m* width, uint32_m* height);
-						MUDEF void mu_window_set_dimensions(muCOSAResult* result, muWindow window, uint32_m width, uint32_m height);
+						// @DOCLINE `MU_LC_CTYPE`: equivalent to `LC_CTYPE`.
+						#ifndef MU_LC_CTYPE
+							#define MU_LC_CTYPE LC_CTYPE
+						#endif
 
-						MUDEF muBool mu_window_get_maximized(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_set_maximized(muCOSAResult* result, muWindow window, muBool maximized);
+					#endif
 
-						MUDEF muBool mu_window_get_minimized(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_set_minimized(muCOSAResult* result, muWindow window, muBool minimized);
+				#ifdef __cplusplus
+				}
+				#endif
+			#endif /* MUCOSA_H */
 
-						MUDEF void mu_window_get_minimum_dimensions(muCOSAResult* result, muWindow window, uint32_m* min_width, uint32_m* min_height);
-						MUDEF void mu_window_set_minimum_dimensions(muCOSAResult* result, muWindow window, uint32_m min_width, uint32_m min_height);
-						MUDEF void mu_window_get_maximum_dimensions(muCOSAResult* result, muWindow window, uint32_m* max_width, uint32_m* max_height);
-						MUDEF void mu_window_set_maximum_dimensions(muCOSAResult* result, muWindow window, uint32_m max_width, uint32_m max_height);
+			#define MUCOSA_NO_INCLUDE_VULKAN // <-- To still get all header definitions
+		// @ATTENTION
 
-						MUDEF void mu_window_get_cursor_position(muCOSAResult* result, muWindow window, int32_m* x, int32_m* y);
-						MUDEF void mu_window_set_cursor_position(muCOSAResult* result, muWindow window, int32_m x, int32_m y);
-
-						MUDEF muCursorStyle mu_window_get_cursor_style(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_set_cursor_style(muCOSAResult* result, muWindow window, muCursorStyle style);
-
-						MUDEF int32_m mu_window_get_scroll_level(muCOSAResult* result, muWindow window);
-						MUDEF void mu_window_set_scroll_level(muCOSAResult* result, muWindow window, int32_m scroll_level);
-
-					/* Get / Let */
-
-						MUDEF void mu_window_get_text_input_focus(muCOSAResult* result, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, muByte* input));
-						MUDEF void mu_window_update_text_cursor(muCOSAResult* result, muWindow window, int32_m x, int32_m y);
-						MUDEF void mu_window_let_text_input_focus(muCOSAResult* result, muWindow window);
-
-					/* Get */
-
-						MUDEF void mu_window_get_frame_extents(muCOSAResult* result, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom);
-
-						MUDEF muButtonState mu_window_get_keyboard_key_state(muCOSAResult* result, muWindow window, muKeyboardKey key);
-						MUDEF muState mu_window_get_keyboard_state_state(muCOSAResult* result, muWindow window, muKeyboardState state);
-
-						MUDEF muButtonState mu_window_get_mouse_button_state(muCOSAResult* result, muWindow window, muMouseButton button);
-
-					/* Set */
-
-						MUDEF void mu_window_set_title(muCOSAResult* result, muWindow window, muByte* title);
-
-						MUDEF void mu_window_set_dimensions_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height));
-						MUDEF void mu_window_set_position_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y));
-						MUDEF void mu_window_set_focus_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool focused));
-						MUDEF void mu_window_set_maximize_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool maximized));
-						MUDEF void mu_window_set_minimize_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool minimized));
-
-						MUDEF void mu_window_set_keyboard_key_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state));
-						MUDEF void mu_window_set_keyboard_state_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state));
-
-						MUDEF void mu_window_set_cursor_position_callback(muCOSAResult* result, muWindow win, void (*callback)(muWindow window, int32_m x, int32_m y));
-						MUDEF void mu_window_set_mouse_button_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state));
-						MUDEF void mu_window_set_scroll_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m scroll_level_add));
-
-				/* Time */
-
-					MUDEF double mu_time_get(muCOSAResult* result);
-					MUDEF void mu_time_set(muCOSAResult* result, double time);
-
-					MUDEF void mu_sleep(muCOSAResult* result, double time);
-
-				/* Clipboard */
-
-					MUDEF muByte* mu_clipboard_get(muCOSAResult* result);
-					MUDEF void mu_clipboard_set(muCOSAResult* result, muByte* text, size_m text_size);
-
-				/* OS functions */
-
-					MUDEF void* mu_os_get_window_handle(muCOSAResult* result, muWindow window, muWindowHandle handle);
-
-				/* OpenGL */
-
-					MUDEF void mu_opengl_bind_window(muCOSAResult* result, muWindow window);
-
-					// Note: not necessarily UTF-8, dependent on get proc address, maybe ASCII?
-					MUDEF void* mu_opengl_get_function_address(const muByte* name);
-
-					MUDEF void mu_opengl_window_swap_interval(muCOSAResult* result, muWindow window, int interval);
-
-				/* Vulkan */
-
-					// Note: also not necessarily UTF-8
-					MUDEF const char** mu_vulkan_get_surface_instance_extensions(muCOSAResult* result, size_m* count);
-
-					// vk_result interpreted as VkResult*, instance as VkInstance*, allocator as const VkAllocationCallbacks*, and surface as VkSurfaceKHR*
-					MUDEF void mu_vulkan_create_window_surface(muCOSAResult* result, muWindow window, void* vk_result, void* instance, void* allocator, void* surface);
-
-			#ifdef __cplusplus
-			}
-			#endif
-		#endif /* MUCOSA_H */
+		// @DOCLINE * [vkbind v1.3.283.0](https://github.com/mackron/vkbind/commit/7c136efb8cd6ce3074770c20f4ee5f240ddc114a).
+		// @DOCLINE * [glad 2.0.6 GL v4.0 Core](https://github.com/Dav1dde/glad/releases/tag/v2.0.6).
+		
+		// @DOCLINE Note that mu libraries store their dependencies within their files, so you don't need to import these dependencies yourself.
+		// @DOCLINE Note that the libraries listed may also have other dependencies that they also include that aren't listed here.
 
 	#ifdef __cplusplus
 	extern "C" { // }
 	#endif
 
-	#define MUG_VERSION_MAJOR 1
-	#define MUG_VERSION_MINOR 0
-	#define MUG_VERSION_PATCH 0
+	// @DOCLINE # Result enumerator
 
-	/* C standard library dependencies */
+		// @DOCLINE The enumerator `mugResult` is used to represent how a function went in mug.
 
-		#if !defined(MU_UINT32_MAX) || \
-			!defined(MU_UINT64_MAX)
+		// @DOCLINE ## Values
 
-			#include <stdint.h>
+			MU_ENUM(mugResult,
+				// @DOCLINE `@NLFT`: the task succeeded.
+				MUG_SUCCESS,
+				// @DOCLINE `@NLFT`: memory necessary to allocate to perform the task could not be allocated.
+				MUG_ALLOCATION_FAILED,
+				// @DOCLINE `@NLFT`: a `muGraphicAPI` value passed was an invalid/unknown enumerator value.
+				MUG_UNKNOWN_GRAPHIC_API,
 
-			#ifndef MU_UINT32_MAX
-				#define MU_UINT32_MAX UINT32_MAX
+				// @DOCLINE There are also mug result equivalents for each `muCOSAResult` enumerator value, following the format of `MUG_MUCOSA_...` (ie `MUG_MUCOSA_SUCCESS`).
+				MUG_MUCOSA_SUCCESS,
+				MUG_MUCOSA_ALREADY_ACTIVE,
+				MUG_MUCOSA_ALLOCATION_FAILED,
+				MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM,
+				MUG_MUCOSA_UNKNOWN_GRAPHICS_API,
+				MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE,
+				MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE,
+				MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API,
+				MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER,
+				MUG_MUCOSA_FAILED_CREATE_WINDOW,
+				MUG_MUCOSA_FAILED_LOAD_FUNCTIONS,
+				MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT,
+				MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT,
+				MUG_MUCOSA_FAILED_CREATE_THREAD,
+				MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD,
+				MUG_MUCOSA_FAILED_GET_INPUT_STYLES,
+				MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE,
+				MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT,
+				MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS,
+				MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR,
+				MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8,
+				MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS,
+				MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW,
+				MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT,
+				MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT,
+				MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT,
+				MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO,
+				MUG_MUCOSA_FAILED_SET_WINDOW_INFO,
+				MUG_MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT,
+				MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION,
+				MUG_MUCOSA_FAILED_GLOBAL_LOCK,
+				MUG_MUCOSA_FAILED_HOLD_CLIPBOARD,
+				MUG_MUCOSA_FAILED_SET_CLIPBOARD,
+				MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS,
+				MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS,
+				MUG_MUCOSA_INVALID_SAMPLE_COUNT,
+				MUG_MUCOSA_INVALID_WINDOW_STATE,
+				MUG_MUCOSA_NONEXISTENT_DEVICE,
+				MUG_MUCOSA_OVERSIZED_CLIPBOARD,
+			)
+
+		// @DOCLINE ## Get name
+
+			#ifdef MUG_NAMES
+			// @DOCLINE The function `mug_result_get_name` returns a `const char*` representation of a `mugResult` value, defined below: @NLNT
+			MUDEF const char* mug_result_get_name(mugResult result);
+			// @DOCLINE Note that this function is ***not defined*** unless `MUG_NAMES` is defined before the inclusion of the header file.
 			#endif
 
-			#ifndef MU_UINT64_MAX
-				#define MU_UINT64_MAX UINT64_MAX
-			#endif
+	// @DOCLINE # Context
 
-		#endif
+		// @DOCLINE The mug context is the storage container that mug stores its context in.
 
-		#if !defined(mu_sin) || \
-			!defined(mu_cos)
+		// @DOCLINE ## Struct
 
-			#include <math.h>
+			// @DOCLINE mug stores all of its inner data in a context, using a struct called `mugContext`. It has two important members:
 
-			#ifndef mu_sin
-				#define mu_sin sin
-			#endif
-
-			#ifndef mu_cos
-				#define mu_cos cos
-			#endif
-
-		#endif
-
-	/* Incomplete types */
-
-		typedef struct mugContext mugContext;
-
-	/* Global variables */
+			struct mugContext {
+				// @DOCLINE * `result`: the result of the latest non-explicit result-checking function call, defined below: @NLNT
+				mugResult result;
+				// @DOCLINE * `cosa`: the muCOSA context used by the mug context, defined below: @NLNT
+				muCOSAContext cosa;
+			};
+			typedef struct mugContext mugContext;
 
 		MUDEF mugContext* mug_global_context;
 
-	/* Enums */
+		// @DOCLINE ## Creation and destruction
 
-		MU_ENUM(mugResult,
-			MUG_SUCCESS,
+			// @DOCLINE The function `mug_context_create` creates a mug context, defined below: @NLNT
+			MUDEF void mug_context_create(mugContext* context, muWindowSystem system, muBool set_context);
+			// @DOCLINE Note that the result of this function is stored within `context->result`.
+			// @DOCLINE Note that, upon success, this function automatically calls `mug_context_set` on the created context (as well as `muCOSA_context_set` on `context->cosa`) unless `set_context` is equal to `MU_FALSE`.
 
-			MUG_ALREADY_INITIATED,
-			MUG_ALREADY_TERMINATED,
-			MUG_ALREADY_RENDERED_BUFFER,
+			// @DOCLINE The function `mug_context_destroy` destroys a mug context, defined below: @NLNT
+			MUDEF void mug_context_destroy(mugContext* context);
 
-			MUG_NOT_YET_INITIALIZED,
+		// @DOCLINE ## Set context
 
-			MUG_FAILED_ALLOCATE,
-			MUG_FAILED_LOAD_GRAPHICS_API,
+			// @DOCLINE The function `mug_context_set` sets the global context to the given context, defined below: @NLNT
+			MUDEF void mug_context_set(mugContext* context);
+			// @DOCLINE Note that this function can be automatically called on a created context with the function `mug_context_create`.
+			// @DOCLINE Note that the global context can also be accessed manually via the global variable `mug_global_context`, although this is not recommended.
 
-			// Vulkan
-			MUG_FAILED_CREATE_VK_INSTANCE,
-			MUG_FAILED_CREATE_VK_SURFACE,
-			MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE,
-			MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE,
-			MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES,
-			MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES,
-			MUG_FAILED_CREATE_VK_DEVICE,
-			MUG_FAILED_GET_VK_SURFACE_INFO,
-			MUG_FAILED_CREATE_VK_SWAPCHAIN,
-			MUG_FAILED_GET_VK_SWAPCHAIN_INFO,
-			MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS,
-			MUG_FAILED_CREATE_VK_COMMAND_POOL,
-			MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS,
-			MUG_FAILED_CREATE_VK_SEMAPHORE,
-			MUG_FAILED_CREATE_VK_FENCE,
-			MUG_FAILED_CREATE_VK_RENDER_PASS,
-			MUG_FAILED_CREATE_VK_FRAMEBUFFERS,
-			MUG_FAILED_WAIT_FOR_VK_FENCE,
-			MUG_FAILED_RESET_VK_FENCE,
-			MUG_FAILED_RESET_VK_COMMAND_BUFFER,
-			MUG_FAILED_BEGIN_VK_COMMAND_BUFFER,
-			MUG_FAILED_END_VK_COMMAND_BUFFER,
-			MUG_FAILED_SUBMIT_VK_QUEUE,
-			MUG_FAILED_PRESENT_VK_QUEUE,
-			MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE,
-			MUG_FAILED_CREATE_VK_BUFFER,
-			MUG_FAILED_FIND_VALID_VK_MEMORY_TYPE,
-			MUG_FAILED_ALLOCATE_VK_MEMORY,
-			MUG_FAILED_MAP_VK_MEMORY,
-			MUG_FAILED_CREATE_VK_SHADER_MODULE,
-			MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT,
-			MUG_FAILED_CREATE_VK_PIPELINE,
-			MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT,
-			MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL,
-			MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS,
+	// @DOCLINE # Graphic
 
-			// OpenGL
-			MUG_FAILED_CREATE_GL_VERTEX_ARRAY,
-			MUG_FAILED_CREATE_GL_BUFFER,
-			MUG_FAILED_COMPILE_GL_SHADERS,
+		#define muGraphic void*
 
-			MUG_NO_RENDER_CALLS_YET,
+		// @DOCLINE The "graphic" (respective type `muGraphic`) is a surface being rendered to by some graphics API. Since a graphic is just a reference to a rendering surface, it must be created via some other object that encapsulates a rendering surface. This is why muCOSA is included in mug, as it is able to create objects that have these surfaces, such as a window.
 
-			MUG_UNKNOWN_GRAPHIC_API,
+		// @DOCLINE ## Graphic API
 
-			MUG_INVALID_ID,
-			MUG_INVALID_BUFFER_ID,
-			MUG_INVALID_BUFFER_RANGE,
+			// @DOCLINE The enumerator `muGraphicAPI` is used to represent the graphics API associated with a graphic. Its possible values are:
 
-			MUG_MUCOSA_SUCCESS,
-			MUG_MUCOSA_ALREADY_INITIALIZED,
-			MUG_MUCOSA_ALREADY_TERMINATED,
-			MUG_MUCOSA_ALREADY_ACTIVE,
-			MUG_MUCOSA_ALREADY_INACTIVE,
-			MUG_MUCOSA_NOT_YET_INITIALIZED,
-			MUG_MUCOSA_ALLOCATION_FAILED,
-			MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM,
-			MUG_MUCOSA_UNKNOWN_GRAPHICS_API,
-			MUG_MUCOSA_UNKNOWN_KEYBOARD_KEY,
-			MUG_MUCOSA_UNKNOWN_KEYBOARD_STATE,
-			MUG_MUCOSA_UNKNOWN_MOUSE_BUTTON,
-			MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE,
-			MUG_MUCOSA_UNSUPPORTED_WINDOW_SYSTEM,
-			MUG_MUCOSA_UNSUPPORTED_FEATURE,
-			MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE,
-			MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API,
-			MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER,
-			MUG_MUCOSA_FAILED_CREATE_WINDOW,
-			MUG_MUCOSA_FAILED_LOAD_FUNCTIONS,
-			MUG_MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER,
-			MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT,
-			MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT,
-			MUG_MUCOSA_FAILED_USE_PIXEL_FORMAT,
-			MUG_MUCOSA_FAILED_JOIN_THREAD,
-			MUG_MUCOSA_FAILED_CREATE_THREAD,
-			MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD,
-			MUG_MUCOSA_FAILED_GET_INPUT_STYLES,
-			MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE,
-			MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT,
-			MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS,
-			MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR,
-			MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8,
-			MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS,
-			MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW,
-			MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT,
-			MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT,
-			MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT,
-			MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO,
-			MUG_MUCOSA_FAILED_SET_WINDOW_INFO,
-			MUG_MUCOSA_FAILED_GET_IMM_CONTEXT,
-			MUG_MUCOSA_FAILED_LET_IMM_CONTEXT,
-			MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION,
-			MUG_MUCOSA_FAILED_GLOBAL_LOCK,
-			MUG_MUCOSA_FAILED_HOLD_CLIPBOARD,
-			MUG_MUCOSA_FAILED_SET_CLIPBOARD,
-			MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS,
-			MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS,
-			MUG_MUCOSA_INVALID_ID,
-			MUG_MUCOSA_INVALID_SAMPLE_COUNT,
-			MUG_MUCOSA_INVALID_DIMENSIONS,
-			MUG_MUCOSA_INVALID_POINTER,
-			MUG_MUCOSA_INVALID_WINDOW_STATE,
-			MUG_MUCOSA_INVALID_TIME,
-			MUG_MUCOSA_NONEXISTENT_DEVICE,
-			MUG_MUCOSA_OVERSIZED_CLIPBOARD,
-			MUG_MUCOSA_WINDOW_NON_RESIZABLE,
-			MUG_MUCOSA_MUMA_SUCCESS,
-			MUG_MUCOSA_MUMA_FAILED_TO_ALLOCATE,
-			MUG_MUCOSA_MUMA_INVALID_INDEX,
-			MUG_MUCOSA_MUMA_INVALID_SHIFT_AMOUNT,
-			MUG_MUCOSA_MUMA_NOT_FOUND,
+			MU_ENUM(muGraphicAPI,
+				// @DOCLINE `@NLFT`: [OpenGL v4.0 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec40.core.pdf).
+				MUG_OPENGL,
+				// @DOCLINE `@NLFT`: Vulkan 1.3.283.0.
+				MUG_VULKAN,
+			)
 
-			MUG_MUMA_SUCCESS,
-			MUG_MUMA_FAILED_TO_ALLOCATE,
-			MUG_MUMA_INVALID_INDEX,
-			MUG_MUMA_INVALID_SHIFT_AMOUNT,
-			MUG_MUMA_NOT_FOUND,
-		)
+		// @DOCLINE ## Destroy graphic
 
-		MU_ENUM(muGraphicAPI,
-			MUG_OPENGL,
-			MUG_VULKAN,
-		)
+			// @DOCLINE The function `mug_graphic_destroy` destroys any graphic, defined below: @NLNT
+			MUDEF void mug_graphic_destroy(mugContext* context, mugResult* result, muGraphic* graphic);
 
-	/* Macros */
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_graphic_destroy(...) mug_graphic_destroy(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_graphic_destroy_(result, ...) mug_graphic_destroy(mug_global_context, result, __VA_ARGS__)
 
-		#define muGraphic size_m
+		// @DOCLINE ## Window graphic
 
-		#define muRectBuffer size_m
+			// @DOCLINE ### Creation
 
-	/* Functions */
+				// @DOCLINE The function `mug_graphic_create_via_window` creates a `muWindow` and creates a `muGraphic` from it, defined below: @NLNT
+				MUDEF muGraphic mug_graphic_create_via_window(mugContext* context, mugResult* result, muGraphicAPI api, const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info);
 
-		/* Names */
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_create_via_window(...) mug_graphic_create_via_window(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_create_via_window_(result, ...) mug_graphic_create_via_window(mug_global_context, result, __VA_ARGS__)
 
-			#ifdef MUG_NAMES
-				MUDEF const char* mug_result_get_name(mugResult result);
-			#endif
+			// @DOCLINE ### Get window
 
-		/* Initiation / Termination */
+				// @DOCLINE The function `mug_graphic_get_window` gets the window from a graphic created using a `muWindow`, defined below: @NLNT
+				MUDEF muWindow mug_graphic_get_window(mugContext* context, mugResult* result, muGraphic graphic);
 
-			MUDEF void mug_init(mugResult* result, muWindowSystem window_system);
-			MUDEF void mug_term(mugResult* result);
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_get_window(...) mug_graphic_get_window(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_get_window_(result, ...) mug_graphic_get_window(mug_global_context, result, __VA_ARGS__)
 
-		/* Graphic */
+		// @DOCLINE ## Main loop graphic functions
 
-			/* Creation / Destruction */
+			// @DOCLINE There are several graphic functions that are used virtually every frame. This is a list of those functions.
 
-				MUDEF muGraphic mu_graphic_create_via_window(mugResult* result, muGraphicAPI api, 
-					muByte* name, uint16_m width, uint16_m height,
-					muWindowCreateInfo create_info
-				);
+			// @DOCLINE ### Get graphic existence status
 
-				MUDEF muGraphic mu_graphic_destroy(mugResult* result, muGraphic graphic);
+				// @DOCLINE The function `mug_graphic_exists` returns whether or not a given graphic exists anymore (such as if the graphic is spawned from a window and the window is closed or not), defined below: @NLNT
+				MUDEF muBool mug_graphic_exists(mugContext* context, mugResult* result, muGraphic graphic);
 
-			/* Main loop */
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_exists(...) mug_graphic_exists(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_exists_(result, ...) mug_graphic_exists(mug_global_context, result, __VA_ARGS__)
 
-				MUDEF void mu_graphic_clear(mugResult* result, muGraphic graphic, float r, float g, float b, float a);
+				// @DOCLINE Note that a graphic not existing still means that it needs to be destroyed with `mu_graphic_destroy`.
 
-				MUDEF void mu_graphic_swap_buffers(mugResult* result, muGraphic graphic);
+			// @DOCLINE ### Clear graphic
 
-				MUDEF void mu_graphic_update(mugResult* result, muGraphic graphic);
+				// @DOCLINE The function `mug_graphic_clear` clears the graphical contents of a graphic with a certain color, defined below: @NLNT
+				MUDEF void mug_graphic_clear(mugContext* context, mugResult* result, muGraphic graphic, float r, float g, float b, float a);
 
-			/* Get */
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_clear(...) mug_graphic_clear(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_clear_(result, ...) mug_graphic_clear(mug_global_context, result, __VA_ARGS__)
 
-				MUDEF muWindow mu_graphic_get_window(mugResult* result, muGraphic graphic);
+				// @DOCLINE This function *must* be called before calling any rendering functions.
 
-			/* Objects */
+				// @DOCLINE Note that the `r`, `g`, `b`, and `a` parameters should range between 0.0 and 1.0.
 
-				MUDEF void mu_graphic_unload_buffer_types(mugResult* result, muGraphic graphic);
+				// @DOCLINE Note that the `a` value has no effect for now, and should be set to 1.0.
 
-				/* Rect */
+			// @DOCLINE ### Swap graphic buffers
 
-					struct muRect {
-						float pos[2]; // In the centre of the rect; must be because rotation makes it so that
-						// corner positions are not constant.
-						float dim[2]; // Width / Height
-						float col[4]; // RGBA
-						float rotation; // In radians
-					};
-					typedef struct muRect muRect;
+				// DOCLINE The function `mug_graphic_swap_buffers` swaps the buffer and presents the rendered image to the screen, defined below: @NLNT
+				MUDEF void mug_graphic_swap_buffers(mugContext* context, mugResult* result, muGraphic graphic);
 
-					// NOTE: rects is safe to be 0
-					MUDEF muRectBuffer mu_rect_buffer_create(mugResult* result, muGraphic graphic, size_m rect_count, muRect* rects);
-					MUDEF muRectBuffer mu_rect_buffer_destroy(mugResult* result, muGraphic graphic, muRectBuffer rb);
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_swap_buffers(...) mug_graphic_swap_buffers(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_swap_buffers_(result, ...) mug_graphic_swap_buffers(mug_global_context, result, __VA_ARGS__)
 
-					MUDEF void mu_rect_buffer_render(mugResult* result, muGraphic graphic, muRectBuffer rb);
-					MUDEF void mu_rect_buffer_subrender(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, size_m rect_count);
+				// @DOCLINE This function should be called near the end of the frame and *before* `mug_graphic_update`.
 
-					MUDEF void mu_rect_buffer_fill(mugResult* result, muGraphic graphic, muRectBuffer rb, muRect* rects);
-					MUDEF void mu_rect_buffer_subfill(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count);
+			// @DOCLINE ### Update graphic
 
-					// NOTE: rects is safe to be 0.
-					MUDEF void mu_rect_buffer_resize(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count, muRect* rects);
+				// DOCLINE The function `mug_graphic_update` updates the graphic for usage in the next frame, defined below: @NLNT
+				MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic);
 
-					MUDEF void mu_rect_buffer_unload_type(mugResult* result, muGraphic graphic);
+				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_update(...) mug_graphic_update(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+				#define mu_graphic_update_(result, ...) mug_graphic_update(mug_global_context, result, __VA_ARGS__)
+
+				// @DOCLINE This function should be called near the end of the frame and *after* `mug_graphic_swap_buffers`, preferably as the last function call of the frame.
+
+	// @DOCLINE # Version macro
+
+		// @DOCLINE mug defines three macros to define the version of mug: `MUG_VERSION_MAJOR`, `MUG_VERSION_MINOR`, and `MUG_VERSION_PATCH`, following the format of `vMAJOR.MINOR.PATCH`.
+
+		#define MUG_VERSION_MAJOR 1
+		#define MUG_VERISON_MINOR 0
+		#define MUG_VERSION_PATCH 0
 
 	#ifdef __cplusplus
 	}
@@ -2327,17 +2119,16 @@ ensure that rendered buffer sections don't get modified, or else UB.
 #endif /* MUG_H */
 
 
+// @IGNORE
 #ifdef MUG_IMPLEMENTATION
 
+	// Changes for vkbind:
+	// * Added 'void' to empty function paramaters to avoid strict prototype warnings.
+
+	// Changes for glad:
+	// * Removed definitions that triggered an extension warning.
+
 	/* vkbind v1.3.283.0 header */
-
-		#ifdef MUCOSA_X11
-			#define VK_USE_PLATFORM_XLIB_KHR
-		#endif
-
-		#ifdef MUCOSA_WIN32
-			#define VK_USE_PLATFORM_WIN32_KHR
-		#endif
 
 		#ifndef VKBIND_H
 		#define VKBIND_H
@@ -24209,7 +24000,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 		Each call to vkbInit() must be matched up with a call to vkbUninit().
 		*/
-		void vkbUninit();
+		void vkbUninit(void);
 
 		/*
 		Loads per-instance function pointers into the specified API object.
@@ -25028,7 +24819,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 		static unsigned int g_vkbInitCount = 0;
 		static VkbHandle g_vkbVulkanSO = NULL;
 
-		static VkResult vkbLoadVulkanSO()
+		static VkResult vkbLoadVulkanSO(void)
 		{
 		    size_t i;
 
@@ -26607,7 +26398,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 		    return VK_SUCCESS;
 		}
 
-		void vkbUninit()
+		void vkbUninit(void)
 		{
 		    if (g_vkbInitCount == 0) {
 				return;
@@ -29997,17 +29788,14 @@ ensure that rendered buffer sections don't get modified, or else UB.
 		#define KHRONOS_SUPPORT_INT64   1
 		#define KHRONOS_SUPPORT_FLOAT   1
 
-		#elif defined(_WIN32) && !defined(__SCITECH_SNAP__)
+		/*#elif defined(_WIN32) && !defined(__SCITECH_SNAP__)
 
-		/*
-		 * Win32
-		 */
 		typedef __int32                 khronos_int32_t;
 		typedef unsigned __int32        khronos_uint32_t;
 		typedef __int64                 khronos_int64_t;
 		typedef unsigned __int64        khronos_uint64_t;
 		#define KHRONOS_SUPPORT_INT64   1
-		#define KHRONOS_SUPPORT_FLOAT   1
+		#define KHRONOS_SUPPORT_FLOAT   1*/
 
 		#elif defined(__sun__) || defined(__digital__)
 
@@ -32631,2365 +32419,10 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 		#endif /* GLAD_GL_IMPLEMENTATION */
 
-	/* muCOSA commit beab34d implementation */
-
 	#ifndef MUCOSA_IMPLEMENTATION
 		#define MUCOSA_IMPLEMENTATION
 
 		#ifdef MUCOSA_IMPLEMENTATION
-
-			/* muString commit 6678f59 implementation */
-
-				#ifndef MUS_IMPLEMENTATION
-					#define MUS_IMPLEMENTATION
-
-					#ifdef MUS_IMPLEMENTATION
-
-						/* muMemoryAllocator version 1.0.0 implementation */
-
-							#ifndef MUMA_IMPLEMENTATION
-								#define MUMA_IMPLEMENTATION
-
-								#ifdef MUMA_IMPLEMENTATION
-
-									/* muUtility version 1.0.0 implementation */
-
-										#ifndef MUU_IMPLEMENTATION
-											#define MUU_IMPLEMENTATION
-
-											#ifdef MUU_IMPLEMENTATION
-									
-												// ...
-
-											#endif /* MUU_IMPLEMENTATION */
-										#endif
-
-									#ifdef __cplusplus
-										extern "C" {
-									#endif
-
-									#ifdef MUMA_NAMES
-										MUDEF const char* muma_result_get_name(mumaResult result) {
-											switch (result) {
-												default: return "MUMA_UNKNOWN"; break;
-												case MUMA_SUCCESS: return "MUMA_SUCCESS"; break;
-												case MUMA_FAILED_TO_ALLOCATE: return "MUMA_FAILED_TO_ALLOCATE"; break;
-												case MUMA_INVALID_INDEX: return "MUMA_INVALID_INDEX"; break;
-												case MUMA_INVALID_SHIFT_AMOUNT: return "MUMA_INVALID_SHIFT_AMOUNT"; break;
-												case MUMA_NOT_FOUND: return "MUMA_NOT_FOUND"; break;
-											}
-										}
-									#endif
-
-									#ifdef __cplusplus
-										}
-									#endif
-
-								#endif /* MUMA_IMPLEMENTATION */
-							#endif
-
-						/* muMultithreading version 1.0.0 implementation (only if thread safe) */
-						// CHANGES:
-						// * Removed muma implementation inclusion because this library already has it.
-						// * Added alt MU_LOCK definitions for non-thread safe code.
-
-						#ifdef MU_THREADSAFE
-
-							#ifndef MUM_IMPLEMENTATION
-								#define MUM_IMPLEMENTATION
-
-								#ifdef MUM_IMPLEMENTATION
-
-									#ifdef __cplusplus
-									extern "C" { // }
-									#endif
-
-									/* Shared functions */
-
-										/* Names */
-
-											#ifdef MUM_NAMES
-												MUDEF const char* mum_result_get_name(mumResult result) {
-													switch (result) {
-														default: return "MUM_UNKNOWN"; break;
-														case MUM_SUCCESS: return "MUM_SUCCESS"; break;
-														case MUM_MUMA_SUCCESS: return "MUM_MUMA_SUCCESS"; break;
-														case MUM_MUMA_FAILED_TO_ALLOCATE: return "MUM_MUMA_FAILED_TO_ALLOCATE"; break;
-														case MUM_MUMA_INVALID_INDEX: return "MUM_MUMA_INVALID_INDEX"; break;
-														case MUM_MUMA_INVALID_SHIFT_AMOUNT: return "MUM_MUMA_INVALID_SHIFT_AMOUNT"; break;
-														case MUM_MUMA_NOT_FOUND: return "MUM_MUMA_NOT_FOUND"; break;
-														case MUM_ALLOCATION_FAILED: return "MUM_ALLOCATION_FAILED"; break;
-														case MUM_ALREADY_INITIALIZED: return "MUM_ALREADY_INITIALIZED"; break;
-														case MUM_ALREADY_TERMINATED: return "MUM_ALREADY_TERMINATED"; break;
-														case MUM_NOT_YET_INITIALIZED: return "MUM_NOT_YET_INITIALIZED"; break;
-														case MUM_CREATE_CALL_FAILED: return "MUM_CREATE_CALL_FAILED"; break;
-														case MUM_DESTROY_CALL_FAILED: return "MUM_DESTROY_CALL_FAILED"; break;
-														case MUM_WAIT_CALL_FAILED: return "MUM_WAIT_CALL_FAILED"; break;
-														case MUM_LOCK_CALL_FAILED: return "MUM_LOCK_CALL_FAILED"; break;
-														case MUM_UNLOCK_CALL_FAILED: return "MUM_UNLOCK_CALL_FAILED"; break;
-														case MUM_GET_RETURN_VALUE_CALL_FAILED: return "MUM_GET_RETURN_VALUE_CALL_FAILED"; break;
-														case MUM_INVALID_ID: return "MUM_INVALID_ID"; break;
-														case MUM_THREAD_TIMED_OUT: return "MUM_THREAD_TIMED_OUT"; break;
-														case MUM_PREVIOUS_THREAD_CLOSED_BEFORE_LOCK: return "MUM_PREVIOUS_THREAD_CLOSED_BEFORE_LOCK"; break;
-													}
-												}
-											#endif
-
-										/* Get result */
-
-											mumResult muma_result_to_mum_result(mumaResult res) {
-												switch (res) {
-													default: case MUMA_SUCCESS: return MUM_MUMA_SUCCESS; break;
-													case MUMA_FAILED_TO_ALLOCATE: return MUM_MUMA_FAILED_TO_ALLOCATE; break;
-													case MUMA_INVALID_INDEX: return MUM_MUMA_INVALID_INDEX; break;
-													case MUMA_INVALID_SHIFT_AMOUNT: return MUM_MUMA_INVALID_SHIFT_AMOUNT; break;
-													case MUMA_NOT_FOUND: return MUM_MUMA_NOT_FOUND; break;
-												}
-											}
-
-									/* Unix */
-
-									#ifdef MU_UNIX
-
-										#include <pthread.h>
-
-										/* Useful things */
-
-											// These two functions are essentially stolen from:
-											// https://github.com/stepancheg/no-mutex-c
-
-											static inline muBool mum_atomic_compare_exchange(int* ptr, int compare, int exchange) {
-												return __atomic_compare_exchange_n(ptr, &compare, exchange, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
-											}
-
-											static inline void mum_atomic_store(int* ptr, int value) {
-												if (value) {}
-												__atomic_store_n(ptr, 0, __ATOMIC_SEQ_CST);
-											}
-
-											#ifdef MU_THREADSAFE
-
-												#define MU_LOCK pthread_mutex_t lock; muBool lock_active;
-
-												#define MU_LOCK_CREATE(lock, lock_active) \
-													if (pthread_mutex_init(&lock, 0) == 0) { \
-														lock_active = MU_TRUE; \
-													} else { \
-														lock_active = MU_FALSE; \
-													}
-
-												#define MU_LOCK_DESTROY(lock, lock_active) \
-													if (lock_active) { \
-														if (pthread_mutex_destroy(&lock) == 0) { \
-															lock_active = MU_FALSE; \
-														} \
-													}
-
-												#define MU_LOCK_LOCK(lock, lock_active) \
-													if (lock_active) { \
-														pthread_mutex_lock(&lock); \
-													}
-
-												#define MU_LOCK_UNLOCK(lock, lock_active) \
-													if (lock_active) { \
-														pthread_mutex_unlock(&lock); \
-													}
-
-											#else
-
-												#define MU_LOCK
-												#define MU_LOCK_CREATE(lock, active)
-												#define MU_LOCK_DESTROY(lock, active)
-												#define MU_LOCK_LOCK(lock, active)
-												#define MU_LOCK_UNLOCK(lock, active)
-
-											#endif
-
-										/* Arrays */
-
-											/* Thread */
-
-												struct mu_unix_thread {
-													muBool active;
-													pthread_t handle;
-													void* ret;
-
-													MU_LOCK
-												};
-												typedef struct mu_unix_thread mu_unix_thread;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_unix_thread)
-
-											/* Mutex */
-
-												struct mu_unix_mutex {
-													muBool active;
-													pthread_mutex_t handle;
-
-													MU_LOCK
-												};
-												typedef struct mu_unix_mutex mu_unix_mutex;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_unix_mutex)
-
-											/* Spinlock */
-
-												struct mu_unix_spinlock {
-													muBool active;
-													int locked;
-
-													MU_LOCK
-												};
-												typedef struct mu_unix_spinlock mu_unix_spinlock;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_unix_spinlock)
-
-										/* Initiation / Termination */
-
-											/* Setup */
-
-												struct mumContext {
-													mu_unix_thread_array threads;
-													#define MUM_GTHREADS mum_global_context->threads
-													mu_unix_mutex_array mutexes;
-													#define MUM_GMUTEXES mum_global_context->mutexes
-													mu_unix_spinlock_array spinlocks;
-													#define MUM_GSPINLOCKS mum_global_context->spinlocks
-												};
-
-											/* API-level */
-
-												mumContext* mum_global_context = MU_NULL_PTR;
-
-												MUDEF void mum_init(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context == MU_NULL_PTR, result, MUM_ALREADY_INITIALIZED, return;)
-
-													mum_global_context = (mumContext*)mu_malloc(sizeof(mumContext));
-													MU_ASSERT(mum_global_context != 0, result, MUM_ALLOCATION_FAILED, return;)
-
-													MUM_GTHREADS = MU_ZERO_STRUCT(mu_unix_thread_array);
-													MUM_GMUTEXES = MU_ZERO_STRUCT(mu_unix_mutex_array);
-													MUM_GSPINLOCKS = MU_ZERO_STRUCT(mu_unix_spinlock_array);
-												}
-
-												MUDEF void mum_term(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_ALREADY_TERMINATED, return;)
-
-													for (size_m i = 0; i < MUM_GTHREADS.length; i++) {
-														mu_thread_destroy(0, i);
-													}
-													mu_unix_thread_destroy(0, &MUM_GTHREADS);
-
-													for (size_m i = 0; i < MUM_GMUTEXES.length; i++) {
-														mu_mutex_destroy(0, i);
-													}
-													mu_unix_mutex_destroy(0, &MUM_GMUTEXES);
-
-													for (size_m i = 0; i < MUM_GSPINLOCKS.length; i++) {
-														mu_spinlock_destroy(0, i);
-													}
-													mu_unix_spinlock_destroy(0, &MUM_GSPINLOCKS);
-
-													mu_free(mum_global_context);
-													mum_global_context = MU_NULL_PTR;
-												}
-
-										/* Threads */
-
-											/* API-level */
-
-												MUDEF muThread mu_thread_create(mumResult* result, void (*start)(void* args), void* args) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m thread = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_unix_thread_find_push(&muma_res, &MUM_GTHREADS, MU_ZERO_STRUCT(mu_unix_thread), &thread);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && thread != MU_NONE, result, muma_result_to_mum_result(muma_res), 
-														return MU_NONE;
-													)
-
-													mu_unix_thread_hold_element(0, &MUM_GTHREADS, thread);
-													void* (*func)(void*);
-													mu_memcpy(&func, &start, sizeof(void*));
-													if (pthread_create(&MUM_GTHREADS.data[thread].handle, 0, func, args) != 0) {
-														MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_)
-														MU_SET_RESULT(result, MUM_CREATE_CALL_FAILED)
-														return MU_NONE;
-													}
-
-													MUM_GTHREADS.data[thread].active = MU_TRUE;
-													MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_)
-													return thread;
-												}
-
-												MUDEF muThread mu_thread_destroy(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return thread;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return thread;, mu_unix_thread_)
-
-													MU_ASSERT(pthread_cancel(MUM_GTHREADS.data[thread].handle) == 0, result, MUM_DESTROY_CALL_FAILED, 
-														MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_) return thread;
-													)
-													MUM_GTHREADS.data[thread].active = MU_FALSE;
-
-													MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_)
-													return MU_NONE;
-												}
-
-												MUDEF void mu_thread_exit(void* ret) {
-													pthread_exit(ret);
-												}
-
-												MUDEF void mu_thread_wait(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return;, mu_unix_thread_)
-
-													MU_ASSERT(pthread_join(MUM_GTHREADS.data[thread].handle, &MUM_GTHREADS.data[thread].ret) == 0, result, MUM_WAIT_CALL_FAILED,
-														MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_) return;
-													)
-													MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_)
-												}
-
-												MUDEF void* mu_thread_get_return_value(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return MU_NULL_PTR;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return MU_NULL_PTR;, mu_unix_thread_)
-
-													void* ret = MUM_GTHREADS.data[thread].ret;
-													MU_RELEASE(MUM_GTHREADS, thread, mu_unix_thread_)
-													return ret;
-												}
-
-										/* Mutexes */
-
-											/* API-level */
-
-												MUDEF muMutex mu_mutex_create(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m mutex = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_unix_mutex_find_push(&muma_res, &MUM_GMUTEXES, MU_ZERO_STRUCT(mu_unix_mutex), &mutex);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && mutex != MU_NONE, result, muma_result_to_mum_result(muma_res),
-														return MU_NONE;
-													)
-
-													mu_unix_mutex_hold_element(0, &MUM_GMUTEXES, mutex);
-													if (pthread_mutex_init(&MUM_GMUTEXES.data[mutex].handle, 0) != 0) {
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_)
-														MU_SET_RESULT(result, MUM_CREATE_CALL_FAILED)
-														return MU_NONE;
-													}
-
-													MUM_GMUTEXES.data[mutex].active = MU_TRUE;
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_)
-													return mutex;
-												}
-
-												MUDEF muMutex mu_mutex_destroy(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return mutex;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return mutex;, mu_unix_mutex_)
-
-													MU_ASSERT(pthread_mutex_destroy(&MUM_GMUTEXES.data[mutex].handle) == 0, result, MUM_DESTROY_CALL_FAILED, 
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_) return mutex;
-													)
-													MUM_GMUTEXES.data[mutex].active = MU_FALSE;
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_)
-													return MU_NONE;
-												}
-
-												// This poses an odd structural challenge. If we make both the lock & unlock
-												// function hold the mutex, you reach a deadlock pretty easily, ie:
-
-												// * Thread 1 locks mutex, quickly holding and releasing it.
-												// * Thread 2 attempts to lock mutex, holding it and waiting for it to be unlocked,
-												// * Thread 1 is done, and attempts to unlock the mutex, so it tries to hold it,
-												// but it's still being held by thread 2 who is attempting to lock it, so you reach
-												// a deadlock.
-
-												// This can be solved by:
-												// A) Making the 'lock mutex' function release the function early, allowing it to
-												// wait to lock it without holding it during that wait time.
-												// B) Make the 'unlock mutex' function not hold/release the mutex.
-
-												// I've chosen A because the only way it *doesn't* work well is if the user deletes
-												// a mutex while a thread is running with it locked AND another one is waiting on
-												// it, which is already a horrible situation to be in. Pretty sure deleting a mutex
-												// with a thread having it locked is already undefined behavior anyway.
-
-												// Note that this same logic applies to the other locks.
-
-												MUDEF void mu_mutex_lock(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return;, mu_unix_mutex_)
-
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_)
-													MU_ASSERT(pthread_mutex_lock(&MUM_GMUTEXES.data[mutex].handle) == 0, result, MUM_LOCK_CALL_FAILED, 
-														return;
-													)
-												}
-
-												MUDEF void mu_mutex_unlock(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return;, mu_unix_mutex_)
-
-													MU_ASSERT(pthread_mutex_unlock(&MUM_GMUTEXES.data[mutex].handle) == 0, result, MUM_UNLOCK_CALL_FAILED, 
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_) return;
-													)
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_unix_mutex_)
-												}
-
-										/* Spinlocks */
-
-											/* API-level */
-
-												MUDEF muSpinlock mu_spinlock_create(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m spinlock = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_unix_spinlock_find_push(&muma_res, &MUM_GSPINLOCKS, MU_ZERO_STRUCT(mu_unix_spinlock), &spinlock);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && spinlock != MU_NONE, result, muma_result_to_mum_result(muma_res),
-														return MU_NONE;
-													)
-
-													mu_unix_spinlock_hold_element(0, &MUM_GSPINLOCKS, spinlock);
-													MUM_GSPINLOCKS.data[spinlock].locked = 0;
-
-													MUM_GSPINLOCKS.data[spinlock].active = MU_TRUE;
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_unix_spinlock_)
-													return spinlock;
-												}
-
-												MUDEF muSpinlock mu_spinlock_destroy(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return spinlock;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return spinlock;, mu_unix_spinlock_)
-
-													MUM_GSPINLOCKS.data[spinlock].locked = 0;
-													MUM_GSPINLOCKS.data[spinlock].active = MU_FALSE;
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_unix_spinlock_)
-													return MU_NONE;
-												}
-
-												MUDEF void mu_spinlock_lock(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return;, mu_unix_spinlock_)
-
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_unix_spinlock_)
-													// Note that this is a bit less safe than mutexes, but there's little I can do
-													// in this position.
-													while (!mum_atomic_compare_exchange(&MUM_GSPINLOCKS.data[spinlock].locked, 0, 1)) {}
-												}
-
-												MUDEF void mu_spinlock_unlock(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return;, mu_unix_spinlock_)
-
-													mum_atomic_store(&MUM_GSPINLOCKS.data[spinlock].locked, 0);
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_unix_spinlock_)
-												}
-
-									#endif /* MU_UNIX */
-
-									#ifdef MU_WIN32
-
-										#include <windows.h>
-
-										/* Useful things */
-
-											static inline muBool mum_atomic_compare_exchange(LONG volatile* ptr, LONG compare, LONG exchange) {
-												return InterlockedCompareExchange(ptr, exchange, compare) != exchange;
-											}
-
-											// Kind of a hack
-											static inline void mum_atomic_store(LONG volatile* ptr, long value) {
-												if (value == 0) {
-													_interlockedbittestandreset(ptr, 0);
-												} else {
-													_interlockedbittestandset(ptr, 0);
-												}
-											}
-
-											#ifdef MU_THREADSAFE
-
-												#define MU_LOCK HANDLE lock; muBool lock_active;
-
-												#define MU_LOCK_CREATE(lock, lock_active) \
-													lock = CreateMutex(0, MU_FALSE, 0); \
-													if (lock != 0) { \
-														lock_active = MU_TRUE; \
-													} else { \
-														lock_active = MU_FALSE; \
-													}
-
-												#define MU_LOCK_DESTROY(lock, lock_active) \
-													if (lock_active) { \
-														if (CloseHandle(lock) != 0) { \
-															lock_active = MU_FALSE; \
-														} \
-													}
-
-												#define MU_LOCK_LOCK(lock, lock_active) \
-													if (lock_active) { \
-														WaitForSingleObject(lock, INFINITE); \
-													}
-
-												#define MU_LOCK_UNLOCK(lock, lock_active) \
-													if (lock_active) { \
-														ReleaseMutex(lock); \
-													}
-
-											#else
-
-												#define MU_LOCK
-												#define MU_LOCK_CREATE(lock, active)
-												#define MU_LOCK_DESTROY(lock, active)
-												#define MU_LOCK_LOCK(lock, active)
-												#define MU_LOCK_UNLOCK(lock, active)
-
-											#endif
-
-										/* Arrays */
-
-											/* Thread */
-
-												struct mu_win32_thread {
-													muBool active;
-													HANDLE handle;
-
-													MU_LOCK
-												};
-												typedef struct mu_win32_thread mu_win32_thread;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_win32_thread)
-
-											/* Mutex */
-
-												struct mu_win32_mutex {
-													muBool active;
-													HANDLE handle;
-
-													MU_LOCK
-												};
-												typedef struct mu_win32_mutex mu_win32_mutex;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_win32_mutex)
-
-											/* Spinlock */
-
-												struct mu_win32_spinlock {
-													muBool active;
-													LONG volatile locked;
-
-													MU_LOCK
-												};
-												typedef struct mu_win32_spinlock mu_win32_spinlock;
-
-												MU_HRARRAY_DEFAULT_FUNC(mu_win32_spinlock)
-
-										/* Initiation / Termination */
-
-											/* Setup */
-
-												struct mumContext {
-													mu_win32_thread_array threads;
-													#define MUM_GTHREADS mum_global_context->threads
-													mu_win32_mutex_array mutexes;
-													#define MUM_GMUTEXES mum_global_context->mutexes
-													mu_win32_spinlock_array spinlocks;
-													#define MUM_GSPINLOCKS mum_global_context->spinlocks
-												};
-
-											/* API-level */
-
-												mumContext* mum_global_context = MU_NULL_PTR;
-
-												MUDEF void mum_init(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context == MU_NULL_PTR, result, MUM_ALREADY_INITIALIZED, return;)
-
-													mum_global_context = (mumContext*)mu_malloc(sizeof(mumContext));
-													MU_ASSERT(mum_global_context != 0, result, MUM_ALLOCATION_FAILED, return;)
-
-													MUM_GTHREADS = MU_ZERO_STRUCT(mu_win32_thread_array);
-													MUM_GMUTEXES = MU_ZERO_STRUCT(mu_win32_mutex_array);
-													MUM_GSPINLOCKS = MU_ZERO_STRUCT(mu_win32_spinlock_array);
-												}
-
-												MUDEF void mum_term(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_ALREADY_TERMINATED, return;)
-
-													for (size_m i = 0; i < MUM_GTHREADS.length; i++) {
-														mu_thread_destroy(0, i);
-													}
-													mu_win32_thread_destroy(0, &MUM_GTHREADS);
-
-													for (size_m i = 0; i < MUM_GMUTEXES.length; i++) {
-														mu_mutex_destroy(0, i);
-													}
-													mu_win32_mutex_destroy(0, &MUM_GMUTEXES);
-
-													for (size_m i = 0; i < MUM_GSPINLOCKS.length; i++) {
-														mu_spinlock_destroy(0, i);
-													}
-													mu_win32_spinlock_destroy(0, &MUM_GSPINLOCKS);
-
-													mu_free(mum_global_context);
-													mum_global_context = MU_NULL_PTR;
-												}
-
-										/* Threads */
-
-											/* API-level */
-
-												MUDEF muThread mu_thread_create(mumResult* result, void (*start)(void* args), void* args) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m thread = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_win32_thread_find_push(&muma_res, &MUM_GTHREADS, MU_ZERO_STRUCT(mu_win32_thread), &thread);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && thread != MU_NONE, result, muma_result_to_mum_result(muma_res), 
-														return MU_NONE;
-													)
-
-													mu_win32_thread_hold_element(0, &MUM_GTHREADS, thread);
-													LPTHREAD_START_ROUTINE lp_start;
-													mu_memcpy(&lp_start, &start, sizeof(void*));
-													DWORD id;
-													MUM_GTHREADS.data[thread].handle = CreateThread(0, 0, lp_start, args, 0, &id);
-													if (MUM_GTHREADS.data[thread].handle == 0) {
-														MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_);
-														MU_SET_RESULT(result, MUM_CREATE_CALL_FAILED)
-														return MU_NONE;
-													}
-
-													MUM_GTHREADS.data[thread].active = MU_TRUE;
-													MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_)
-													return thread;
-												}
-
-												MUDEF muThread mu_thread_destroy(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return thread;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return thread;, mu_win32_thread_)
-
-													MU_ASSERT(CloseHandle(MUM_GTHREADS.data[thread].handle) == 0, result, MUM_DESTROY_CALL_FAILED, 
-														MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_) return thread;
-													)
-													MUM_GTHREADS.data[thread].active = MU_FALSE;
-
-													MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_)
-													return MU_NONE;
-												}
-
-												MUDEF void mu_thread_exit(void* ret) {
-													DWORD d;
-													mu_memcpy(&d, &ret, sizeof(DWORD));
-													ExitThread(d);
-												}
-
-												MUDEF void mu_thread_wait(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return;, mu_win32_thread_)
-
-													DWORD wait_result = WaitForSingleObject(MUM_GTHREADS.data[thread].handle, INFINITE);
-
-													switch (wait_result) {
-														case WAIT_TIMEOUT: {
-															MU_SET_RESULT(result, MUM_THREAD_TIMED_OUT)
-														} break;
-
-														case WAIT_FAILED: {
-															MU_SET_RESULT(result, MUM_WAIT_CALL_FAILED)
-														} break;
-													}
-
-													MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_)
-												}
-
-												MUDEF void* mu_thread_get_return_value(mumResult* result, muThread thread) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return MU_NULL_PTR;)
-													MU_HOLD(result, thread, MUM_GTHREADS, mum_global_context, MUM_, return MU_NULL_PTR;, mu_win32_thread_)
-
-													DWORD exit_code = 0;
-													MU_ASSERT(GetExitCodeThread(MUM_GTHREADS.data[thread].handle, &exit_code) != 0, result, MUM_GET_RETURN_VALUE_CALL_FAILED, 
-														MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_) return MU_NULL_PTR;
-													)
-
-													void* p;
-													mu_memcpy(&p, &exit_code, sizeof(DWORD));
-
-													MU_RELEASE(MUM_GTHREADS, thread, mu_win32_thread_)
-													return p;
-												}
-
-										/* Mutexes */
-
-											/* API-level */
-
-												MUDEF muMutex mu_mutex_create(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m mutex = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_win32_mutex_find_push(&muma_res, &MUM_GMUTEXES, MU_ZERO_STRUCT(mu_win32_mutex), &mutex);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && mutex != MU_NONE, result, muma_result_to_mum_result(muma_res),
-														return MU_NONE;
-													)
-
-													mu_win32_mutex_hold_element(0, &MUM_GMUTEXES, mutex);
-													MUM_GMUTEXES.data[mutex].handle = CreateMutex(0, MU_FALSE, 0);
-													if (MUM_GMUTEXES.data[mutex].handle == 0) {
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_)
-														MU_SET_RESULT(result, MUM_CREATE_CALL_FAILED)
-														return MU_NONE;
-													}
-
-													MUM_GMUTEXES.data[mutex].active = MU_TRUE;
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_)
-													return mutex;
-												}
-
-												MUDEF muMutex mu_mutex_destroy(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return mutex;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return mutex;, mu_win32_mutex_)
-
-													MU_ASSERT(CloseHandle(MUM_GMUTEXES.data[mutex].handle) == 0, result, MUM_DESTROY_CALL_FAILED, 
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_) return mutex;
-													)
-													MUM_GMUTEXES.data[mutex].active = MU_FALSE;
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_)
-													return MU_NONE;
-												}
-
-												MUDEF void mu_mutex_lock(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return;, mu_win32_mutex_)
-
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_)
-													DWORD wait_result = WaitForSingleObject(MUM_GMUTEXES.data[mutex].handle, INFINITE);
-
-													switch (wait_result) {
-														// The mutex has most likely been closed. This should pretty much never happen with
-														// the way mum is set up, but if it has, that's really bad. Most likely, rather mum
-														// is not working as intended at all, or the user has modified things that they
-														// shouldn't.
-														case WAIT_FAILED: {
-															MU_SET_RESULT(result, MUM_INVALID_ID)
-														} break;
-
-														// The thread holding the mutex has died. This can be due to a few things:
-														// * The thread crashed or otherwise imploded in on itself.
-														// * I forgot to put an unlock call on an error return case.
-														// * The user has fiddled around with values they shouldn't.
-														// Either way, this is REALLY, REALLY bad, and will lead to sporadic random bugs &
-														// crashes.
-														// Note: we still have ownership due to this, but ehhhhh.
-														// https://devblogs.microsoft.com/oldnewthing/20050912-14/?p=34253
-														// (Raymond Chen is awesome btw)
-														case WAIT_ABANDONED: {
-															MU_SET_RESULT(result, MUM_PREVIOUS_THREAD_CLOSED_BEFORE_LOCK)
-														} break;
-													}
-												}
-
-												MUDEF void mu_mutex_unlock(mumResult* result, muMutex mutex) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, mutex, MUM_GMUTEXES, mum_global_context, MUM_, return;, mu_win32_mutex_)
-
-													MU_ASSERT(ReleaseMutex(MUM_GMUTEXES.data[mutex].handle), result, MUM_UNLOCK_CALL_FAILED, 
-														MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_) return;
-													)
-													MU_RELEASE(MUM_GMUTEXES, mutex, mu_win32_mutex_)
-												}
-
-										/* Spinlocks */
-
-											/* API-level */
-
-												MUDEF muSpinlock mu_spinlock_create(mumResult* result) {
-													MU_SET_RESULT(result, MUM_SUCCESS)
-													MU_ASSERT(mum_global_context != MU_NULL_PTR, result, MUM_NOT_YET_INITIALIZED, return MU_NONE;)
-
-													size_m spinlock = MU_NONE;
-													mumaResult muma_res = MUMA_SUCCESS;
-													mu_win32_spinlock_find_push(&muma_res, &MUM_GSPINLOCKS, MU_ZERO_STRUCT(mu_win32_spinlock), &spinlock);
-													MU_ASSERT(muma_res == MUMA_SUCCESS && spinlock != MU_NONE, result, muma_result_to_mum_result(muma_res),
-														return MU_NONE;
-													)
-
-													mu_win32_spinlock_hold_element(0, &MUM_GSPINLOCKS, spinlock);
-													MUM_GSPINLOCKS.data[spinlock].locked = 0;
-
-													MUM_GSPINLOCKS.data[spinlock].active = MU_TRUE;
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_win32_spinlock_)
-													return spinlock;
-												}
-
-												MUDEF muSpinlock mu_spinlock_destroy(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return spinlock;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return spinlock;, mu_win32_spinlock_)
-
-													MUM_GSPINLOCKS.data[spinlock].locked = 0;
-													MUM_GSPINLOCKS.data[spinlock].active = MU_FALSE;
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_win32_spinlock_)
-													return MU_NONE;
-												}
-
-												MUDEF void mu_spinlock_lock(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return;, mu_win32_spinlock_)
-
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_win32_spinlock_)
-													while (!mum_atomic_compare_exchange(&MUM_GSPINLOCKS.data[spinlock].locked, 0, 1)) {}
-												}
-
-												MUDEF void mu_spinlock_unlock(mumResult* result, muSpinlock spinlock) {
-													MU_SAFEFUNC(result, MUM_, mum_global_context, return;)
-													MU_HOLD(result, spinlock, MUM_GSPINLOCKS, mum_global_context, MUM_, return;, mu_win32_spinlock_)
-
-													mum_atomic_store(&MUM_GSPINLOCKS.data[spinlock].locked, 0);
-													MU_RELEASE(MUM_GSPINLOCKS, spinlock, mu_win32_spinlock_)
-												}
-
-									#endif /* MU_WIN32 */
-
-									#ifdef __cplusplus
-									}
-									#endif
-
-								#endif /* MUM_IMPLEMENTATION */
-							#endif
-
-						#else
-
-							#define MU_LOCK
-							#define MU_LOCK_CREATE(...)
-							#define MU_LOCK_DESTROY(...)
-							#define MU_LOCK_LOCK(...)
-							#define MU_LOCK_UNLOCK(...)
-
-						#endif
-
-						#ifdef __cplusplus
-						extern "C" { // }
-						#endif
-
-						/* Result conversion */
-
-							musResult muma_result_to_mus_result(mumaResult res) {
-								switch (res) {
-									default: case MUMA_SUCCESS: return MUS_MUMA_SUCCESS; break;
-									case MUMA_FAILED_TO_ALLOCATE: return MUS_MUMA_FAILED_TO_ALLOCATE; break;
-									case MUMA_INVALID_INDEX: return MUS_MUMA_INVALID_INDEX; break;
-									case MUMA_INVALID_SHIFT_AMOUNT: return MUS_MUMA_INVALID_SHIFT_AMOUNT; break;
-									case MUMA_NOT_FOUND: return MUS_MUMA_NOT_FOUND; break;
-								}
-							}
-
-						/* Functions */
-
-							/* Names */
-
-								#ifdef MUS_NAMES
-									MUDEF const char* mus_result_get_name(musResult result) {
-										switch (result) {
-											default: return "MUS_UNKNOWN"; break;
-											case MUS_SUCCESS: return "MUS_SUCCESS"; break;
-											case MUS_ALREADY_INITIALIZED: return "MUS_ALREADY_INITIALIZED"; break;
-											case MUS_ALLOCATION_FAILED: return "MUS_ALLOCATION_FAILED"; break;
-											case MUS_ALREADY_TERMINATED: return "MUS_ALREADY_TERMINATED"; break;
-											case MUS_NOT_YET_INITIALIZED: return "MUS_NOT_YET_INITIALIZED"; break;
-											case MUS_UNKNOWN_CHARACTER_ENCODING: return "MUS_UNKNOWN_CHARACTER_ENCODING"; break;
-											case MUS_CHARACTER_CANNOT_BE_ENCODED: return "MUS_CHARACTER_CANNOT_BE_ENCODED"; break;
-											case MUS_INVALID_CHARACTER_ENCODING: return "MUS_INVALID_CHARACTER_ENCODING"; break;
-											case MUS_INVALID_CODE_POINT_SIZE: return "MUS_INVALID_CODE_POINT_SIZE"; break;
-											case MUS_INVALID_DATA_SIZE: return "MUS_INVALID_DATA_SIZE"; break;
-											case MUS_INVALID_DATA_POINTER: return "MUS_INVALID_DATA_POINTER"; break;
-											case MUS_INVALID_OFFSET: return "MUS_INVALID_OFFSET"; break;
-											case MUS_INVALID_ID: return "MUS_INVALID_ID"; break;
-											case MUS_INVALID_DATA: return "MUS_INVALID_DATA"; break;
-											case MUS_INSUFFICIENT_DATA_SIZE: return "MUS_INSUFFICIENT_DATA_SIZE"; break;
-											case MUS_NONMATCHING_CHARACTER_ENCODING: return "MUS_NONMATCHING_CHARACTER_ENCODING"; break;
-											case MUS_MUMA_FAILED_TO_ALLOCATE: return "MUS_MUMA_FAILED_TO_ALLOCATE"; break;
-											case MUS_MUMA_INVALID_INDEX: return "MUS_MUMA_INVALID_INDEX"; break;
-											case MUS_MUMA_INVALID_SHIFT_AMOUNT: return "MUS_MUMA_INVALID_SHIFT_AMOUNT"; break;
-											case MUS_MUMA_NOT_FOUND: return "MUS_MUMA_NOT_FOUND"; break;
-										}
-									}
-								#endif
-
-							/* Structs */
-
-								muBool mu_bstring_comp(muByte b0, muByte b1) {
-									return b0 == b1;
-								}
-
-								mu_dynamic_array_declaration(mus_byte_string, muByte, mus_bstring_, mu_bstring_comp)
-
-								struct mus_string {
-									muBool active;
-
-									muCharacterEncoding encoding;
-									mus_byte_string bytes;
-									size_m code_point_length;
-
-									MU_LOCK
-								};
-								typedef struct mus_string mus_string;
-
-								MU_HRARRAY_DEFAULT_FUNC(mus_string)
-
-							/* Initiation / Termination */
-
-								struct musContext {
-									mus_string_array strings;
-									#define MUS_GSTRINGS mus_global_context->strings
-								};
-
-								musContext* mus_global_context = MU_NULL_PTR;
-
-								MUDEF void mus_init(musResult* result) {
-									MU_SET_RESULT(result, MUS_SUCCESS)
-
-									MU_ASSERT(mus_global_context == MU_NULL_PTR, result, MUS_ALREADY_INITIALIZED, return;)
-
-									mus_global_context = (musContext*)mu_malloc(sizeof(musContext));
-									MU_ASSERT(mus_global_context != 0, result, MUS_ALLOCATION_FAILED, return;)
-
-									MUS_GSTRINGS = MU_ZERO_STRUCT(mus_string_array);
-								}
-
-								MUDEF void mus_term(musResult* result) {
-									MU_SET_RESULT(result, MUS_SUCCESS)
-									MU_ASSERT(mus_global_context != MU_NULL_PTR, result, MUS_ALREADY_TERMINATED, return;)
-
-									for (size_m i = 0; i < MUS_GSTRINGS.length; i++) {
-										mu_string_destroy(0, i);
-									}
-									mus_string_destroy(0, &MUS_GSTRINGS);
-
-									mu_free(mus_global_context);
-									mus_global_context = MU_NULL_PTR;
-								}
-
-							/* String functions */
-
-								/* Creation/Destruction */
-
-									MUDEF muString mu_string_create(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return MU_NONE;)
-										mumaResult muma_res = MUMA_SUCCESS;
-										musResult res = MUS_SUCCESS;
-										
-										MU_ASSERT(mu_character_encoding_verify_raw_string(&res, encoding, data, data_size) == MU_TRUE, result, MUS_INVALID_CHARACTER_ENCODING, return MU_NONE;)
-										MU_ASSERT(res == MUS_SUCCESS, result, res, return MU_NONE;)
-
-										mus_string s_string = MU_ZERO_STRUCT(mus_string);
-										s_string.active = MU_TRUE;
-
-										s_string.encoding = encoding;
-										s_string.code_point_length = mu_character_encoding_get_raw_string_code_point_length(&res, encoding, data, data_size);
-										MU_ASSERT(res == MUS_SUCCESS, result, res, return MU_NONE;)
-										
-										s_string.bytes = mus_bstring_create(&muma_res, data_size);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), return MU_NONE;)
-										mu_memcpy(s_string.bytes.data, data, data_size);
-
-										size_m string = MU_NONE;
-										mus_string_find_push(&muma_res, &MUS_GSTRINGS, MU_ZERO_STRUCT(mus_string), &string);
-										MU_ASSERT(muma_res == MUMA_SUCCESS && string != MU_NONE, result, muma_result_to_mus_result(muma_res), 
-											mus_bstring_destroy(0, s_string.bytes);
-										)
-
-										mus_string_hold_element(0, &MUS_GSTRINGS, string);
-										MUS_GSTRINGS.data[string] = s_string;
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return string;
-									}
-
-									MUDEF muString mu_string_destroy(musResult* result, muString string) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return string;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return string;, mus_string_)
-										mumaResult muma_res = MUMA_SUCCESS;
-
-										mus_bstring_destroy(&muma_res, MUS_GSTRINGS.data[string].bytes);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return string;)
-										MUS_GSTRINGS.data[string].active = MU_FALSE;
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return MU_NONE;
-									}
-
-									MUDEF muString mu_string_duplicate(musResult* result, muString string) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return MU_NONE;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return MU_NONE;, mus_string_)
-										musResult mus_res = MUS_SUCCESS;
-
-										muString dupe = mu_string_create(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											MUS_GSTRINGS.data[string].bytes.data,
-											MUS_GSTRINGS.data[string].bytes.length
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return MU_NONE;)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return dupe;
-									}
-
-								/* Data */
-
-									MUDEF muByte* mu_string_get_raw_data(musResult* result, muString string, size_m* size) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return MU_NULL_PTR;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return MU_NULL_PTR;, mus_string_)
-
-										muByte* data = MUS_GSTRINGS.data[string].bytes.data;
-										MU_SET_RESULT(size, MUS_GSTRINGS.data[string].bytes.length)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return data;
-									}
-
-								/* Character encoding */
-
-									MUDEF muCharacterEncoding mu_string_get_character_encoding(musResult* result, muString string) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return MU_UNKNOWN_CHARACTER_ENCODING;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return MU_UNKNOWN_CHARACTER_ENCODING;, mus_string_)
-
-										muCharacterEncoding encoding = MUS_GSTRINGS.data[string].encoding;
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return encoding;
-									}
-
-									MUDEF void mu_string_convert_character_encoding(musResult* result, muString string, muCharacterEncoding desired_encoding) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-										musResult mus_res = MUS_SUCCESS;
-										mumaResult muma_res = MUMA_SUCCESS;
-
-										size_m new_size = mu_raw_string_get_character_encoding_conversion_size(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											MUS_GSTRINGS.data[string].bytes.data,
-											MUS_GSTRINGS.data[string].bytes.length,
-											desired_encoding
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-										if (MUS_GSTRINGS.data[string].encoding == desired_encoding) {
-											return;
-										}
-
-										mus_byte_string new_bytes = mus_bstring_create(&muma_res, new_size);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										mu_raw_string_convert_character_encoding(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											MUS_GSTRINGS.data[string].bytes.data,
-											MUS_GSTRINGS.data[string].bytes.length,
-											desired_encoding,
-											new_bytes.data,
-											new_bytes.length
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, mus_bstring_destroy(0, new_bytes); MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										size_m new_code_point_length = mu_character_encoding_get_raw_string_code_point_length(&mus_res,
-											desired_encoding, new_bytes.data, new_bytes.length
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, mus_bstring_destroy(0, new_bytes); MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										mus_bstring_destroy(0, MUS_GSTRINGS.data[string].bytes);
-										MUS_GSTRINGS.data[string].bytes = new_bytes;
-										MUS_GSTRINGS.data[string].encoding = desired_encoding;
-										MUS_GSTRINGS.data[string].code_point_length = new_code_point_length;
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-								/* Code point */
-
-									MUDEF size_m mu_string_get_code_point_length(musResult* result, muString string) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return 0;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return 0;, mus_string_)
-
-										size_m code_point_length = MUS_GSTRINGS.data[string].code_point_length;
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return code_point_length;
-									}
-
-									MUDEF size_m mu_string_get_code_point_offset(musResult* result, muString string, size_m offset, size_m index) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return 0;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return 0;, mus_string_)
-										musResult mus_res = MUS_SUCCESS;
-
-										size_m ret_offset = mu_character_encoding_get_raw_string_code_point_offset(&mus_res,
-											MUS_GSTRINGS.data[string].encoding,
-											MUS_GSTRINGS.data[string].bytes.data,
-											MUS_GSTRINGS.data[string].bytes.length,
-											offset, index
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return 0;)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return ret_offset;
-									}
-
-									MUDEF muCodePoint mu_string_get_code_point(musResult* result, muString string, size_m offset) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return 0;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return 0;, mus_string_)
-										musResult mus_res = MUS_SUCCESS;
-
-										MU_ASSERT(offset < MUS_GSTRINGS.data[string].bytes.length, result, MUS_INVALID_OFFSET, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return 0;)
-
-										muCodePoint cp = mu_character_encoding_get_code_point(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return 0;)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-										return cp;
-									}
-
-									MUDEF void mu_string_set_code_point(musResult* result, muString string, muCodePoint code_point, size_m offset) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-										musResult mus_res = MUS_SUCCESS;
-										mumaResult muma_res = MUMA_SUCCESS;
-
-										MU_ASSERT(offset < MUS_GSTRINGS.data[string].bytes.length, result, MUS_INVALID_OFFSET, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										// Get sizes of current code point and the code point to be set
-
-										muCodePoint prev_cp = mu_character_encoding_get_code_point(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										size_m prev_cp_size = mu_character_encoding_get_code_point_size(&mus_res, MUS_GSTRINGS.data[string].encoding, prev_cp);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-										size_m cp_size = mu_character_encoding_get_code_point_size(&mus_res, MUS_GSTRINGS.data[string].encoding, code_point);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										// Compare sizes and shift data accordingly
-
-										if (prev_cp_size > cp_size) {
-											MUS_GSTRINGS.data[string].bytes = mus_bstring_lshift(&muma_res, 
-												MUS_GSTRINGS.data[string].bytes,
-												offset + prev_cp_size,
-												prev_cp_size - cp_size
-											);
-											MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-										} else if (prev_cp_size < cp_size) {
-											MUS_GSTRINGS.data[string].bytes = mus_bstring_rshift(&muma_res,
-												MUS_GSTRINGS.data[string].bytes,
-												offset + prev_cp_size,
-												cp_size - prev_cp_size
-											);
-											MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-										}
-
-										// Set code point
-
-										mu_character_encoding_set_code_point(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											code_point,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-								/* Insert */
-
-									MUDEF void mu_string_insert_raw_string(musResult* result, muString string, muCharacterEncoding encoding, muByte* data, size_m data_size, size_m offset) {
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-
-										mumaResult muma_res = MUMA_SUCCESS;
-										musResult mus_res = MUS_SUCCESS;
-
-										MU_ASSERT(encoding == MUS_GSTRINGS.data[string].encoding, result, MUS_NONMATCHING_CHARACTER_ENCODING, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										size_m first_offset = mu_character_encoding_get_raw_string_code_point_offset(&mus_res, encoding, data, data_size, 0, 0);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MUS_GSTRINGS.data[string].bytes = mus_bstring_multiinsert(&muma_res, 
-											MUS_GSTRINGS.data[string].bytes, offset,
-											&data[first_offset], data_size-first_offset
-										);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-									MUDEF void mu_string_insert_integer(musResult* result, muString string, int64_m i, size_m offset) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-
-										mumaResult muma_res = MUMA_SUCCESS;
-										musResult mus_res = MUS_SUCCESS;
-
-										size_m int_size = mu_raw_string_get_integer_conversion_size(&mus_res, MUS_GSTRINGS.data[string].encoding, i);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MUS_GSTRINGS.data[string].bytes = mus_bstring_rshift(&muma_res,
-											MUS_GSTRINGS.data[string].bytes, offset, int_size
-										);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										mu_raw_string_convert_to_integer(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset,
-											i
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res,
-											MUS_GSTRINGS.data[string].bytes = mus_bstring_lshift(0, MUS_GSTRINGS.data[string].bytes, offset+int_size, int_size);
-											MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-											return;
-										)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-									MUDEF void mu_string_insert_float(musResult* result, muString string, float d, size_m decimal_places, size_m offset) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-
-										mumaResult muma_res = MUMA_SUCCESS;
-										musResult mus_res = MUS_SUCCESS;
-
-										size_m int_size = mu_raw_string_get_float_conversion_size(&mus_res, MUS_GSTRINGS.data[string].encoding, d, decimal_places);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MUS_GSTRINGS.data[string].bytes = mus_bstring_rshift(&muma_res,
-											MUS_GSTRINGS.data[string].bytes, offset, int_size
-										);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										mu_raw_string_convert_to_float(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset,
-											d, decimal_places
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res,
-											MUS_GSTRINGS.data[string].bytes = mus_bstring_lshift(0, MUS_GSTRINGS.data[string].bytes, offset+int_size, int_size);
-											MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-											return;
-										)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-									MUDEF void mu_string_insert_double(musResult* result, muString string, double d, size_m decimal_places, size_m offset) {
-										MU_SAFEFUNC(result, MUS_, mus_global_context, return;)
-										MU_HOLD(result, string, MUS_GSTRINGS, mus_global_context, MUS_, return;, mus_string_)
-
-										mumaResult muma_res = MUMA_SUCCESS;
-										musResult mus_res = MUS_SUCCESS;
-
-										size_m int_size = mu_raw_string_get_double_conversion_size(&mus_res, MUS_GSTRINGS.data[string].encoding, d, decimal_places);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										MUS_GSTRINGS.data[string].bytes = mus_bstring_rshift(&muma_res,
-											MUS_GSTRINGS.data[string].bytes, offset, int_size
-										);
-										MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_mus_result(muma_res), MU_RELEASE(MUS_GSTRINGS, string, mus_string_) return;)
-
-										mu_raw_string_convert_to_double(&mus_res, 
-											MUS_GSTRINGS.data[string].encoding,
-											&MUS_GSTRINGS.data[string].bytes.data[offset],
-											MUS_GSTRINGS.data[string].bytes.length-offset,
-											d, decimal_places
-										);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res,
-											MUS_GSTRINGS.data[string].bytes = mus_bstring_lshift(0, MUS_GSTRINGS.data[string].bytes, offset+int_size, int_size);
-											MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-											return;
-										)
-
-										MU_RELEASE(MUS_GSTRINGS, string, mus_string_)
-									}
-
-							/* Raw string functions */
-
-								/* Conversion */
-
-									MUDEF size_m mu_raw_string_get_character_encoding_conversion_size(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, muCharacterEncoding desired_encoding) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-										musResult res = MUS_SUCCESS;
-
-										size_m i = mu_character_encoding_get_raw_string_code_point_offset(&res, encoding, data, data_size, 0, 0);
-										MU_ASSERT(res == MUS_SUCCESS, result, res, return 0;)
-
-										size_m output_size = 0;
-
-										for (; i < data_size;) {
-											muCodePoint cp = mu_character_encoding_get_code_point(&res, encoding, &data[i], data_size-i);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return 0;)
-
-											size_m cp_size = mu_character_encoding_get_code_point_size(&res, desired_encoding, cp);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return 0;)
-											output_size += cp_size;
-
-											cp_size = mu_character_encoding_get_code_point_size(&res, encoding, cp);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return 0;)
-
-											i += cp_size;
-										}
-
-										return output_size;
-									}
-
-									MUDEF void mu_raw_string_convert_character_encoding(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, muCharacterEncoding output_encoding, muByte* output_data, size_m output_data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(output_data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										MU_ASSERT(output_data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										musResult res = MUS_SUCCESS;
-
-										size_m input_i = mu_character_encoding_get_raw_string_code_point_offset(&res, encoding, data, data_size, 0, 0);
-										MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-
-										size_m output_i = 0;
-
-										for (; input_i < data_size;) {
-											muCodePoint input_cp = mu_character_encoding_get_code_point(&res, encoding, &data[input_i], data_size-input_i);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-
-											size_m input_cp_size = mu_character_encoding_get_code_point_size(&res, encoding, input_cp);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-
-											size_m output_cp_size = mu_character_encoding_get_code_point_size(&res, output_encoding, input_cp);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-
-											input_i += input_cp_size;
-											MU_ASSERT((output_data_size - output_i) >= output_cp_size, result, MUS_INSUFFICIENT_DATA_SIZE, return;)
-
-											mu_character_encoding_set_code_point(&res, output_encoding, input_cp, &output_data[output_i], output_data_size-output_i);
-											MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-											output_i += output_cp_size;
-										}
-									}
-
-								/* Integer/Float/Double conversion */
-
-									// For these functions, ASCII/UTF-8 is assumed. As of the time of writing this,
-									// these are the only encoding formats supported by muString, and their
-									// implementation for the characters concerned (0-9 and .) are the same, storing 1
-									// byte per character.
-
-									#define MUS_MAX_FLOAT_DECIMAL_POINTS 7
-									#define MUS_MAX_DOUBLE_DECIMAL_POINTS 16
-
-									MUDEF size_m mu_raw_string_get_integer_conversion_size(musResult* result, muCharacterEncoding encoding, int64_m i) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										if (encoding) {}
-
-										uint8_m add = 0;
-										uint64_m ui;
-										if (i >= 0) {
-											ui = (uint64_m)i;
-										} else {
-											add = 1;
-											ui = (uint64_m)((int64_m)(-i));
-										}
-
-										// https://stackoverflow.com/a/14564888
-										uint8_m digits = ((uint8_m)(mu_log10((double)ui))) + 1;
-										return (size_m)(digits + add);
-									}
-
-									MUDEF void mu_raw_string_convert_to_integer(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, int64_m i) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-
-										musResult mus_res = MUS_SUCCESS;
-										size_m isize = mu_raw_string_get_integer_conversion_size(&mus_res, encoding, i);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, return;)
-										MU_ASSERT(data_size >= isize, result, MUS_INSUFFICIENT_DATA_SIZE, return;)
-
-										uint8_m neg = 0;
-										if (i < 0) {
-											neg = 1;
-										}
-
-										// https://stackoverflow.com/a/14564888
-										for (int8_m isizemod = isize-1; isizemod >= 0; isizemod -= 1, i /= 10) {
-											if (i < 0) {
-												data[isizemod] = ((-i) % 10) + 48;
-											} else {
-												data[isizemod] = (i % 10) + 48;
-											}
-										}
-
-										if (neg > 0) {
-											data[0] = 45;
-										}
-									}
-
-									MUDEF int64_m mu_raw_string_get_integer(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-										if (encoding) {}
-
-										size_m beg_i = 0;
-										if (data[0] == 45) {
-											beg_i = 1;
-										}
-
-										int64_m ret = 0;
-										for (size_m i = data_size; i != beg_i;) {
-											i -= 1;
-											int64_m bef_ret = ret;
-
-											MU_ASSERT(data[i] >= 48 && data[i] <= 57, result, MUS_INVALID_DATA, return 0;)
-											ret += mu_pow(10, (data_size-i)-1) * (data[i]-48);
-											if (ret < bef_ret) {
-												MU_SET_RESULT(result, MUS_OVERFLOW)
-												return 0;
-											}
-										}
-
-										if (beg_i == 1) {
-											return -ret;
-										}
-										return ret;
-									}
-
-									MUDEF size_m mu_raw_string_get_float_conversion_size(musResult* result, muCharacterEncoding encoding, float d, size_m decimal_places) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										if (encoding) {}
-										if (decimal_places > MUS_MAX_FLOAT_DECIMAL_POINTS) {
-											decimal_places = MUS_MAX_FLOAT_DECIMAL_POINTS;
-										}
-
-										uint8_m add = 0;
-										float ud;
-										if (d >= 0.f) {
-											ud = d;
-										} else {
-											add = 1;
-											ud = -d;
-										}
-
-										uint8_m digits = ((uint8_m)(mu_log10((double)ud))) + 1;
-										if (decimal_places == 0) {
-											return (size_m)(digits + add);
-										}
-										return ((size_m)(digits + add)) + decimal_places + 1;
-									}
-
-									void mus_write_double_int_only(size_m intsize, double floored_d, muByte* data) {
-										uint8_m neg = 0;
-										if (floored_d < 0.f) {
-											neg = 1;
-										}
-
-										size_m count = 0;
-
-										for (int64_m isizemod = intsize-1; isizemod >= 0; isizemod -= 1, count += 1) {
-											double i = floored_d / mu_pow(10.f, count);
-											if (i < 0) {
-												data[isizemod] = (muByte)mu_fmod(-i, 10.f) + 48;
-											} else {
-												data[isizemod] = (muByte)mu_fmod(i, 10.f) + 48;
-											}
-										}
-
-										if (neg > 0) {
-											data[0] = 45;
-										}
-									}
-
-									MUDEF void mu_raw_string_convert_to_float(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, float d, size_m decimal_places) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										if (decimal_places > MUS_MAX_FLOAT_DECIMAL_POINTS) {
-											decimal_places = MUS_MAX_FLOAT_DECIMAL_POINTS;
-										}
-
-										musResult mus_res = MUS_SUCCESS;
-										size_m dsize = mu_raw_string_get_float_conversion_size(&mus_res, encoding, d, decimal_places);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, return;)
-										MU_ASSERT(data_size >= dsize, result, MUS_INSUFFICIENT_DATA_SIZE, return;)
-
-										size_m intsize = (dsize - decimal_places);
-										if (decimal_places != 0) {
-											intsize -= 1;
-										}
-
-										// Write int digits
-
-										double floored_d;
-										if (d >= 0.f) {
-											floored_d = mu_floor((double)d);
-										} else {
-											floored_d = -mu_floor((double)-d);
-										}
-
-										mus_write_double_int_only(intsize, floored_d, data);
-
-										// Write decimal digits
-
-										if (decimal_places > 0) {
-											data[intsize] = 46;
-
-											if (d < 0.f) { d = -d; }
-											if (floored_d < 0.f) { floored_d = -floored_d; }
-
-											double d_decimals = (double)(d)-floored_d;
-											if (d_decimals != 0.f) {
-												d_decimals = (((double)(d_decimals)) * (mu_pow(10.f, (double)(decimal_places))));
-											} else {
-												d_decimals = (((double)(floored_d)) * (mu_pow(10.f, (double)(decimal_places))));
-											}
-
-											mus_write_double_int_only(decimal_places, d_decimals, &data[intsize+1]);
-										}
-									}
-
-									MUDEF float mu_raw_string_get_float(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0.f;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0.f;)
-										if (encoding) {}
-
-										size_m beg_i = 0;
-										if (data[0] == 45) {
-											beg_i = 1;
-										}
-
-										size_m decimal = MU_NONE;
-										for (size_m i = 0; i < data_size; i++) {
-											if (data[i] == 46) {
-												decimal = i;
-												break;
-											}
-										}
-										MU_ASSERT(decimal != MU_NONE, result, MUS_INVALID_DATA, return 0.f;)
-
-										float ret = 0.f;
-										for (size_m i = beg_i; i < data_size; i++) {
-											if (i == decimal) {
-												continue;
-											}
-											MU_ASSERT(data[i] >= 48 && data[i] <= 57, result, MUS_INVALID_DATA, return 0;)
-
-											if (i < decimal) {
-												ret += (float)(mu_pow(10.f, (decimal-i)-1) * (double)(data[i]-48));
-											} else {
-												ret += (float)(mu_pow(10.f, -(double)((i-decimal))) * (double)(data[i]-48));
-											}
-										}
-
-										if (beg_i == 1) {
-											return -ret;
-										}
-										return ret;
-									}
-
-									MUDEF size_m mu_raw_string_get_double_conversion_size(musResult* result, muCharacterEncoding encoding, double d, size_m decimal_places) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										if (encoding) {}
-										if (decimal_places > MUS_MAX_DOUBLE_DECIMAL_POINTS) {
-											decimal_places = MUS_MAX_DOUBLE_DECIMAL_POINTS;
-										}
-
-										uint8_m add = 0;
-										double ud;
-										if (d >= 0.f) {
-											ud = d;
-										} else {
-											add = 1;
-											ud = -d;
-										}
-
-										uint8_m digits = ((uint8_m)(mu_log10(ud))) + 1;
-										if (decimal_places == 0) {
-											return (size_m)(digits + add);
-										}
-										return ((size_m)(digits + add)) + decimal_places + 1;
-									}
-
-									MUDEF void mu_raw_string_convert_to_double(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, double d, size_m decimal_places) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										if (decimal_places > MUS_MAX_DOUBLE_DECIMAL_POINTS) {
-											decimal_places = MUS_MAX_DOUBLE_DECIMAL_POINTS;
-										}
-
-										musResult mus_res = MUS_SUCCESS;
-										size_m dsize = mu_raw_string_get_double_conversion_size(&mus_res, encoding, d, decimal_places);
-										MU_ASSERT(mus_res == MUS_SUCCESS, result, mus_res, return;)
-										MU_ASSERT(data_size >= dsize, result, MUS_INSUFFICIENT_DATA_SIZE, return;)
-
-										size_m intsize = (dsize - decimal_places);
-										if (decimal_places != 0) {
-											intsize -= 1;
-										}
-
-										// Write int digits
-
-										double floored_d;
-										if (d >= 0.f) {
-											floored_d = mu_floor((double)d);
-										} else {
-											floored_d = -mu_floor((double)-d);
-										}
-
-										mus_write_double_int_only(intsize, floored_d, data);
-
-										// Write decimal digits
-
-										if (decimal_places > 0) {
-											data[intsize] = 46;
-
-											if (d < 0.f) { d = -d; }
-											if (floored_d < 0.f) { floored_d = -floored_d; }
-
-											double d_decimals = (double)(d)-floored_d;
-											if (d_decimals != 0.f) {
-												d_decimals = (((double)(d_decimals)) * (mu_pow(10.f, (double)(decimal_places))));
-											} else {
-												d_decimals = (((double)(floored_d)) * (mu_pow(10.f, (double)(decimal_places))));
-											}
-
-											mus_write_double_int_only(decimal_places, d_decimals, &data[intsize+1]);
-										}
-									}
-
-									MUDEF double mu_raw_string_get_double(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0.f;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0.f;)
-										if (encoding) {}
-
-										size_m beg_i = 0;
-										if (data[0] == 45) {
-											beg_i = 1;
-										}
-
-										size_m decimal = MU_NONE;
-										for (size_m i = 0; i < data_size; i++) {
-											if (data[i] == 46) {
-												decimal = i;
-												break;
-											}
-										}
-										MU_ASSERT(decimal != MU_NONE, result, MUS_INVALID_DATA, return 0.f;)
-
-										double ret = 0.f;
-										for (size_m i = beg_i; i < data_size; i++) {
-											if (i == decimal) {
-												continue;
-											}
-											MU_ASSERT(data[i] >= 48 && data[i] <= 57, result, MUS_INVALID_DATA, return 0;)
-
-											if (i < decimal) {
-												ret += mu_pow(10.f, (decimal-i)-1) * (double)(data[i]-48);
-											} else {
-												ret += mu_pow(10.f, -(double)((i-decimal))) * (double)(data[i]-48);
-											}
-										}
-
-										if (beg_i == 1) {
-											return -ret;
-										}
-										return ret;
-									}
-
-							/* Cross-encoding functions */
-
-								MUDEF size_m mu_character_encoding_get_code_point_size(musResult* result, muCharacterEncoding encoding, muCodePoint code_point) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return 0; break;
-										case MU_ASCII: return mu_ASCII_get_code_point_size(result, code_point); break;
-										case MU_UTF8: return mu_UTF8_get_code_point_size(result, code_point); break;
-									}
-								}
-
-								MUDEF muCodePoint mu_character_encoding_get_code_point(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return 0; break;
-										case MU_ASCII: return mu_ASCII_get_code_point(result, data, data_size); break;
-										case MU_UTF8: return mu_UTF8_get_code_point(result, data, data_size); break;
-									}
-								}
-
-								MUDEF void mu_character_encoding_set_code_point(musResult* result, muCharacterEncoding encoding, muCodePoint code_point, muByte* data, size_m data_size) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return; break;
-										case MU_ASCII: mu_ASCII_set_code_point(result, code_point, data, data_size); break;
-										case MU_UTF8: mu_UTF8_set_code_point(result, code_point, data, data_size); break;
-									}
-								}
-
-								MUDEF muBool mu_character_encoding_verify_raw_string(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return MU_FALSE; break;
-										case MU_ASCII: return mu_ASCII_verify_raw_string(result, data, data_size); break;
-										case MU_UTF8: return mu_UTF8_verify_raw_string(result, data, data_size); break;
-									}
-								}
-
-								MUDEF size_m mu_character_encoding_get_raw_string_code_point_length(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return 0; break;
-										case MU_ASCII: return mu_ASCII_get_raw_string_code_point_length(result, data, data_size); break;
-										case MU_UTF8: return mu_UTF8_get_raw_string_code_point_length(result, data, data_size); break;
-									}
-								}
-
-								MUDEF size_m mu_character_encoding_get_raw_string_code_point_offset(musResult* result, muCharacterEncoding encoding, muByte* data, size_m data_size, size_m offset, size_m index) {
-									switch (encoding) { default: MU_SET_RESULT(result, MUS_UNKNOWN_CHARACTER_ENCODING) return 0; break;
-										case MU_ASCII: return mu_ASCII_get_raw_string_code_point_offset(result, data, data_size, offset, index); break;
-										case MU_UTF8: return mu_UTF8_get_raw_string_code_point_offset(result, data, data_size, offset, index); break;
-									}
-								}
-
-							/* Encoding-specific functions */
-
-								/* ASCII */
-
-									MUDEF size_m mu_ASCII_get_code_point_size(musResult* result, muCodePoint code_point) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(code_point <= 0x7F, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-
-										return 1;
-									}
-
-									MUDEF muCodePoint mu_ASCII_get_code_point(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-										MU_ASSERT(data[0] <= 0x7F, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-
-										return data[0];
-									}
-
-									MUDEF void mu_ASCII_set_code_point(musResult* result, muCodePoint code_point, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-										MU_ASSERT(code_point <= 0x7F, result, MUS_CHARACTER_CANNOT_BE_ENCODED, return;)
-
-										data[0] = code_point;
-									}
-
-									MUDEF muBool mu_ASCII_verify_raw_string(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										for (size_m i = 0; i < data_size; i++) {
-											if (data[i] > 0x7F) {
-												return MU_FALSE;
-											}
-										}
-
-										return MU_TRUE;
-									}
-
-									MUDEF size_m mu_ASCII_get_raw_string_code_point_length(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										return data_size;
-									}
-
-									MUDEF size_m mu_ASCII_get_raw_string_code_point_offset(musResult* result, muByte* data, size_m data_size, size_m offset, size_m index) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return offset;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return offset;)
-										MU_ASSERT(offset+index < data_size, result, MUS_INVALID_OFFSET, return offset;)
-
-										return offset+index;
-									}
-
-								/* UTF-8 */
-
-									muByte mus_UTF8_get_code_point_size_from_byte(muByte byte) {
-										// 00000000 <= n <= 01111111
-										if (/*byte >= 0 && */byte <= 127) {
-											return 1;
-										// 11000000 <= n < 11100000
-										} else if (byte >= 192 && byte < 224) {
-											return 2;
-										// 11100000 <= n < 11110000
-										} else if (byte >= 224 && byte < 240) {
-											return 3;
-										// 11110000 <= n <= 11110111
-										} else if (byte >= 240 && byte <= 247) {
-											return 4;
-										} else {
-											// Value is 10xxxxxx or 11111xxx; invalid.
-											return 0;
-										}
-									}
-
-									MUDEF size_m mu_UTF8_get_code_point_size(musResult* result, muCodePoint code_point) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-
-										// Storable in 7 bits = 1 byte
-										if (code_point < 128) {
-											return 1;
-										}
-										// Storable in 11 bits = 2 bytes
-										if (code_point < 2048) {
-											return 2;
-										}
-										// Storable in 16 bits = 3 bytes
-										if (code_point < 65536) {
-											return 3;
-										}
-										// Storable in 21 bits = 4 bytes
-										if (code_point < 2097152) {
-											return 4;
-										}
-										// Anything larger cannot be stored.
-										MU_SET_RESULT(result, MUS_CHARACTER_CANNOT_BE_ENCODED)
-										return 0;
-									}
-
-									MUDEF muCodePoint mu_UTF8_get_code_point(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										muByte code_point_size = mus_UTF8_get_code_point_size_from_byte(data[0]);
-										MU_ASSERT(code_point_size != 0, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-
-										for (size_m i = 1; i < code_point_size; i++) {
-											// 10000000 <= n <= 10111111
-											if (!(data[i] >= 128 && data[i] <= 191)) {
-												MU_SET_RESULT(result, MUS_INVALID_CHARACTER_ENCODING)
-												return 0;
-											}
-										}
-
-										switch (code_point_size) { default: MU_SET_RESULT(result, MUS_INVALID_CHARACTER_ENCODING) return 0; break;
-											case 1: {
-												return data[0];
-											} break;
-
-											case 2: {
-												MU_ASSERT(data_size >= 2, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-												return
-												// 110xxxxx
-												(muCodePoint)(data[0] & 31) << 6 |
-												// 10xxxxxx
-												(muCodePoint)(data[1] & 63);
-											} break;
-
-											case 3: {
-												MU_ASSERT(data_size >= 3, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-												return
-												// 1110xxxx
-												(muCodePoint)(data[0] & 15) << 12 |
-												// 10xxxxxx
-												(muCodePoint)(data[1] & 63) << 6 |
-												// 10xxxxxx
-												(muCodePoint)(data[2] & 63);
-											} break;
-
-											case 4: {
-												MU_ASSERT(data_size >= 4, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-												return
-												// 1110xxxx
-												(muCodePoint)(data[0] & 7) << 18 |
-												// 10xxxxxx
-												(muCodePoint)(data[1] & 63) << 12 |
-												// 10xxxxxx
-												(muCodePoint)(data[2] & 63) << 6 |
-												// 10xxxxxx
-												(muCodePoint)(data[3] & 63);
-											} break;
-										}
-									}
-
-									MUDEF void mu_UTF8_set_code_point(musResult* result, muCodePoint code_point, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return;)
-
-										musResult res = MUS_SUCCESS;
-										size_m code_point_size = mu_UTF8_get_code_point_size(&res, code_point);
-										MU_ASSERT(res == MUS_SUCCESS, result, res, return;)
-
-										MU_ASSERT(code_point_size <= data_size, result, MUS_INVALID_DATA_SIZE, return;)
-
-										switch (code_point_size) { default: MU_SET_RESULT(result, MUS_CHARACTER_CANNOT_BE_ENCODED) return; break;
-											case 1: {
-												data[0] = code_point;
-											} break;
-
-											// mask = Get what you want
-											// add  = Add bits
-											case 2: {
-												// 110xxxxx                           mask    add
-												data[0] = (muByte)(((code_point >> 6) & 31) | 192);
-												// 10xxxxxx                      mask
-												data[1] = (muByte)((code_point & 63) | 128);
-											} break;
-
-											case 3: {
-												// 1110xxxx
-												data[0] = (muByte)(((code_point >> 12) & 15) | 224);
-												// 10xxxxxx
-												data[1] = (muByte)(((code_point >> 6) & 63) | 128);
-												// 10xxxxxx
-												data[2] = (muByte)((code_point & 63) | 128);
-											} break;
-
-											case 4: {
-												// 11110xxx
-												data[0] = (muByte)(((code_point >> 18) & 7) | 240);
-												// 10xxxxxx
-												data[1] = (muByte)(((code_point >> 12) & 63) | 128);
-												// 10xxxxxx
-												data[2] = (muByte)(((code_point >> 6) & 63) | 128);
-												// 10xxxxxx
-												data[3] = (muByte)((code_point & 63) | 128);
-											} break;
-										}
-									}
-
-									MUDEF muBool mu_UTF8_verify_raw_string(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										musResult res = MUS_SUCCESS;
-										size_m i = 0;
-										// BOM
-										if (data_size >= 3) {
-											if (data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
-												i = 3;
-											}
-										}
-
-										for (; i < data_size;) {
-											muByte code_point_size = mus_UTF8_get_code_point_size_from_byte(data[i]);
-											if (code_point_size == 0) {
-												return MU_FALSE;
-											}
-											if (!((i+code_point_size < data_size) || (i+code_point_size == data_size))) {
-												return MU_FALSE;
-											}
-
-											mu_UTF8_get_code_point(&res, &data[i], data_size-i);
-											if (res != MUS_SUCCESS) {
-												return MU_FALSE;
-											}
-
-											i += code_point_size;
-										}
-										return MU_TRUE;
-									}
-
-									MUDEF size_m mu_UTF8_get_raw_string_code_point_length(musResult* result, muByte* data, size_m data_size) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										size_m i = 0;
-										// BOM
-										if (data_size >= 3) {
-											if (data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
-												i = 3;
-											}
-										}
-
-										size_m code_point_length = 0;
-
-										for (; i < data_size;) {
-											muByte code_point_size = mus_UTF8_get_code_point_size_from_byte(data[i]);
-											MU_ASSERT(code_point_size != 0, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-											MU_ASSERT((i+code_point_size < data_size) || (i+code_point_size == data_size), result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-											code_point_length += 1;
-
-											i += code_point_size;
-										}
-										return code_point_length;
-									}
-
-									MUDEF size_m mu_UTF8_get_raw_string_code_point_offset(musResult* result, muByte* data, size_m data_size, size_m offset, size_m index) {
-										MU_SET_RESULT(result, MUS_SUCCESS)
-										MU_ASSERT(data != MU_NULL_PTR, result, MUS_INVALID_DATA_POINTER, return 0;)
-										MU_ASSERT(data_size > 0, result, MUS_INVALID_DATA_SIZE, return 0;)
-
-										size_m i = 0;
-										if (offset == 0) {
-											// BOM
-											if (data_size >= 3) {
-												if (data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
-													i = 3;
-												}
-											}
-										}
-
-										size_m count_index = 0;
-
-										for (; i < data_size && count_index != index;) {
-											muByte code_point_size = mus_UTF8_get_code_point_size_from_byte(data[0]);
-											MU_ASSERT(code_point_size != 0, result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-											MU_ASSERT((i+code_point_size < data_size) || (i+code_point_size == data_size), result, MUS_INVALID_CHARACTER_ENCODING, return 0;)
-											count_index += 1;
-
-											i += code_point_size;
-										}
-
-										MU_ASSERT(count_index == index, result, MUS_INVALID_OFFSET, return 0;)
-										return i;
-									}
-
-							/* Codepoint */
-
-								/* Uppercase/Lowercase */
-
-									// Last updated 16 September 2023, covers 0 -> 65533
-									// https://en.wikipedia.org/wiki/List_of_Unicode_characters
-									// https://www.ssec.wisc.edu/~tomw/java/unicode.html
-
-									MUDEF muCodePoint mu_code_point_lowercase(musResult* result, muCharacterEncoding encoding, muCodePoint code_point) {
-										if (encoding == MU_ASCII) {
-											MU_ASSERT(code_point <= 0x7F, result, MUS_INVALID_CHARACTER_ENCODING, return code_point;)
-											if (code_point >= 65 && code_point <= 90) {
-												return code_point + 32;
-											}
-											return code_point;
-										}
-
-										if (
-										// Latin alphabet
-											(code_point >= 65 && code_point <= 90) ||
-										// Latin-1 supplement
-											(code_point >= 192 && code_point <= 222 && code_point != 215) ||
-										// Greek and Coptic
-											(code_point >= 913 && code_point <= 939) ||
-										// Cyrillic
-											(code_point >= 0x0410 && code_point <= 0x042F) ||
-										// Halfwidth and fullwidth forms
-											(code_point >= 65313 && code_point <= 65338)
-										) {
-											return code_point + 32;
-										} else if (
-										// Latin extended-a
-											(
-												(code_point >= 256 && code_point <= 310 && code_point % 2 == 0) || 
-												(code_point >= 313 && code_point <= 327 && code_point % 2 != 0) ||
-												(code_point >= 330 && code_point <= 376 && code_point % 2 == 0) ||
-												(code_point >= 377 && code_point <= 381 && code_point % 2 != 0)
-											) ||
-										// Latin extended-b
-											(
-												(code_point >= 461 && code_point <= 475 && code_point % 2 != 0) ||
-												(code_point >= 478 && code_point <= 494 && code_point % 2 == 0) ||
-												(code_point >= 504 && code_point <= 542 && code_point % 2 == 0) ||
-												(code_point >= 546 && code_point <= 562 && code_point % 2 == 0) ||
-												(code_point >= 582 && code_point <= 590 && code_point % 2 == 0)
-											) ||
-										// Greek and Coptic
-											(
-												(code_point >= 984 && code_point <= 1006 && code_point % 2 == 0)
-											) ||
-										// Cyrillic
-											(
-												(code_point >= 0x0460 && code_point <= 0x0480 && code_point % 2 == 0) ||
-												(code_point >= 0x048A && code_point <= 0x04BE && code_point % 2 == 0) ||
-												(code_point >= 0x04C1 && code_point <= 0x04CD && code_point % 2 != 0) ||
-												(code_point >= 0x04D0 && code_point <= 0x04FE && code_point % 2 == 0) ||
-												// Cyrillic supplement
-												(code_point >= 0x0500 && code_point <= 0x052E && code_point % 2 == 0)
-											) ||
-										// Latin extended additional
-											(
-												(code_point >= 7680 && code_point <= 7828 && code_point % 2 == 0) ||
-												(code_point >= 7840 && code_point <= 7928 && code_point % 2 == 0)
-											)
-										) {
-											return code_point + 1;
-										} else if (
-										// Cyrillic
-											(
-												(code_point >= 0x0400 && code_point <= 0x040F)
-											)
-										) {
-											return code_point + 80;
-										} else if (
-										// Armenian
-											(
-												(code_point >= 0x0530 && code_point <= 0x0558)
-											) ||
-										// Georgian
-											(
-												(code_point >= 0x10A0 && code_point <= 0x10CF)
-											)
-										) {
-											return code_point + 48;
-										} else if (
-										// Greek extended
-											(
-												(code_point >= 7944 && code_point <= 7951) || (code_point >= 7960 && code_point <= 7965) || (code_point >= 7976 && code_point <= 7983) || (code_point >= 7992 && code_point <= 7999) ||
-												(code_point >= 8008 && code_point <= 8013) || (code_point >= 8025 && code_point <= 8031) || (code_point >= 8040 && code_point <= 8047) || (code_point >= 8072 && code_point <= 8079) ||
-												(code_point >= 8088 && code_point <= 8095) || (code_point >= 8104 && code_point <= 8111) || (code_point >= 8120 && code_point <= 8124)
-											)
-										) {
-											return code_point - 8;
-										} else if (
-										// Enclosed alphanumerics
-											(
-												(code_point >= 9398 && code_point <= 9423)
-											)
-										) {
-											return code_point + 26;
-										}
-										switch (code_point) {
-										default: break;
-										// Odd Latin extended-b / IPA extensions
-										case 386: case 388: case 391: case 395: case 401: case 408: case 416: case 418: case 420: case 423: case 428: case 431: 
-										case 435: case 437: case 440: case 444: case 453: case 456: case 459: case 498: case 500: case 571: case 577: return code_point+1; break;
-										case 384: return 579; break;
-										case 385: return 595; break;
-										case 390: return 596; break;
-										case 393: return 598; break;
-										case 394: return 599; break;
-										case 398: return 600; break;
-										case 399: return 601; break;
-										case 400: return 603; break;
-										case 403: return 608; break;
-										case 404: return 611; break;
-										case 406: return 617; break;
-										case 407: return 616; break;
-										case 412: return 623; break;
-										case 413: return 626; break;
-										case 425: return 643; break;
-										case 430: return 648; break;
-										case 433: return 650; break;
-										case 434: return 641; break;
-										case 439: return 658; break;
-										case 452: return 454; break;
-										case 455: return 457; break;
-										case 458: return 460; break;
-										case 497: return 499; break;
-										case 544: return 414; break;
-										case 573: return 410; break;
-										case 579: return 384; break;
-										case 580: return 649; break;
-										case 581: return 652; break;
-
-										// Odd greek and coptic
-										case 880: case 882: case 886: case 1015: case 1018: return code_point+1; break;
-										case 895: return 1011; break;
-										case 904: case 905: case 906: return code_point+37; break;
-										case 908: case 910: case 911: return code_point+64; break;
-										case 975: return 983; break;
-										case 1012: return 977; break;
-										case 1017: return 1010; break;
-										case 1021: case 1022: case 1023: return code_point-130; break;
-
-										// Odd greek extended
-										case 8136: case 8137: case 8138: case 8139: return code_point-86; break;
-										case 8140: return 8131; break;
-										case 8152: return 8144; break;
-										case 8153: return 8145; break;
-										case 8154: case 8155: return code_point-100; break;
-										case 8168: return 8160; break;
-										case 8169: return 8161; break;
-										case 8170: return 8058; break;
-										case 8171: return 8059; break;
-										case 8172: return 8165; break;
-										case 8184: case 8185: return code_point-128; break;
-										case 8187: return 8061; break;
-										}
-										return code_point;
-									}
-
-									MUDEF muCodePoint mu_code_point_uppercase(musResult* result, muCharacterEncoding encoding, muCodePoint code_point) {
-										if (encoding == MU_ASCII) {
-											MU_ASSERT(code_point <= 0x7F, result, MUS_INVALID_CHARACTER_ENCODING, return code_point;)
-											if (code_point >= 97 && code_point <= 122) {
-												return code_point - 32;
-											}
-											return code_point;
-										}
-
-										if (
-										// Latin alphabet
-											(code_point >= 97 && code_point <= 122) ||
-										// Latin-1 supplement
-											(code_point >= 224 && code_point <= 255 && code_point != 247) ||
-										// Greek and Coptic
-											(code_point >= 945 && code_point <= 971) ||
-										// Cyrillic
-											(code_point >= (0x0410 + 32) && code_point <= (0x042F + 32)) ||
-										// Halfwidth and fullwidth forms
-											(code_point >= (65313 + 32) && code_point <= (65338 + 32))
-										) {
-											return code_point - 32;
-										} else if (
-										// Latin extended-a
-											(
-												(code_point >= 257 && code_point <= 311 && code_point % 2 != 0) || 
-												(code_point >= 312 && code_point <= 328 && code_point % 2 == 0) ||
-												(code_point >= 329 && code_point <= 375 && code_point % 2 != 0) ||
-												(code_point >= 378 && code_point <= 382 && code_point % 2 == 0)
-											) ||
-										// Latin extended-b
-											(
-												(code_point >= 462 && code_point <= 476 && code_point % 2 == 0) ||
-												(code_point >= 479 && code_point <= 495 && code_point % 2 != 0) ||
-												(code_point >= 505 && code_point <= 543 && code_point % 2 != 0) ||
-												(code_point >= 547 && code_point <= 563 && code_point % 2 != 0) ||
-												(code_point >= 583 && code_point <= 591 && code_point % 2 != 0)
-											) ||
-										// Greek and Coptic
-											(
-												(code_point >= 985 && code_point <= 1007 && code_point % 2 != 0)
-											) ||
-										// Cyrillic
-											(
-												(code_point >= 0x0461 && code_point <= 0x0481 && code_point % 2 != 0) ||
-												(code_point >= 0x048B && code_point <= 0x04BF && code_point % 2 != 0) ||
-												(code_point >= 0x04C2 && code_point <= 0x04CE && code_point % 2 == 0) ||
-												(code_point >= 0x04D1 && code_point <= 0x04FF && code_point % 2 != 0) ||
-												// Cyrillic supplement
-												(code_point >= 0x0501 && code_point <= 0x052F && code_point % 2 != 0)
-											) ||
-										// Latin extended additional
-											(
-												(code_point >= 7681 && code_point <= 7829 && code_point % 2 != 0) ||
-												(code_point >= 7841 && code_point <= 7929 && code_point % 2 != 0)
-											)
-										) {
-											return code_point - 1;
-										} else if (
-										// Cyrillic
-											(
-												(code_point >= (0x0400+80) && code_point <= (0x040F+80))
-											)
-										) {
-											return code_point - 80;
-										} else if (
-										// Armenian
-											(
-												(code_point >= (0x0530+48) && code_point <= (0x0558+48))
-											) ||
-										// Georgian
-											(
-												(code_point >= (0x10A0+48) && code_point <= (0x10CF+48))
-											)
-										) {
-											return code_point - 48;
-										} else if (
-										// Greek extended
-											(
-												(code_point >= (7944-8) && code_point <= (7951-8)) || (code_point >= (7960-8) && code_point <= (7965-8)) || (code_point >= (7976-8) && code_point <= (7983-8)) || (code_point >= (7992-8) && code_point <= (7999-8)) ||
-												(code_point >= (8008-8) && code_point <= (8013-8)) || (code_point >= (8025-8) && code_point <= (8031-8)) || (code_point >= (8040-8) && code_point <= (8047-8)) || (code_point >= (8072-8) && code_point <= (8079-8)) ||
-												(code_point >= (8088-8) && code_point <= (8095-8)) || (code_point >= (8104-8) && code_point <= (8111-8)) || (code_point >= (8120-8) && code_point <= (8124-8))
-											)
-										) {
-											return code_point + 8;
-										} else if (
-										// Enclosed alphanumerics
-											(
-												(code_point >= (9398+26) && code_point <= (9423+26))
-											)
-										) {
-											return code_point - 26;
-										}
-										switch (code_point) {
-										default: break;
-										// Odd Latin extended-b / IPA extensions
-										case 387: case 389: case 392: case 396: case 402: case 409: case 417: case 419: case 421: case 424: case 429: case 432: 
-										case 436: case 438: case 441: case 445: case 453: case 456: case 459: case 498: case 501: case 572: case 578: return code_point-1; break;
-										case 579: return 384; break;
-										case 595: return 385; break;
-										case 596: return 390; break;
-										case 598: return 393; break;
-										case 599: return 394; break;
-										case 600: return 398; break;
-										case 601: return 399; break;
-										case 603: return 400; break;
-										case 608: return 403; break;
-										case 611: return 404; break;
-										case 617: return 406; break;
-										case 616: return 407; break;
-										case 623: return 412; break;
-										case 626: return 413; break;
-										case 643: return 425; break;
-										case 648: return 430; break;
-										case 650: return 433; break;
-										case 641: return 434; break;
-										case 658: return 439; break;
-										case 454: return 452; break;
-										case 457: return 455; break;
-										case 460: return 458; break;
-										case 499: return 497; break;
-										case 414: return 544; break;
-										case 410: return 573; break;
-										case 384: return 579; break;
-										case 649: return 580; break;
-										case 652: return 581; break;
-
-										// Odd Greek and Coptic
-										case 881: case 883: case 887: case 1016: case 1019: return code_point-1; break;
-										case 1011: return 895; break;
-										case 941: case 942: case 943: return code_point-37; break;
-										case 972: case 974: case 975: return code_point-64; break;
-										case 983: return 975; break;
-										case 977: return 1012; break;
-										case 1010: return 1017; break;
-										case 891: case 892: case 893: return code_point+130; break;
-
-										// Odd Greek extended
-										case 8050: case 8051: case 8052: case 8053: return code_point+86; break;
-										case 8131: return 8140; break;
-										case 8144: return 8152; break;
-										case 8145: return 8153; break;
-										case 8054: case 8055: return code_point+100; break;
-										case 8160: return 8168; break;
-										case 8161: return 8169; break;
-										case 8058: return 8170; break;
-										case 8059: return 8171; break;
-										case 8165: return 8172; break;
-										case 8056: case 8057: return code_point+128; break;
-										case 8061: return 8187; break;
-										}
-										return code_point;
-									}
-
-						#ifdef __cplusplus
-						}
-						#endif
-
-					#endif /* MUS_IMPLEMENTATION */
-				#endif
-
 			#ifdef __cplusplus
 			extern "C" { // }
 			#endif
@@ -35011,16 +32444,6 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 			/* Shared functions */
 
-				muCOSAResult muma_result_to_muCOSA_result(mumaResult result) {
-					switch (result) {
-						default: case MUMA_SUCCESS: return MUCOSA_MUMA_SUCCESS; break;
-						case MUMA_FAILED_TO_ALLOCATE: return MUCOSA_MUMA_FAILED_TO_ALLOCATE; break;
-						case MUMA_INVALID_INDEX: return MUCOSA_MUMA_INVALID_INDEX; break;
-						case MUMA_INVALID_SHIFT_AMOUNT: return MUCOSA_MUMA_INVALID_SHIFT_AMOUNT; break;
-						case MUMA_NOT_FOUND: return MUCOSA_MUMA_NOT_FOUND; break;
-					}
-				}
-
 				muCOSAResult muCOSA_verify_pixel_format(muPixelFormat pf) {
 					if (pf.samples != 1 && pf.samples != 2 && pf.samples != 4 && pf.samples != 8 && pf.samples != 16) {
 						return MUCOSA_INVALID_SAMPLE_COUNT;
@@ -35028,6 +32451,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					return MUCOSA_SUCCESS;
 				}
 
+				// @TODO Call this in high-level window creation function
 				muCOSAResult muCOSA_verify_window_create_info(muWindowCreateInfo ci) {
 					if (ci.minimized && ci.maximized) {
 						return MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS;
@@ -35038,9 +32462,1885 @@ ensure that rendered buffer sections don't get modified, or else UB.
 					return muCOSA_verify_pixel_format(ci.pixel_format);
 				}
 
-			/* X11 implementation */
+			/* Win32 */
+
+			#ifdef MUCOSA_WIN32
+
+				#define MUCOSA_WIN32_CALL(...) __VA_ARGS__
+
+				#include <windows.h> // For all of the stuff that can't be included directly (CURSE YOU BILL)
+
+				/* Shared functions */
+
+					// Thank you, Raymond Chen...
+					EXTERN_C IMAGE_DOS_HEADER __ImageBase;
+					HINSTANCE muCOSA_Win32_get_hinstance(void) {
+						return ((HINSTANCE)&__ImageBase);
+					}
+
+					/* Strings */
+
+						wchar_t* muCOSA_Win32_utf8_to_wchar(const char* str) {
+							// Note: we can use -1 here, since it's expected for it to be null-terminated.
+							int len = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
+							if (len == 0) {
+								return 0;
+							}
+
+							wchar_t* wstr = (wchar_t*)mu_malloc(len * sizeof(wchar_t));
+							if (wstr == 0) {
+								return 0;
+							}
+
+							if (MultiByteToWideChar(CP_UTF8, 0, str, -1, (LPWSTR)wstr, len) == 0) {
+								mu_free(wstr);
+								return 0;
+							}
+
+							return wstr;
+						}
+
+						muByte* muCOSA_Win32_wchar_to_utf8(wchar_t* wstr) {
+							// Note: we don't need length here, either. This function is only intended to
+							// be called with null-terminated wchar_t strings; for example, in the
+							// clipboard get function, the format "CF_UNICODETEXT" is specified, and,
+							// according to the docs: "A null character signals the end of the data."
+							int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
+							if (len == 0) {
+								return 0;
+							}
+
+							muByte* str = (muByte*)mu_malloc(len);
+							if (str == 0) {
+								return 0;
+							}
+
+							if (WideCharToMultiByte(CP_UTF8, 0, wstr, -1, (LPSTR)str, len, NULL, NULL) == 0) {
+								mu_free(str);
+								return 0;
+							}
+
+							return str;
+						}
+
+					/* Window */
+
+						void muCOSA_Win32_window_get_def_frame_extents(uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b) {
+							MU_SET_RESULT(l, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
+							MU_SET_RESULT(r, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
+							MU_SET_RESULT(t, (uint32_m)(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(92)))
+							MU_SET_RESULT(b, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
+						}
+
+						/* Pointer map */
+
+							struct muCOSA_Win32_window_pmap {
+								void** pointers;
+								size_m pointer_count;
+								LONG volatile locked;
+								size_m access_count;
+							};
+							typedef struct muCOSA_Win32_window_pmap muCOSA_Win32_window_pmap;
+
+							muCOSA_Win32_window_pmap muCOSA_Win32_global_window_pmap = MU_ZERO_STRUCT_CONST(muCOSA_Win32_window_pmap);
+
+							void muCOSA_Win32_window_pmap_lock(void) {
+								while (InterlockedCompareExchange(&muCOSA_Win32_global_window_pmap.locked, 1, 0) == 1) {}
+							}
+
+							void muCOSA_Win32_window_pmap_unlock(void) {
+								_interlockedbittestandreset(&muCOSA_Win32_global_window_pmap.locked, 0);
+							}
+
+							muBool muCOSA_Win32_window_pmap_add(void* p, size_m size) {
+								muCOSA_Win32_window_pmap_lock();
+
+								muCOSA_Win32_global_window_pmap.pointer_count += 1;
+								if (!muCOSA_Win32_global_window_pmap.pointers) {
+									muCOSA_Win32_global_window_pmap.pointers = (void**)mu_malloc(size * muCOSA_Win32_global_window_pmap.pointer_count);
+									if (!muCOSA_Win32_global_window_pmap.pointers) {
+										muCOSA_Win32_window_pmap_unlock();
+										return MU_FALSE;
+									}
+								} else {
+									void** old_ptr = muCOSA_Win32_global_window_pmap.pointers;
+									muCOSA_Win32_global_window_pmap.pointers = (void**)mu_realloc(muCOSA_Win32_global_window_pmap.pointers, size * muCOSA_Win32_global_window_pmap.pointer_count);
+									if (!muCOSA_Win32_global_window_pmap.pointers) {
+										muCOSA_Win32_global_window_pmap.pointers = old_ptr;
+										muCOSA_Win32_window_pmap_unlock();
+										return MU_FALSE;
+									}
+								}
+
+								muCOSA_Win32_global_window_pmap.pointers[muCOSA_Win32_global_window_pmap.pointer_count-1] = p;
+
+								muCOSA_Win32_window_pmap_unlock();
+								return MU_TRUE;
+							}
+
+							void muCOSA_Win32_window_pmap_remove(void* p, size_m size) {
+								muCOSA_Win32_window_pmap_lock();
+
+								for (size_m i = 0; i < muCOSA_Win32_global_window_pmap.pointer_count; i++) {
+									if (muCOSA_Win32_global_window_pmap.pointers[i] == (void**)p) {
+										muCOSA_Win32_global_window_pmap.pointers[i] = 0;
+									}
+								}
+
+								muCOSA_Win32_window_pmap_unlock();
+								return; if (size) {}
+							}
+
+							// Note: doesn't lock
+							void muCOSA_Win32_window_pmap_cleanup(void) {
+								if (muCOSA_Win32_global_window_pmap.pointers) {
+									mu_free(muCOSA_Win32_global_window_pmap.pointers);
+									muCOSA_Win32_global_window_pmap = MU_ZERO_STRUCT(muCOSA_Win32_window_pmap);
+								}
+							}
+
+							void muCOSA_Win32_window_pmap_access(void) {
+								muCOSA_Win32_window_pmap_lock();
+								muCOSA_Win32_global_window_pmap.access_count += 1;
+								muCOSA_Win32_window_pmap_unlock();
+							}
+
+							void muCOSA_Win32_window_pmap_deaccess(void) {
+								muCOSA_Win32_window_pmap_lock();
+								muCOSA_Win32_global_window_pmap.access_count -= 1;
+								if (muCOSA_Win32_global_window_pmap.access_count == 0) {
+									muCOSA_Win32_window_pmap_cleanup();
+								}
+								muCOSA_Win32_window_pmap_unlock();
+							}
+
+				/* Time */
+
+					/* Inner */
+
+						// https://stackoverflow.com/questions/1695288/getting-the-current-time-in-milliseconds-from-the-system-clock-in-windows
+						double muCOSA_Win32_get_current_time(void) {
+							FILETIME file_time;
+							GetSystemTimeAsFileTime(&file_time);
+							LONGLONG ll_now = (LONGLONG)file_time.dwLowDateTime + ((LONGLONG)(file_time.dwHighDateTime) << 32LL);
+							return (double)ll_now / (double)1.0e7;
+						}
+
+					/* Outer */
+
+						struct muCOSA_Win32_time {
+							double orig_time;
+						};
+						typedef struct muCOSA_Win32_time muCOSA_Win32_time;
+
+						void muCOSA_Win32_time_init(muCOSA_Win32_time* time) {
+							time->orig_time = muCOSA_Win32_get_current_time();
+						}
+
+				/* OpenGL */
+
+				#ifdef MUCOSA_OPENGL
+
+					/* Setup */
+
+						#ifndef MUCOSA_NO_INCLUDE_OPENGL
+							#ifndef glClearColor
+								#include <gl/gl.h>
+								#include <gl/glu.h>
+							#endif
+						#endif
+
+						#include <wingdi.h>
+
+						typedef HGLRC WINAPI wglCreateContextAttribsARB_type(HDC hdc, HGLRC hShareContext, const int* attribList);
+						typedef BOOL WINAPI wglChoosePixelFormatARB_type(HDC hdc, const int* piAttribIList, const FLOAT* pfAttribFList, UINT nMaxFormats, int* piFormats, UINT* nNumFormats);
+
+						struct muCOSA_Win32_WGL {
+							wglCreateContextAttribsARB_type* wglCreateContextAttribsARB;
+							wglChoosePixelFormatARB_type* wglChoosePixelFormatARB;
+							BOOL (*wglSwapIntervalEXT)(int interval);
+						};
+						typedef struct muCOSA_Win32_WGL muCOSA_Win32_WGL;
+
+					/* WGL tokens */
+
+						// https://registry.khronos.org/OpenGL/extensions/ARB/WGL_ARB_create_context.txt
+
+						#define WGL_CONTEXT_MAJOR_VERSION_ARB             0x2091
+						#define WGL_CONTEXT_MINOR_VERSION_ARB             0x2092
+						#define WGL_CONTEXT_LAYER_PLANE_ARB               0x2093
+						#define WGL_CONTEXT_FLAGS_ARB                     0x2094
+						#define WGL_CONTEXT_PROFILE_MASK_ARB              0x9126
+
+						#define WGL_CONTEXT_DEBUG_BIT_ARB                 0x0001
+						#define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB    0x0002
+
+						#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
+						#define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
+
+						#define ERROR_INVALID_VERSION_ARB                 0x2095
+						#define ERROR_INVALID_PROFILE_ARB                 0x2096
+
+						// https://registry.khronos.org/OpenGL/extensions/ARB/WGL_ARB_pixel_format.txt
+
+						#define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
+						#define WGL_DRAW_TO_WINDOW_ARB          0x2001
+						#define WGL_DRAW_TO_BITMAP_ARB          0x2002
+						#define WGL_ACCELERATION_ARB            0x2003
+						#define WGL_NEED_PALETTE_ARB            0x2004
+						#define WGL_NEED_SYSTEM_PALETTE_ARB     0x2005
+						#define WGL_SWAP_LAYER_BUFFERS_ARB      0x2006
+						#define WGL_SWAP_METHOD_ARB             0x2007
+						#define WGL_NUMBER_OVERLAYS_ARB         0x2008
+						#define WGL_NUMBER_UNDERLAYS_ARB        0x2009
+						#define WGL_TRANSPARENT_ARB             0x200A
+						#define WGL_TRANSPARENT_RED_VALUE_ARB   0x2037
+						#define WGL_TRANSPARENT_GREEN_VALUE_ARB 0x2038
+						#define WGL_TRANSPARENT_BLUE_VALUE_ARB  0x2039
+						#define WGL_TRANSPARENT_ALPHA_VALUE_ARB 0x203A
+						#define WGL_TRANSPARENT_INDEX_VALUE_ARB 0x203B
+						#define WGL_SHARE_DEPTH_ARB             0x200C
+						#define WGL_SHARE_STENCIL_ARB           0x200D
+						#define WGL_SHARE_ACCUM_ARB             0x200E
+						#define WGL_SUPPORT_GDI_ARB             0x200F
+						#define WGL_SUPPORT_OPENGL_ARB          0x2010
+						#define WGL_DOUBLE_BUFFER_ARB           0x2011
+						#define WGL_STEREO_ARB                  0x2012
+						#define WGL_PIXEL_TYPE_ARB              0x2013
+						#define WGL_COLOR_BITS_ARB              0x2014
+						#define WGL_RED_BITS_ARB                0x2015
+						#define WGL_RED_SHIFT_ARB               0x2016
+						#define WGL_GREEN_BITS_ARB              0x2017
+						#define WGL_GREEN_SHIFT_ARB             0x2018
+						#define WGL_BLUE_BITS_ARB               0x2019
+						#define WGL_BLUE_SHIFT_ARB              0x201A
+						#define WGL_ALPHA_BITS_ARB              0x201B
+						#define WGL_ALPHA_SHIFT_ARB             0x201C
+						#define WGL_ACCUM_BITS_ARB              0x201D
+						#define WGL_ACCUM_RED_BITS_ARB          0x201E
+						#define WGL_ACCUM_GREEN_BITS_ARB        0x201F
+						#define WGL_ACCUM_BLUE_BITS_ARB         0x2020
+						#define WGL_ACCUM_ALPHA_BITS_ARB        0x2021
+						#define WGL_DEPTH_BITS_ARB              0x2022
+						#define WGL_STENCIL_BITS_ARB            0x2023
+						#define WGL_AUX_BUFFERS_ARB             0x2024
+
+						#define WGL_NO_ACCELERATION_ARB         0x2025
+						#define WGL_GENERIC_ACCELERATION_ARB    0x2026
+						#define WGL_FULL_ACCELERATION_ARB       0x2027
+
+						#define WGL_SWAP_EXCHANGE_ARB           0x2028
+						#define WGL_SWAP_COPY_ARB               0x2029
+						#define WGL_SWAP_UNDEFINED_ARB          0x202A
+
+						#define WGL_TYPE_RGBA_ARB               0x202B
+						#define WGL_TYPE_COLORINDEX_ARB         0x202C
+
+						// https://nehe.gamedev.net/tutorial/fullscreen_antialiasing/16008/
+
+						#define WGL_SAMPLE_BUFFERS_ARB  0x2041
+						#define WGL_SAMPLES_ARB     0x2042
+
+					/* Functions */
+
+						// Note: result must be valid pointer
+						void muCOSA_Win32_init_opengl_extensions(muCOSAResult* result, muCOSA_Win32_WGL* wgl) {
+							WNDCLASSA wclass = MU_ZERO_STRUCT(WNDCLASSA);
+							wclass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+							wclass.lpfnWndProc = DefWindowProcA;
+							wclass.hInstance = muCOSA_Win32_get_hinstance();
+							wclass.lpszClassName = "Dummy WGL window class";
+							if (!RegisterClassA(&wclass)) {
+								*result = MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS;
+								return;
+							}
+
+							HWND win = CreateWindowExA(0, wclass.lpszClassName, "Dummy WGL window", 0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, wclass.hInstance, 0);
+							if (win == NULL) {
+								*result = MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW;
+								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
+								return;
+							}
+
+							HDC dc = GetDC(win);
+
+							// Note: this pixel format NEEDS to be chosen to make this function work. In
+							// particular, the call to wglCreateContext fails if we don't. The choice of
+							// which pixel format is arbitrary.
+
+							PIXELFORMATDESCRIPTOR format = MU_ZERO_STRUCT(PIXELFORMATDESCRIPTOR);
+							format.nSize = sizeof(PIXELFORMATDESCRIPTOR);
+							format.nVersion = 1;
+							format.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+							format.iPixelType = PFD_TYPE_RGBA;
+							format.cColorBits = 32;
+							format.cAlphaBits = 8;
+							format.cDepthBits = 24;
+							format.cStencilBits = 8;
+							format.iLayerType = PFD_MAIN_PLANE;
+
+							// Doing no error checking here in case the ATTEMPT of setting one allows
+							// wglCreateContext to pass...
+							int pixel_format = ChoosePixelFormat(dc, &format);
+							SetPixelFormat(dc, pixel_format, &format);
+
+							HGLRC context = wglCreateContext(dc);
+							if (!context) {
+								*result = MUCOSA_FAILED_CREATE_OPENGL_CONTEXT;
+								ReleaseDC(win, dc);
+								DestroyWindow(win);
+								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
+								return;
+							}
+							if (!wglMakeCurrent(dc, context)) {
+								*result = MUCOSA_FAILED_LOAD_OPENGL_CONTEXT;
+								wglDeleteContext(context);
+								ReleaseDC(win, dc);
+								DestroyWindow(win);
+								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
+								return;
+							}
+
+							PROC wglCreateContextAttribsARB_proc = wglGetProcAddress("wglCreateContextAttribsARB");
+							mu_memcpy(&wgl->wglCreateContextAttribsARB, &wglCreateContextAttribsARB_proc, sizeof(PROC));
+							PROC wglChoosePixelFormatARB_proc = wglGetProcAddress("wglChoosePixelFormatARB");
+							mu_memcpy(&wgl->wglChoosePixelFormatARB, &wglChoosePixelFormatARB_proc, sizeof(PROC));
+
+							wglMakeCurrent(dc, 0);
+							wglDeleteContext(context);
+							ReleaseDC(win, dc);
+							DestroyWindow(win);
+							UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
+
+							if (wgl->wglCreateContextAttribsARB == 0 || wgl-> wglChoosePixelFormatARB == 0) {
+								*result = MUCOSA_UNSUPPORTED_OPENGL_FEATURE;
+								return;
+							}
+						}
+
+						// Note: result must be valid pointer
+						void muCOSA_Win32_create_opengl_context(muCOSAResult* result, HDC dc, muCOSA_Win32_WGL* wgl, muPixelFormat pf, HGLRC* context, muGraphicsAPI api) {
+							int pixel_format_attributes[] = {
+								WGL_DRAW_TO_WINDOW_ARB, MU_TRUE,
+								WGL_SUPPORT_OPENGL_ARB, MU_TRUE,
+								WGL_DOUBLE_BUFFER_ARB,  MU_TRUE,
+								WGL_SAMPLE_BUFFERS_ARB, MU_TRUE, // ?
+								WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB, // ?
+								WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
+								WGL_RED_BITS_ARB,       pf.red_bits,
+								WGL_GREEN_BITS_ARB,     pf.green_bits,
+								WGL_BLUE_BITS_ARB,      pf.blue_bits,
+								WGL_ALPHA_BITS_ARB,     pf.alpha_bits,
+								WGL_DEPTH_BITS_ARB,     pf.depth_bits,
+								WGL_STENCIL_BITS_ARB,   pf.stencil_bits,
+								WGL_SAMPLES_ARB,        pf.samples,
+								0
+							};
+
+							int pixel_format;
+							UINT format_count;
+							wgl->wglChoosePixelFormatARB(dc, pixel_format_attributes, 0, 1, &pixel_format, &format_count);
+							if (!format_count) {
+								*result = MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT;
+								return;
+							}
+
+							PIXELFORMATDESCRIPTOR format;
+							if (DescribePixelFormat(dc, pixel_format, sizeof(PIXELFORMATDESCRIPTOR), &format) == 0) {
+								*result = MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT;
+								return;
+							}
+
+							if (!SetPixelFormat(dc, pixel_format, &format)) {
+								*result = MUCOSA_FAILED_SET_PIXEL_FORMAT;
+								return;
+							}
+
+							int opengl_attributes[] = {
+								WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+								WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+								WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+								0
+							};
+
+							switch (api) {
+								default: *result = MUCOSA_UNKNOWN_GRAPHICS_API; return; break;
+								case MU_OPENGL_1_0:   { opengl_attributes[1] = 1; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_1_1:   { opengl_attributes[1] = 1; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_1_2:   { opengl_attributes[1] = 1; opengl_attributes[3] = 2; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								// No idea what to do here lmao
+								case MU_OPENGL_1_2_1: { opengl_attributes[1] = 1; opengl_attributes[3] = 2; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_1_3:   { opengl_attributes[1] = 1; opengl_attributes[3] = 3; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_1_4:   { opengl_attributes[1] = 1; opengl_attributes[3] = 4; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_1_5:   { opengl_attributes[1] = 1; opengl_attributes[3] = 5; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_2_0:   { opengl_attributes[1] = 2; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_2_1:   { opengl_attributes[1] = 2; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_3_0:   { opengl_attributes[1] = 3; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_3_1:   { opengl_attributes[1] = 3; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
+								case MU_OPENGL_3_2_CORE:          { opengl_attributes[1] = 3; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_3_2_COMPATIBILITY: { opengl_attributes[1] = 3; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_3_3_CORE:          { opengl_attributes[1] = 3; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_3_3_COMPATIBILITY: { opengl_attributes[1] = 3; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_0_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 0; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_0_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 0; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_1_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 1; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_1_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 1; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_2_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_2_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_3_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_3_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_4_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 4; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_4_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 4; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_5_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 5; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_5_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 5; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_6_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 6; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
+								case MU_OPENGL_4_6_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 6; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
+							}
+
+							*context = wgl->wglCreateContextAttribsARB(dc, 0, opengl_attributes);
+							if (!*context) {
+								*result = MUCOSA_FAILED_CREATE_OPENGL_CONTEXT;
+								return;
+							}
+							if (!wglMakeCurrent(dc, *context)) {
+								*result = MUCOSA_FAILED_LOAD_OPENGL_CONTEXT;
+								return;
+							}
+						}
+
+				#endif /* MUCOSA_OPENGL */
+
+				/* Context */
+
+					struct muCOSA_Win32_context {
+						muCOSA_Win32_time time;
+					};
+					typedef struct muCOSA_Win32_context muCOSA_Win32_context;
+
+					void muCOSA_Win32_context_init(muCOSA_Win32_context* context) {
+						muCOSA_Win32_window_pmap_access();
+						muCOSA_Win32_time_init(&context->time);
+					}
+
+					void muCOSA_Win32_context_term(muCOSA_Win32_context* context) {
+						muCOSA_Win32_window_pmap_deaccess();
+						return; if (context) {}
+					}
+
+				/* API functions */
+
+					/* Window */
+
+						struct muCOSA_Win32_input {
+							muButtonState keyboard_key_states[MU_KEYBOARD_KEY_LAST-MU_KEYBOARD_KEY_FIRST+1];
+							muState keyboard_state_states[MU_KEYBOARD_STATE_LAST-MU_KEYBOARD_STATE_FIRST+1];
+							muButtonState mouse_button_states[MU_MOUSE_BUTTON_LAST-MU_MOUSE_BUTTON_FIRST+1];
+						};
+						typedef struct muCOSA_Win32_input muCOSA_Win32_input;
+
+						struct muCOSA_Win32_window {
+							wchar_t wclass_name[2];
+							HINSTANCE hinstance;
+							HWND hwnd;
+							HDC dc;
+
+							muGraphicsAPI api;
+							MUCOSA_OPENGL_CALL(
+								HGLRC glrc;
+								muCOSA_Win32_WGL wgl;
+							)
+
+							muCOSA_Win32_input input;
+							void (*text_input_callback)(muWindow window, const char* input);
+							int32_m text_cursor_x;
+							int32_m text_cursor_y;
+
+							muBool closed;
+							muBool visible;
+							muBool maximized;
+							muBool minimized;
+
+							uint32_m min_width;
+							uint32_m min_height;
+							uint32_m max_width;
+							uint32_m max_height;
+
+							muCursorStyle cursor_style;
+							HCURSOR cursor;
+							int32_m scroll_level;
+							int32_m cx, cy;
+
+							void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
+							void (*position_callback)(muWindow window, int32_m x, int32_m y);
+							void (*focus_callback)(muWindow window, muBool focused);
+							void (*maximize_callback)(muWindow window, muBool maximized);
+							void (*minimize_callback)(muWindow window, muBool minimized);
+
+							void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
+							void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
+
+							void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
+							void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
+							void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
+						};
+						typedef struct muCOSA_Win32_window muCOSA_Win32_window;
+
+						/* Input */
+
+							void muCOSA_innerWin32_possible_input_flushing(muCOSA_Win32_window* win) {
+								if (GetFocus() != win->hwnd) {
+									win->input = MU_ZERO_STRUCT(muCOSA_Win32_input);
+								}
+							}
+
+							/* Keyboard key */
+
+								WPARAM muCOSA_innerWin32_map_left_right_keys(WPARAM vk, LPARAM lParam) {
+									UINT scancode = (lParam & 0x00ff0000) >> 16;
+									int extended  = (lParam & 0x01000000) != 0;
+
+									switch (vk) {
+										default: return vk; break;
+										case VK_SHIFT: return MapVirtualKey(scancode, MAPVK_VSC_TO_VK_EX); break;
+										case VK_CONTROL: return extended ? VK_RCONTROL : VK_LCONTROL; break;
+										case VK_MENU: return extended ? VK_RMENU : VK_LMENU; break;
+									}
+								}
+
+								muKeyboardKey muCOSA_Win32_key_to_keyboard_key(int key) {
+									switch (key) {
+										default: return MU_KEYBOARD_KEY_UNKNOWN; break;
+										case VK_BACK: return MU_KEYBOARD_KEY_BACKSPACE; break;
+										case VK_TAB: return MU_KEYBOARD_KEY_TAB; break;
+										case VK_CLEAR: return MU_KEYBOARD_KEY_CLEAR; break;
+										case VK_RETURN: return MU_KEYBOARD_KEY_RETURN; break;
+										case VK_PAUSE: return MU_KEYBOARD_KEY_PAUSE; break;
+										case VK_ESCAPE: return MU_KEYBOARD_KEY_ESCAPE; break;
+										case VK_MODECHANGE: return MU_KEYBOARD_KEY_MODECHANGE; break;
+										case VK_SPACE: return MU_KEYBOARD_KEY_SPACE; break;
+										case VK_PRIOR: return MU_KEYBOARD_KEY_PRIOR; break;
+										case VK_NEXT: return MU_KEYBOARD_KEY_NEXT; break;
+										case VK_END: return MU_KEYBOARD_KEY_END; break;
+										case VK_HOME: return MU_KEYBOARD_KEY_HOME; break;
+										case VK_LEFT: return MU_KEYBOARD_KEY_LEFT; break;
+										case VK_UP: return MU_KEYBOARD_KEY_UP; break;
+										case VK_RIGHT: return MU_KEYBOARD_KEY_RIGHT; break;
+										case VK_DOWN: return MU_KEYBOARD_KEY_DOWN; break;
+										case VK_SELECT: return MU_KEYBOARD_KEY_SELECT; break;
+										case VK_PRINT: return MU_KEYBOARD_KEY_PRINT; break;
+										case VK_EXECUTE: return MU_KEYBOARD_KEY_EXECUTE; break;
+										case VK_INSERT: return MU_KEYBOARD_KEY_INSERT; break;
+										case VK_DELETE: return MU_KEYBOARD_KEY_DELETE; break;
+										case VK_HELP: return MU_KEYBOARD_KEY_HELP; break;
+										case 0x30: return MU_KEYBOARD_KEY_0; break;
+										case 0x31: return MU_KEYBOARD_KEY_1; break;
+										case 0x32: return MU_KEYBOARD_KEY_2; break;
+										case 0x33: return MU_KEYBOARD_KEY_3; break;
+										case 0x34: return MU_KEYBOARD_KEY_4; break;
+										case 0x35: return MU_KEYBOARD_KEY_5; break;
+										case 0x36: return MU_KEYBOARD_KEY_6; break;
+										case 0x37: return MU_KEYBOARD_KEY_7; break;
+										case 0x38: return MU_KEYBOARD_KEY_8; break;
+										case 0x39: return MU_KEYBOARD_KEY_9; break;
+										case 0x41: return MU_KEYBOARD_KEY_A; break;
+										case 0x42: return MU_KEYBOARD_KEY_B; break;
+										case 0x43: return MU_KEYBOARD_KEY_C; break;
+										case 0x44: return MU_KEYBOARD_KEY_D; break;
+										case 0x45: return MU_KEYBOARD_KEY_E; break;
+										case 0x46: return MU_KEYBOARD_KEY_F; break;
+										case 0x47: return MU_KEYBOARD_KEY_G; break;
+										case 0x48: return MU_KEYBOARD_KEY_H; break;
+										case 0x49: return MU_KEYBOARD_KEY_I; break;
+										case 0x4A: return MU_KEYBOARD_KEY_J; break;
+										case 0x4B: return MU_KEYBOARD_KEY_K; break;
+										case 0x4C: return MU_KEYBOARD_KEY_L; break;
+										case 0x4D: return MU_KEYBOARD_KEY_M; break;
+										case 0x4E: return MU_KEYBOARD_KEY_N; break;
+										case 0x4F: return MU_KEYBOARD_KEY_O; break;
+										case 0x50: return MU_KEYBOARD_KEY_P; break;
+										case 0x51: return MU_KEYBOARD_KEY_Q; break;
+										case 0x52: return MU_KEYBOARD_KEY_R; break;
+										case 0x53: return MU_KEYBOARD_KEY_S; break;
+										case 0x54: return MU_KEYBOARD_KEY_T; break;
+										case 0x55: return MU_KEYBOARD_KEY_U; break;
+										case 0x56: return MU_KEYBOARD_KEY_V; break;
+										case 0x57: return MU_KEYBOARD_KEY_W; break;
+										case 0x58: return MU_KEYBOARD_KEY_X; break;
+										case 0x59: return MU_KEYBOARD_KEY_Y; break;
+										case 0x5A: return MU_KEYBOARD_KEY_Z; break;
+										case VK_LWIN: return MU_KEYBOARD_KEY_LEFT_WINDOWS; break;
+										case VK_RWIN: return MU_KEYBOARD_KEY_RIGHT_WINDOWS; break;
+										case VK_NUMPAD0: return MU_KEYBOARD_KEY_NUMPAD_0; break;
+										case VK_NUMPAD1: return MU_KEYBOARD_KEY_NUMPAD_1; break;
+										case VK_NUMPAD2: return MU_KEYBOARD_KEY_NUMPAD_2; break;
+										case VK_NUMPAD3: return MU_KEYBOARD_KEY_NUMPAD_3; break;
+										case VK_NUMPAD4: return MU_KEYBOARD_KEY_NUMPAD_4; break;
+										case VK_NUMPAD5: return MU_KEYBOARD_KEY_NUMPAD_5; break;
+										case VK_NUMPAD6: return MU_KEYBOARD_KEY_NUMPAD_6; break;
+										case VK_NUMPAD7: return MU_KEYBOARD_KEY_NUMPAD_7; break;
+										case VK_NUMPAD8: return MU_KEYBOARD_KEY_NUMPAD_8; break;
+										case VK_NUMPAD9: return MU_KEYBOARD_KEY_NUMPAD_9; break;
+										case VK_MULTIPLY: return MU_KEYBOARD_KEY_MULTIPLY; break;
+										case VK_ADD: return MU_KEYBOARD_KEY_ADD; break;
+										case VK_SEPARATOR: return MU_KEYBOARD_KEY_SEPARATOR; break;
+										case VK_SUBTRACT: return MU_KEYBOARD_KEY_SUBTRACT; break;
+										case VK_DECIMAL: return MU_KEYBOARD_KEY_DECIMAL; break;
+										case VK_DIVIDE: return MU_KEYBOARD_KEY_DIVIDE; break;
+										case VK_F1: return MU_KEYBOARD_KEY_F1; break;
+										case VK_F2: return MU_KEYBOARD_KEY_F2; break;
+										case VK_F3: return MU_KEYBOARD_KEY_F3; break;
+										case VK_F4: return MU_KEYBOARD_KEY_F4; break;
+										case VK_F5: return MU_KEYBOARD_KEY_F5; break;
+										case VK_F6: return MU_KEYBOARD_KEY_F6; break;
+										case VK_F7: return MU_KEYBOARD_KEY_F7; break;
+										case VK_F8: return MU_KEYBOARD_KEY_F8; break;
+										case VK_F9: return MU_KEYBOARD_KEY_F9; break;
+										case VK_F10: return MU_KEYBOARD_KEY_F10; break;
+										case VK_F11: return MU_KEYBOARD_KEY_F11; break;
+										case VK_F12: return MU_KEYBOARD_KEY_F12; break;
+										case VK_F13: return MU_KEYBOARD_KEY_F13; break;
+										case VK_F14: return MU_KEYBOARD_KEY_F14; break;
+										case VK_F15: return MU_KEYBOARD_KEY_F15; break;
+										case VK_F16: return MU_KEYBOARD_KEY_F16; break;
+										case VK_F17: return MU_KEYBOARD_KEY_F17; break;
+										case VK_F18: return MU_KEYBOARD_KEY_F18; break;
+										case VK_F19: return MU_KEYBOARD_KEY_F19; break;
+										case VK_F20: return MU_KEYBOARD_KEY_F20; break;
+										case VK_F21: return MU_KEYBOARD_KEY_F21; break;
+										case VK_F22: return MU_KEYBOARD_KEY_F22; break;
+										case VK_F23: return MU_KEYBOARD_KEY_F23; break;
+										case VK_F24: return MU_KEYBOARD_KEY_F24; break;
+										case VK_NUMLOCK: return MU_KEYBOARD_KEY_NUMLOCK; break;
+										case VK_SCROLL: return MU_KEYBOARD_KEY_SCROLL; break;
+										case VK_LSHIFT: return MU_KEYBOARD_KEY_LEFT_SHIFT; break;
+										case VK_RSHIFT: return MU_KEYBOARD_KEY_RIGHT_SHIFT; break;
+										case VK_LCONTROL: return MU_KEYBOARD_KEY_LEFT_CONTROL; break;
+										case VK_RCONTROL: return MU_KEYBOARD_KEY_RIGHT_CONTROL; break;
+										case VK_LMENU: return MU_KEYBOARD_KEY_LEFT_MENU; break;
+										case VK_RMENU: return MU_KEYBOARD_KEY_RIGHT_MENU; break;
+										case VK_ATTN: return MU_KEYBOARD_KEY_ATTN; break;
+										case VK_CRSEL: return MU_KEYBOARD_KEY_CRSEL; break;
+										case VK_EXSEL: return MU_KEYBOARD_KEY_EXSEL; break;
+										case VK_EREOF: return MU_KEYBOARD_KEY_EREOF; break;
+										case VK_PLAY: return MU_KEYBOARD_KEY_PLAY; break;
+										case VK_PA1: return MU_KEYBOARD_KEY_PA1; break;
+									}
+								}
+
+							/* Keyboard state */
+
+								int muCOSA_innerWin32_keyboard_state_get_win32(muKeyboardState state) {
+									switch (state) {
+										default: return VK_NONAME; break;
+										case MU_KEYBOARD_STATE_CAPS_LOCK: return VK_CAPITAL; break;
+										case MU_KEYBOARD_STATE_SCROLL_LOCK: return VK_SCROLL; break;
+										case MU_KEYBOARD_STATE_NUM_LOCK: return VK_NUMLOCK; break;
+									}
+								}
+
+								void muCOSA_innerWin32_update_keyboard_state(muCOSA_Win32_window* win) {
+									for (size_m i = MU_KEYBOARD_STATE_FIRST; i <= MU_KEYBOARD_STATE_LAST; i++) {
+										muState state = MU_OFF;
+										if ((GetKeyState(muCOSA_innerWin32_keyboard_state_get_win32(i)) & 0x0001) != 0) {
+											state = MU_ON;
+										}
+
+										if (win->input.keyboard_state_states[i] != state) {
+											win->input.keyboard_state_states[i] = state;
+											if (win->keyboard_state_callback != 0) {
+												win->keyboard_state_callback(win, i, state);
+											}
+										}
+									}
+								}
+
+							/* Mouse buttons */
+
+								// ...
+
+							/* Cursor */
+
+								/* Conversion */
+
+									void* muCOSA_Win32_cursor_to_win_cursor(muCursorStyle style) {
+										switch (style) {
+											default: case MU_CURSOR_STYLE_ARROW: return IDC_ARROW; break;
+											case MU_CURSOR_STYLE_IBEAM: return IDC_IBEAM; break;
+											case MU_CURSOR_STYLE_WAIT: return IDC_WAIT; break;
+											case MU_CURSOR_STYLE_WAIT_ARROW: return IDC_APPSTARTING; break;
+											case MU_CURSOR_STYLE_CROSSHAIR: return IDC_CROSS; break;
+											case MU_CURSOR_STYLE_HAND: return IDC_HAND; break;
+											case MU_CURSOR_STYLE_SIZE_EAST_WEST: return IDC_SIZEWE; break;
+											case MU_CURSOR_STYLE_SIZE_NORTH_SOUTH: return IDC_SIZENS; break;
+											case MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST: return IDC_SIZENESW; break;
+											case MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST: return IDC_SIZENWSE; break;
+											case MU_CURSOR_STYLE_SIZE_ALL: return IDC_SIZEALL; break;
+											case MU_CURSOR_STYLE_NO: return IDC_NO; break;
+										}
+									}
+
+								/* Position */
+
+									void muCOSA_Win32_window_get_position(muCOSAResult* result, muCOSA_Win32_window* win, int32_m* x, int32_m* y);
+									void muCOSA_Win32_window_get_cursor_position(muCOSAResult* result, muCOSA_Win32_window* win, int32_m* x, int32_m* y) {
+										POINT p;
+										if (GetCursorPos(&p) == 0) {
+											MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+											return;
+										}
+
+										int32_m wx=0, wy=0;
+										muCOSAResult res = MUCOSA_SUCCESS;
+										muCOSA_Win32_window_get_position(&res, win, &wx, &wy);
+										if (res != MUCOSA_SUCCESS) {
+											MU_SET_RESULT(result, res)
+											return;
+										}
+
+										MU_SET_RESULT(x, p.x-wx)
+										MU_SET_RESULT(y, p.y-wy)
+									}
+
+									void muCOSA_Win32_window_set_cursor_position(muCOSAResult* result, muCOSA_Win32_window* win, int32_m x, int32_m y) {
+										int32_m wx=0, wy=0;
+										muCOSAResult res = MUCOSA_SUCCESS;
+										muCOSA_Win32_window_get_position(&res, win, &wx, &wy);
+										if (res != MUCOSA_SUCCESS) {
+											MU_SET_RESULT(result, res)
+											return;
+										}
+
+										if (SetCursorPos(wx+x, wy+y) == 0) {
+											MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+										}
+									}
+
+									void muCOSA_innerWin32_handle_cursor_position(muCOSA_Win32_window* win) {
+										muCOSAResult result = MUCOSA_SUCCESS;
+
+										int32_m cx=0, cy=0;
+										muCOSA_Win32_window_get_cursor_position(&result, win, &cx, &cy);
+
+										if (result == MUCOSA_SUCCESS && (cx != win->cx || cy != win->cy)) {
+											win->cx = cx;
+											win->cy = cy;
+
+											if (win->cursor_position_callback != 0) {
+												win->cursor_position_callback(win, win->cx, win->cy);
+											}
+										}
+									}
+
+								/* Style */
+
+									muCursorStyle muCOSA_Win32_window_get_cursor_style(muCOSA_Win32_window* win) {
+										return win->cursor_style;
+									}
+
+									void muCOSA_Win32_window_set_cursor_style(muCOSA_Win32_window* win, muCursorStyle style) {
+										win->cursor_style = style;
+										if (win->cursor != NULL) {
+											DestroyCursor(win->cursor);
+										}
+										win->cursor = LoadCursor(0, (LPCSTR)muCOSA_Win32_cursor_to_win_cursor(style));
+										SetCursor(win->cursor);
+									}
+
+									void muCOSA_Win32_window_get_dimensions(muCOSAResult* result, muCOSA_Win32_window* win, uint32_m* width, uint32_m* height);
+									// This doesn't work... :L
+									void muCOSA_innerWin32_update_cursor_style(muCOSA_Win32_window* win) {
+										muCOSAResult result = MUCOSA_SUCCESS;
+										return;
+
+										int32_m cx=0,cy=0;
+										muCOSA_Win32_window_get_cursor_position(&result, win, &cx, &cy);
+										if (result != MUCOSA_SUCCESS) {
+											return;
+										}
+										uint32_m ucx=cx, ucy=cy;
+
+										uint32_m ww=0,wh=0;
+										muCOSA_Win32_window_get_dimensions(&result, win, &ww, &wh);
+										if (result != MUCOSA_SUCCESS) {
+											return;
+										}
+
+										if (win->cursor == NULL) {
+											if (ucx < ww && ucy < wh && cx > 0 && cy > 0) {
+												muCOSA_Win32_window_set_cursor_style(win, win->cursor_style);
+											}
+										} else {
+											if (ucx >= ww || ucy >= wh || cx <= 0 || cy <= 0) {
+												DestroyCursor(win->cursor);
+												win->cursor = NULL;
+											}
+										}
+									}
+
+								/* Scroll level */
+
+									int32_m muCOSA_Win32_window_get_scroll_level(muCOSA_Win32_window* win) {
+										return win->scroll_level;
+									}
+
+									void muCOSA_Win32_window_set_scroll_level(muCOSA_Win32_window* win, int32_m scroll_level) {
+										win->scroll_level = scroll_level;
+									}
+
+							/* Proc */
+
+								struct muCOSA_Win32_msginfo {
+									UINT uMsg;
+									WPARAM wParam;
+									LPARAM lParam;
+
+									muCOSA_Win32_window* win;
+								};
+								typedef struct muCOSA_Win32_msginfo muCOSA_Win32_msginfo;
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_quit(muCOSA_Win32_msginfo msg) {
+									PostQuitMessage(0);
+									msg.win->closed = MU_TRUE;
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_size(muCOSA_Win32_msginfo msg) {
+									if (msg.win->dimensions_callback != 0) {
+										msg.win->dimensions_callback(msg.win, (int)LOWORD(msg.lParam), (int)HIWORD(msg.lParam));
+									}
+
+									if (msg.wParam == SIZE_MAXIMIZED && msg.win->maximize_callback != 0) {
+										msg.win->maximized = MU_TRUE;
+										msg.win->maximize_callback(msg.win, MU_TRUE);
+									// ?
+									} else if (msg.win->maximized && msg.wParam != SIZE_MAXIMIZED && msg.wParam != SIZE_MAXHIDE && msg.wParam != SIZE_MAXSHOW && msg.win->maximize_callback != 0) {
+										msg.win->maximized = MU_FALSE;
+										msg.win->maximize_callback(msg.win, MU_FALSE);
+									}
+
+									if (msg.wParam == SIZE_MINIMIZED && msg.win->minimize_callback != 0) {
+										msg.win->minimized = MU_TRUE;
+										msg.win->minimize_callback(msg.win, MU_TRUE);
+									// ?
+									} else if (msg.win->minimized
+										&& msg.wParam != SIZE_MINIMIZED && msg.wParam != SIZE_MAXHIDE && msg.wParam != SIZE_MAXSHOW
+										&& msg.win->minimize_callback != 0) {
+										msg.win->minimized = MU_FALSE;
+										msg.win->minimize_callback(msg.win, MU_FALSE);
+									}
+
+									PostMessage(msg.win->hwnd, WM_PAINT, 0, 0);
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_key(muCOSA_Win32_msginfo msg, muButtonState state) {
+									msg.wParam = muCOSA_innerWin32_map_left_right_keys(msg.wParam, msg.lParam);
+									muKeyboardKey key = muCOSA_Win32_key_to_keyboard_key(msg.wParam);
+									if (key == MU_KEYBOARD_KEY_UNKNOWN) {
+										return 0;
+									}
+
+									msg.win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST] = state;
+
+									if (msg.win->keyboard_key_callback != MU_NULL_PTR) {
+										msg.win->keyboard_key_callback(msg.win, key, state);
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_move(muCOSA_Win32_msginfo msg) {
+									if (msg.win->position_callback != 0) {
+										// https://www.autohotkey.com/boards/viewtopic.php?t=27857
+										// BILL GATES... MY LOVE... YOU MAKE NO MISTAKES IN YOUR FLAWLESS,
+										// IMPECCABLE API. HOW COULD AN API GET BETTER IF THE DOCUMENTATION FOR IT
+										// IS UNIVERSALLY UNDERSTOOD AS BEING COMPLETELY WORTHLESS? I'D LET YOU
+										// FORCE UPDATE A MILLION TIMES FOR YOUR PERFECT API... Oh, Bill...
+										msg.win->position_callback(msg.win,
+											(int32_m)( msg.lParam      & 0x8000 ? - ((~msg.lParam    )&0x7FFF)+1 :  msg.lParam     &0x7FFF),
+											(int32_m)((msg.lParam>>16) & 0x8000 ? - ((~msg.lParam>>16)&0x7FFF)+1 : (msg.lParam>>16)&0x7FFF)
+										);
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_focus(muCOSA_Win32_msginfo msg, muBool focus) {
+									if (msg.win->focus_callback != 0) {
+										msg.win->focus_callback(msg.win, focus);
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_minmax_info(muCOSA_Win32_msginfo msg) {
+									LPMINMAXINFO lp = (LPMINMAXINFO)msg.lParam;
+									// No idea why 16 and 39 need to be added here. It can't be broder stuff like
+									// the titlebar, because the border width is almost never 16 whole pixels in
+									// Windows. :|
+									lp->ptMinTrackSize.x = msg.win->min_width + 16;
+									lp->ptMinTrackSize.y = msg.win->min_height + 39;
+									lp->ptMaxTrackSize.x = msg.win->max_width + 16;
+									lp->ptMaxTrackSize.y = msg.win->max_height + 39;
+
+									return 0;
+								}
+
+								// Note: button and state must be valid, this func doesn't perform checks
+								LRESULT CALLBACK muCOSA_innerWin32_handle_mouse_button(muCOSA_Win32_msginfo msg, muMouseButton button, muButtonState state) {
+									msg.win->input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST] = state;
+
+									if (msg.win->mouse_button_callback != 0) {
+										msg.win->mouse_button_callback(msg.win, button, state);
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_set_cursor(muCOSA_Win32_msginfo msg) {
+									if (LOWORD(msg.lParam) == HTCLIENT && msg.win->cursor_style != MU_CURSOR_STYLE_DEFAULT) {
+										DestroyCursor(msg.win->cursor);
+										msg.win->cursor = LoadCursor(0, (LPCSTR)muCOSA_Win32_cursor_to_win_cursor(msg.win->cursor_style));
+										SetCursor(msg.win->cursor);
+										return TRUE;
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_mouse_wheel(muCOSA_Win32_msginfo msg) {
+									msg.win->scroll_level += GET_WHEEL_DELTA_WPARAM(msg.wParam);
+
+									if (msg.win->scroll_callback != 0) {
+										msg.win->scroll_callback(msg.win, GET_WHEEL_DELTA_WPARAM(msg.wParam));
+									}
+
+									return 0;
+								}
+
+								size_m muCOSA_innerWin32_UTF8_get_code_point_size(size_m code_point) {
+									// Storable in 7 bits = 1 byte
+									if (code_point < 128) {
+										return 1;
+									}
+									// Storable in 11 bits = 2 bytes
+									if (code_point < 2048) {
+										return 2;
+									}
+									// Storable in 16 bits = 3 bytes
+									if (code_point < 65536) {
+										return 3;
+									}
+									return 4;
+								}
+
+								void muCOSA_innerWin32_UTF8_set_code_point(size_m code_point, muByte* data) {
+									size_m code_point_size = muCOSA_innerWin32_UTF8_get_code_point_size(code_point);
+
+									switch (code_point_size) { default: return; break;
+										case 1: {
+											data[0] = code_point;
+										} break;
+
+										case 2: {
+											// 110xxxxx
+											data[0] = (muByte)(((code_point >> 6) & 31) | 192);
+											// 10xxxxxx
+											data[1] = (muByte)((code_point & 63) | 128);
+										} break;
+
+										case 3: {
+											// 1110xxxx
+											data[0] = (muByte)(((code_point >> 12) & 15) | 224);
+											// 10xxxxxx
+											data[1] = (muByte)(((code_point >> 6) & 63) | 128);
+											// 10xxxxxx
+											data[2] = (muByte)((code_point & 63) | 128);
+										} break;
+
+										case 4: {
+											// 11110xxx
+											data[0] = (muByte)(((code_point >> 18) & 7) | 240);
+											// 10xxxxxx
+											data[1] = (muByte)(((code_point >> 12) & 63) | 128);
+											// 10xxxxxx
+											data[2] = (muByte)(((code_point >> 6) & 63) | 128);
+											// 10xxxxxx
+											data[3] = (muByte)((code_point & 63) | 128);
+										} break;
+									}
+								}
+
+								// This code assumes that wParam is the Unicode codepoint for the character, which
+								// I'm pretty sure it is.
+								LRESULT CALLBACK muCOSA_innerWin32_handle_wmchar(muCOSA_Win32_msginfo msg) {
+									if (msg.win->text_input_callback == 0) {
+										return DefWindowProcW(msg.win->hwnd, msg.uMsg, msg.wParam, msg.lParam);
+									}
+
+									size_m codepoint = (size_m)msg.wParam;
+
+									size_m codepoint_size = muCOSA_innerWin32_UTF8_get_code_point_size(codepoint);
+									codepoint_size += 1; // For \0
+
+									muByte buf[6]; mu_memset(buf, 0, sizeof(buf));
+									muByte* input = 0;
+
+									if (codepoint_size > sizeof(buf)) {
+										input = (muByte*)mu_malloc(codepoint_size);
+										if (input == 0) {
+											return 0;
+										}
+									} else {
+										input = buf;
+									}
+
+									input[codepoint_size-1] = 0;
+
+									muCOSA_innerWin32_UTF8_set_code_point(codepoint, buf);
+
+									msg.win->text_input_callback(msg.win, (const char*)input);
+									if (input != buf) {
+										mu_free(input);
+									}
+
+									return 0;
+								}
+
+								LRESULT CALLBACK muCOSA_innerWin32_handle_umsg(muCOSA_Win32_msginfo msg) {
+									switch (msg.uMsg) {
+										default: return DefWindowProcW(msg.win->hwnd, msg.uMsg, msg.wParam, msg.lParam); break;
+										case WM_DESTROY: return muCOSA_innerWin32_handle_quit(msg); break;
+
+										case WM_SIZE: return muCOSA_innerWin32_handle_size(msg); break;
+
+										case WM_KEYDOWN: return muCOSA_innerWin32_handle_key(msg, MU_BUTTON_STATE_HELD); break;
+										case WM_KEYUP: return muCOSA_innerWin32_handle_key(msg, MU_BUTTON_STATE_RELEASED); break;
+
+										case WM_MOVE: return muCOSA_innerWin32_handle_move(msg); break;
+
+										case WM_SETFOCUS: return muCOSA_innerWin32_handle_focus(msg, MU_TRUE); break;
+										case WM_KILLFOCUS: return muCOSA_innerWin32_handle_focus(msg, MU_FALSE); break;
+
+										case WM_GETMINMAXINFO: return muCOSA_innerWin32_handle_minmax_info(msg); break;
+
+										case WM_LBUTTONDOWN: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_LEFT, MU_BUTTON_STATE_HELD); break;
+										case WM_RBUTTONDOWN: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_RIGHT, MU_BUTTON_STATE_HELD); break;
+										case WM_LBUTTONUP: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_LEFT, MU_BUTTON_STATE_RELEASED); break;
+										case WM_RBUTTONUP: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_RIGHT, MU_BUTTON_STATE_RELEASED); break;
+
+										case WM_SETCURSOR: return muCOSA_innerWin32_handle_set_cursor(msg); break;
+
+										case WM_MOUSEWHEEL: return muCOSA_innerWin32_handle_mouse_wheel(msg); break;
+
+										case WM_CHAR: return muCOSA_innerWin32_handle_wmchar(msg); break;
+									}
+								}
+
+								LRESULT CALLBACK muCOSA_Win32_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+									muCOSA_Win32_window_pmap_lock();
+
+									muCOSA_Win32_window* win = 0;
+									for (size_m i = 0; i < muCOSA_Win32_global_window_pmap.pointer_count; i++) {
+										if (muCOSA_Win32_global_window_pmap.pointers[i] != 0) {
+											if (((muCOSA_Win32_window*)muCOSA_Win32_global_window_pmap.pointers[i])->hwnd == hwnd) {
+												win = (muCOSA_Win32_window*)muCOSA_Win32_global_window_pmap.pointers[i];
+											}
+										}
+									}
+
+									muCOSA_Win32_window_pmap_unlock();
+
+									if (win == 0) {
+										return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+									}
+
+									muCOSA_Win32_msginfo msginfo = MU_ZERO_STRUCT(muCOSA_Win32_msginfo);
+									msginfo.uMsg = uMsg;
+									msginfo.wParam = wParam;
+									msginfo.lParam = lParam;
+									msginfo.win = win;
+									LRESULT ret = muCOSA_innerWin32_handle_umsg(msginfo);
+
+									return ret;
+								}
+
+						/* Creation / Destruction */
+
+							void muCOSA_Win32_window_create(muCOSAResult* result, muGraphicsAPI api, muBool (*load_functions)(void), const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info, muCOSA_Win32_window* win) {
+
+								muCOSAResult res = MUCOSA_SUCCESS;
+
+								if (!muCOSA_Win32_window_pmap_add(win, sizeof(muCOSA_Win32_window*))) {
+									MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+									return;
+								}
+
+								/* Set default attributes */
+
+									win->closed = MU_FALSE;
+									win->maximized = create_info.maximized;
+									win->minimized = create_info.minimized;
+									win->dimensions_callback = create_info.dimensions_callback;
+									win->position_callback = create_info.position_callback;
+									win->focus_callback = create_info.focus_callback;
+									win->maximize_callback = create_info.maximize_callback;
+									win->minimize_callback = create_info.minimize_callback;
+									win->keyboard_key_callback = create_info.keyboard_key_callback;
+									win->keyboard_state_callback = create_info.keyboard_state_callback;
+									win->cursor_position_callback = create_info.cursor_position_callback;
+									win->mouse_button_callback = create_info.mouse_button_callback;
+									win->scroll_callback = create_info.scroll_callback;
+									win->min_width = create_info.min_width;
+									win->min_height = create_info.min_height;
+									win->max_width = create_info.max_width;
+									win->max_height = create_info.max_height;
+									win->input = MU_ZERO_STRUCT(muCOSA_Win32_input);
+									win->text_cursor_x = 0;
+									win->text_cursor_y = 0;
+									win->text_input_callback = 0;
+
+								/* Class */
+
+									wchar_t* wname = muCOSA_Win32_utf8_to_wchar(name);
+									if (!wname) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR)
+										return;
+									}
+
+									// This might be a bad idea... :)
+									win->wclass_name[0] = (wchar_t)'!';
+
+									wchar_t add;
+									if (sizeof(wchar_t) < sizeof(win)) {
+										mu_memcpy(&add, &win, sizeof(wchar_t));
+									} else {
+										mu_memcpy(&add, &win, sizeof(win));
+									}
+									win->wclass_name[0] += add;
+
+									win->wclass_name[1] = (wchar_t)'\0';
+
+									win->hinstance = muCOSA_Win32_get_hinstance();
+
+									WNDCLASSEXW wclass = MU_ZERO_STRUCT(WNDCLASSEXW);
+									wclass.cbSize = sizeof(wclass);
+									wclass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+									wclass.lpfnWndProc = muCOSA_Win32_proc;
+									wclass.hInstance = win->hinstance;
+									wclass.lpszMenuName = wname;
+									wclass.lpszClassName = win->wclass_name;
+
+									if (!RegisterClassExW(&wclass)) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_REGISTER_WINDOW_CLASS)
+										mu_free(wname);
+										return;
+									}
+
+								/* Window */
+
+									DWORD style = WS_OVERLAPPEDWINDOW;
+									if (!create_info.resizable) {
+										style = WS_OVERLAPPED | WS_MINIMIZEBOX | WS_SYSMENU;
+									}
+
+									RECT r;
+									r.left = r.top = 0;
+									r.right = (LONG)width;
+									r.bottom = (LONG)height;
+									AdjustWindowRect(&r, style, FALSE);
+
+									win->hwnd = CreateWindowExW(0, wclass.lpszClassName, wclass.lpszMenuName, style, (int)create_info.x, (int)create_info.y, r.right-r.left, r.bottom-r.top, NULL, NULL, win->hinstance, NULL);
+
+									// ?
+									mu_free(wname);
+
+									if (win->hwnd == NULL) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_WINDOW)
+										UnregisterClassW(win->wclass_name, win->hinstance);
+										return;
+									}
+
+									win->dc = GetDC(win->hwnd);
+
+								/* API */
+
+									win->api = api;
+
+									MUCOSA_OPENGL_CALL(
+										if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+											muCOSA_Win32_init_opengl_extensions(&res, &win->wgl);
+											if (res != MUCOSA_SUCCESS) {
+												MU_SET_RESULT(result, res)
+												ReleaseDC(win->hwnd, win->dc);
+												DestroyWindow(win->hwnd);
+												UnregisterClassW(win->wclass_name, win->hinstance);
+												return;
+											}
+
+											muCOSA_Win32_create_opengl_context(&res, win->dc, &win->wgl, create_info.pixel_format, &win->glrc, api);
+											if (res != MUCOSA_SUCCESS) {
+												MU_SET_RESULT(result, res)
+												ReleaseDC(win->hwnd, win->dc);
+												DestroyWindow(win->hwnd);
+												UnregisterClassW(win->wclass_name, win->hinstance);
+												return;
+											}
+										}
+									)
+
+									if (load_functions != 0) {
+										if (!load_functions()) {
+											MU_SET_RESULT(result, MUCOSA_FAILED_LOAD_FUNCTIONS)
+											MUCOSA_OPENGL_CALL(
+												if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+													wglDeleteContext(win->glrc);
+												}
+											)
+											ReleaseDC(win->hwnd, win->dc);
+											DestroyWindow(win->hwnd);
+											UnregisterClassW(win->wclass_name, win->hinstance);
+											return;
+										}
+									}
+
+								/* Cursor */
+
+									win->cursor_style = create_info.cursor_style;
+									win->cursor = LoadCursor(0, (LPCSTR)muCOSA_Win32_cursor_to_win_cursor(create_info.cursor_style));
+									SetCursor(win->cursor);
+									win->scroll_level = 0;
+									win->cx = 0;
+									win->cy = 0;
+
+								/* Show window */
+
+									win->visible = create_info.visible;
+
+									if (win->visible) {
+										if (create_info.maximized) {
+											ShowWindow(win->hwnd, SW_MAXIMIZE);
+										} else if (create_info.minimized) {
+											ShowWindow(win->hwnd, SW_MINIMIZE);
+										} else {
+											ShowWindow(win->hwnd, SW_NORMAL);
+										}
+									} else {
+										ShowWindow(win->hwnd, SW_HIDE);
+									}
+
+								/* Auto-disable IME */
+
+									if (ImmAssociateContextEx(win->hwnd, NULL, 0) == FALSE) {
+										// ？
+									}
+
+								/* Return */
+
+									return; if (res) {}
+							}
+
+							void muCOSA_Win32_window_destroy(muCOSA_Win32_window* win) {
+								muCOSA_Win32_window_pmap_remove(win, sizeof(muCOSA_Win32_window*));
+
+								MUCOSA_OPENGL_CALL(
+									if (win->api >= MUCOSA_OPENGL_FIRST && win->api <= MUCOSA_OPENGL_LAST) {
+										wglDeleteContext(win->glrc);
+									}
+								)
+
+								ReleaseDC(win->hwnd, win->dc);
+								DestroyWindow(win->hwnd);
+								UnregisterClassW(win->wclass_name, win->hinstance);
+							}
+
+						/* Main loop */
+
+							muBool muCOSA_Win32_window_get_closed(muCOSA_Win32_window* win) {
+								return win->closed;
+							}
+
+							void muCOSA_Win32_window_close(muCOSA_Win32_window* win) {
+								win->closed = MU_TRUE;
+							}
+
+							void muCOSA_Win32_window_update(muCOSA_Win32_window* win) {
+								MSG msg = MU_ZERO_STRUCT(MSG);
+								while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
+									TranslateMessage(&msg);
+									DispatchMessage(&msg);
+								}
+
+								muCOSA_innerWin32_update_keyboard_state(win);
+								muCOSA_innerWin32_possible_input_flushing(win);
+
+								muCOSA_innerWin32_handle_cursor_position(win);
+								muCOSA_innerWin32_update_cursor_style(win);
+							}
+
+							void muCOSA_Win32_window_swap_buffers(muCOSA_Win32_window* win) {
+								MUCOSA_OPENGL_CALL(
+									if (win->api >= MUCOSA_OPENGL_FIRST && win->api <= MUCOSA_OPENGL_LAST) {
+										SwapBuffers(win->dc);
+									}
+								)
+								return; if (win) {}
+							}
+
+						/* Get / Set */
+
+							muBool muCOSA_Win32_window_get_focused(muCOSA_Win32_window* win) {
+								return GetFocus() == win->hwnd;
+							}
+
+							muBool muCOSA_Win32_window_get_minimized(muCOSA_Win32_window* win);
+							void muCOSA_Win32_window_set_minimized(muCOSAResult* result, muCOSA_Win32_window* win, muBool minimized);
+							void muCOSA_Win32_window_focus(muCOSA_Win32_window* win) {
+								// Attempt to restore the window if it is minimized.
+								if (muCOSA_Win32_window_get_minimized(win)) {
+									muCOSA_Win32_window_set_minimized(0, win, MU_FALSE);
+								}
+
+								// https://stackoverflow.com/questions/71437203/proper-way-of-activating-a-window-using-winapi
+								// This can be made more consistent with the automation API, but I don't want
+								// to touch that with a 51!-foot pole.
+								SetForegroundWindow(win->hwnd);
+								if (GetForegroundWindow() != win->hwnd) {
+									SwitchToThisWindow(win->hwnd, MU_TRUE);
+									Sleep(2); // I would kiss Bill Gates on the mouth if I ever met him.
+									SetForegroundWindow(win->hwnd);
+								}
+							}
+
+							muBool muCOSA_Win32_window_get_visible(muCOSA_Win32_window* win) {
+								return win->visible;
+							}
+
+							void muCOSA_Win32_window_set_visible(muCOSA_Win32_window* win, muBool visible) {
+								if (!visible && win->visible) {
+									ShowWindow(win->hwnd, SW_HIDE);
+								} else if (visible && !win->visible) {
+									ShowWindow(win->hwnd, SW_NORMAL);
+								}
+
+								win->visible = visible;
+							}
+
+							void muCOSA_Win32_window_get_frame_extents(muCOSAResult* result, muCOSA_Win32_window* win, uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b);
+							void muCOSA_Win32_window_get_position(muCOSAResult* result, muCOSA_Win32_window* win, int32_m* x, int32_m* y) {
+								RECT rect;
+								if (GetWindowRect(win->hwnd, &rect) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+
+								muCOSAResult res = MUCOSA_SUCCESS;
+								uint32_m l=0, t=0;
+								muCOSA_Win32_window_get_frame_extents(&res, win, &l, 0, &t, 0);
+								if (res != MUCOSA_SUCCESS) {
+									MU_SET_RESULT(result, res)
+									return;
+								}
+
+								MU_SET_RESULT(x, (int32_m)rect.left + (int32_m)l)
+								MU_SET_RESULT(y, (int32_m)rect.top + (int32_m)t)
+							}
+
+							void muCOSA_Win32_window_set_position(muCOSAResult* result, muCOSA_Win32_window* win, int32_m x, int32_m y) {
+								muCOSAResult res = MUCOSA_SUCCESS;
+								uint32_m xborder=0, yborder=0;
+								muCOSA_Win32_window_get_frame_extents(&res, win, &xborder, 0, &yborder, 0);
+								if (res != MUCOSA_SUCCESS) {
+									MU_SET_RESULT(result, res)
+									return;
+								}
+
+								x -= (int32_m)xborder;
+								y -= (int32_m)yborder;
+
+								if (SetWindowPos(win->hwnd, HWND_TOP, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+								}
+							}
+
+							void muCOSA_Win32_window_get_dimensions(muCOSAResult* result, muCOSA_Win32_window* win, uint32_m* width, uint32_m* height) {
+								RECT rect;
+								if (GetClientRect(win->hwnd, &rect) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+
+								MU_SET_RESULT(width, (uint32_m)(rect.right - rect.left))
+								MU_SET_RESULT(height, (uint32_m)(rect.bottom - rect.top))
+							}
+
+							void muCOSA_Win32_window_set_dimensions(muCOSAResult* result, muCOSA_Win32_window* win, uint32_m width, uint32_m height) {
+								WINDOWINFO wi;
+								if (GetWindowInfo(win->hwnd, &wi) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+
+								RECT rect;
+								rect.left = rect.top = 0;
+								rect.right = width;
+								rect.bottom = height;
+								if (AdjustWindowRect(&rect, wi.dwStyle, FALSE) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+									return;
+								}
+
+								if (SetWindowPos(win->hwnd, HWND_TOP, 0, 0, rect.right-rect.left, rect.bottom-rect.top, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+								}
+							}
+
+							muBool muCOSA_Win32_window_get_maximized(muCOSAResult* result, muCOSA_Win32_window* win) {
+								WINDOWPLACEMENT wp = MU_ZERO_STRUCT(WINDOWPLACEMENT);
+								wp.length = sizeof(WINDOWPLACEMENT);
+								if (GetWindowPlacement(win->hwnd, &wp) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return MU_FALSE;
+								}
+
+								return wp.showCmd == SW_MAXIMIZE;
+							}
+
+							void muCOSA_Win32_window_set_maximized(muCOSA_Win32_window* win, muBool maximized) {
+								muCOSAResult res = MUCOSA_SUCCESS;
+								muBool b_maximized = muCOSA_Win32_window_get_maximized(&res, win);
+
+								if (res == MUCOSA_SUCCESS && b_maximized == maximized) {
+									return;
+								}
+
+								if (maximized) {
+									ShowWindow(win->hwnd, SW_MAXIMIZE);
+								} else {
+									ShowWindow(win->hwnd, SW_NORMAL);
+								}
+							}
+
+							muBool muCOSA_Win32_window_get_minimized(muCOSA_Win32_window* win) {
+								return IsIconic(win->hwnd);
+							}
+
+							void muCOSA_Win32_window_set_minimized(muCOSAResult* result, muCOSA_Win32_window* win, muBool minimized) {
+								muBool b_minimized = muCOSA_Win32_window_get_minimized(win);
+								if (b_minimized == minimized) {
+									return;
+								}
+
+								if (minimized) {
+									ShowWindow(win->hwnd, SW_MINIMIZE);
+								} else {
+									if (OpenIcon(win->hwnd) == 0) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+									}
+								}
+							}
+
+							void muCOSA_Win32_window_get_minimum_dimensions(muCOSA_Win32_window* win, uint32_m* min_width, uint32_m* min_height) {
+								MU_SET_RESULT(min_width, win->min_width)
+								MU_SET_RESULT(min_height, win->min_height)
+							}
+
+							void muCOSA_Win32_window_set_minimum_dimensions(muCOSA_Win32_window* win, uint32_m min_width, uint32_m min_height) {
+								win->min_width = min_width;
+								win->min_height = min_height;
+							}
+
+							void muCOSA_Win32_window_get_maximum_dimensions(muCOSA_Win32_window* win, uint32_m* max_width, uint32_m* max_height) {
+								MU_SET_RESULT(max_width, win->max_width)
+								MU_SET_RESULT(max_height, win->max_height)
+							}
+
+							void muCOSA_Win32_window_set_maximum_dimensions(muCOSA_Win32_window* win, uint32_m max_width, uint32_m max_height) {
+								win->max_width = max_width;
+								win->max_height = max_height;
+							}
+
+						/* Get / Let */
+
+							void muCOSA_Win32_window_update_text_cursor(muCOSA_Win32_window* win, int32_m x, int32_m y);
+							void muCOSA_Win32_window_get_text_input_focus(muCOSAResult* result, muCOSA_Win32_window* win, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, const char* input)) {
+								if (ImmAssociateContextEx(win->hwnd, NULL, IACE_DEFAULT) == FALSE) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT)
+									return;
+								}
+
+								muCOSA_Win32_window_update_text_cursor(win, text_cursor_x, text_cursor_y);
+								win->text_input_callback = callback;
+							}
+
+							void muCOSA_Win32_window_let_text_input_focus(muCOSA_Win32_window* win) {
+								win->text_input_callback = 0;
+
+								if (ImmAssociateContextEx(win->hwnd, NULL, 0) == FALSE) {
+									// ?
+								}
+							}
+
+							void muCOSA_Win32_window_update_text_cursor(muCOSA_Win32_window* win, int32_m x, int32_m y) {
+								if (win->text_input_callback == 0) {
+									return;
+								}
+
+								// Maybe flickering is caused by context getting retrieved and released per-update...
+								// @TODO Check
+								HIMC imm = ImmGetContext(win->hwnd);
+
+								COMPOSITIONFORM cf = MU_ZERO_STRUCT(COMPOSITIONFORM);
+								cf.dwStyle = CFS_FORCE_POSITION;
+								cf.ptCurrentPos.x = x;
+								cf.ptCurrentPos.y = y;
+								ImmSetCompositionWindow(imm, &cf);
+
+								if (ImmReleaseContext(win->hwnd, imm) == 0) {
+									// ?
+								}
+							}
+
+						/* Get */
+
+							// I LOVE YOU BILL GATES!!!!
+							void muCOSA_Win32_window_get_frame_extents(muCOSAResult* result, muCOSA_Win32_window* win, uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b) {
+								MU_SET_RESULT(result, MUCOSA_SUCCESS)
+								// (Fallback)
+								muCOSA_Win32_window_get_def_frame_extents(l, r, t, b);
+
+								RECT wrect, crect;
+								if (GetWindowRect(win->hwnd, &wrect) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+								if (GetClientRect(win->hwnd, &crect) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+								MapWindowPoints(win->hwnd, NULL, (LPPOINT)&crect, 2);
+
+								MU_SET_RESULT(l, (uint32_m)(crect.left-wrect.left))
+								MU_SET_RESULT(r, (uint32_m)(wrect.right-crect.right))
+								MU_SET_RESULT(t, (uint32_m)(crect.top-wrect.top))
+								MU_SET_RESULT(b, (uint32_m)(wrect.bottom-crect.bottom))
+
+								/*LONG styles = GetWindowLongA(win->hwnd, GWL_STYLE);
+								LONG exstyles = GetWindowLongA(win->hwnd, GWL_EXSTYLE);
+
+								RECT rect;
+								if (AdjustWindowRectEx(&rect, styles, FALSE, exstyles) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
+									return;
+								}
+
+								MU_SET_RESULT(l, rect.left)
+								MU_SET_RESULT(r, rect.right)
+								MU_SET_RESULT(t, rect.top)
+								MU_SET_RESULT(b, rect.bottom)*/
+							}
+
+							muButtonState muCOSA_Win32_window_get_keyboard_key_state(muCOSA_Win32_window* win, muKeyboardKey key) {
+								return win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST];
+							}
+
+							muState muCOSA_Win32_window_get_keyboard_state_state(muCOSA_Win32_window* win, muKeyboardState state) {
+								return (GetKeyState(muCOSA_innerWin32_keyboard_state_get_win32(state)) & 0x0001) != 0;
+								if (win) {}
+							}
+
+							muButtonState muCOSA_Win32_window_get_mouse_button_state(muCOSA_Win32_window* win, muMouseButton button) {
+								return win->input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST];
+							}
+
+						/* Set */
+
+							void muCOSA_Win32_window_set_title(muCOSAResult* result, muCOSA_Win32_window* win, const char* title) {
+								wchar_t* wtitle = muCOSA_Win32_utf8_to_wchar(title);
+								if (wtitle == 0) {
+									MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+									return;
+								}
+
+								if (SetWindowTextW(win->hwnd, wtitle) == 0) {
+									MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+								}
+
+								mu_free(wtitle);
+							}
+
+							void muCOSA_Win32_window_set_dimensions_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
+								win->dimensions_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_position_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+								win->position_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_focus_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muBool focused)) {
+								win->focus_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_maximize_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muBool maximized)) {
+								win->maximize_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_minimize_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muBool minimized)) {
+								win->minimize_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_keyboard_key_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
+								win->keyboard_key_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_keyboard_state_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
+								win->keyboard_state_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_cursor_position_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+								win->cursor_position_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_mouse_button_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
+								win->mouse_button_callback = callback;
+							}
+
+							void muCOSA_Win32_window_set_scroll_callback(muCOSA_Win32_window* win, void (*callback)(muWindow window, int32_m scroll_level_add)) {
+								win->scroll_callback = callback;
+							}
+
+					/* Time */
+
+						double muCOSA_Win32_time_get(muCOSA_Win32_context* context, muCOSAResult* result) {
+							return muCOSA_Win32_get_current_time() - context->time.orig_time;
+							if (result) {}
+						}
+
+						void muCOSA_Win32_time_set(muCOSA_Win32_context* context, muCOSAResult* result, double time) {
+							context->time.orig_time = muCOSA_Win32_get_current_time() - time;
+							return; if (result) {}
+						}
+
+						void muCOSA_Win32_sleep(muCOSA_Win32_context* context, muCOSAResult* result, double time) {
+							Sleep((DWORD)((time*(double)1000.f)));
+							return; if (context) {} if (result) {}
+						}
+
+					/* Clipboard */
+
+						char* muCOSA_Win32_clipboard_get(muCOSAResult* result) {
+							if (OpenClipboard(NULL) == 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_HOLD_CLIPBOARD)
+								return 0;
+							}
+
+							HANDLE data = GetClipboardData(CF_UNICODETEXT);
+							if (data == 0) {
+								// I'm pretty sure this can happen if no clipboard is available, so I'm not
+								// throwing an error here.
+								CloseClipboard();
+								return 0;
+							}
+
+							wchar_t* wdata = (wchar_t*)GlobalLock(data);
+							if (wdata == NULL) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_GLOBAL_LOCK)
+								CloseClipboard();
+								return 0;
+							}
+
+							muByte* utf8_data = muCOSA_Win32_wchar_to_utf8(wdata);
+							if (utf8_data == 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8)
+								GlobalUnlock(data);
+								CloseClipboard();
+								return 0;
+							}
+
+							return (char*)utf8_data;
+						}
+
+						void muCOSA_Win32_clipboard_set(muCOSAResult* result, const char* text, size_m text_size) {
+							int wlen = MultiByteToWideChar(CP_UTF8, 0, text, text_size, NULL, 0);
+							if (wlen == 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR)
+								return;
+							}
+
+							HGLOBAL g_mem = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)wlen * sizeof(wchar_t));
+							if (g_mem == NULL) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_GLOBAL_ALLOCATION)
+								return;
+							}
+
+							LPVOID p_mem = GlobalLock(g_mem);
+							if (p_mem == NULL) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_GLOBAL_LOCK)
+								GlobalFree(g_mem);
+								return;
+							}
+
+							if (MultiByteToWideChar(CP_UTF8, 0, text, text_size, (LPWSTR)p_mem, wlen) == 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR)
+								GlobalUnlock(g_mem);
+								GlobalFree(g_mem);
+								return;
+							}
+
+							GlobalUnlock(g_mem);
+
+							if (OpenClipboard(NULL) == 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_HOLD_CLIPBOARD)
+								GlobalFree(g_mem);
+								return;
+							}
+
+							if (EmptyClipboard() == 0) {
+								// I'm going to assume that this can occur if the clipboard was already
+								// empty, so I don't wanna throw an error here. But if that's not the case,
+								// this could cause a bad memory leak. :L
+							}
+
+							// Is CF_UNICODETEXT right here? Pretty sure it is...
+							if (SetClipboardData(CF_UNICODETEXT, g_mem) == NULL) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_SET_CLIPBOARD)
+								GlobalFree(g_mem);
+								CloseClipboard();
+								return;
+							}
+
+							CloseClipboard();
+						}
+
+					/* OS functions */
+
+						void* muCOSA_Win32_os_get_window_handle(muCOSAResult* result, muCOSA_Win32_window* win, muWindowHandle handle) {
+							void* p = 0;
+							switch (handle) {
+								default: MU_SET_RESULT(result, MUCOSA_UNKNOWN_WINDOW_HANDLE) break;
+								case MU_WINDOWS_HWND: p = (void*)&win->hwnd; break;
+							}
+
+							return p;
+						}
+
+					/* OpenGL */
+
+						void muCOSA_Win32_opengl_bind_window(muCOSAResult* result, muCOSA_Win32_window* win) {
+							#ifndef MUCOSA_OPENGL
+								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
+								return;
+								if (win) {}
+							#else
+								if (win->api >= MUCOSA_OPENGL_FIRST && win->api <= MUCOSA_OPENGL_LAST) {
+									if (wglMakeCurrent(win->dc, win->glrc) != TRUE) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_LOAD_OPENGL_CONTEXT)
+										return;
+									}
+								}
+							#endif
+						}
+
+						void* muCOSA_Win32_opengl_get_function_address(const char* name) {
+							MUCOSA_OPENGL_CALL(
+								PROC p = (PROC)wglGetProcAddress(name);
+
+								if (p == 0 || (p == (PROC)0x1) || (p == (PROC)0x2) || (p == (PROC)0x3) || (p == (PROC)-1)) {
+									HMODULE module = LoadLibraryA("opengl32.dll");
+									p = (PROC)GetProcAddress(module, name);
+								}
+
+								void* vptr = 0;
+								mu_memcpy(&vptr, &p, sizeof(void*));
+								return vptr;
+							)
+							if (name) {}
+							return 0;
+						}
+
+						void muCOSA_Win32_opengl_window_swap_interval(muCOSAResult* result, muCOSA_Win32_window* win, int interval) {
+							#ifndef MUCOSA_OPENGL
+								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
+								return;
+								if (win) {} if (interval) {}
+							#else
+								// Check if extension "wglGetExtensionsStringEXT" is present
+								if (win->wgl.wglSwapIntervalEXT == 0) {
+									void* vptr = muCOSA_Win32_opengl_get_function_address("wglGetExtensionsStringEXT");
+
+									if (vptr == 0) {
+										MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE)
+										return;
+									}
+
+									// @TODO Store this within the window probably lol
+									vptr = muCOSA_Win32_opengl_get_function_address("wglSwapIntervalEXT");
+									mu_memcpy(&win->wgl.wglSwapIntervalEXT, &vptr, sizeof(void*));
+								}
+
+								if (win->wgl.wglSwapIntervalEXT == 0) {
+									return;
+								}
+
+								win->wgl.wglSwapIntervalEXT(interval);
+							#endif
+						}
+
+					/* Vulkan */
+
+						#if defined(MUCOSA_VULKAN) && !defined(MUCOSA_NO_INCLUDE_VULKAN)
+							#include MUCOSA_VULKAN_INCLUDE_PATH
+						#endif
+
+						const char** muCOSA_Win32_vulkan_get_surface_instance_extensions(muCOSAResult* result, size_m* count) {
+							#ifndef MUCOSA_VULKAN
+								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
+								return 0;
+								if (count) {}
+							#else
+								// I'm pretty sure this is good...
+								static const char* exts[] = { "VK_KHR_surface", "VK_KHR_win32_surface" };
+								MU_SET_RESULT(count, 2)
+								return (const char**)exts;
+								if (result) {}
+							#endif
+						}
+
+						void muCOSA_Win32_vulkan_create_window_surface(muCOSAResult* result, muCOSA_Win32_window* win, void* vk_result, void* instance, void* allocator, void* surface) {
+							#ifndef MUCOSA_VULKAN
+								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
+								return;
+								if (win) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
+							#else
+								VkWin32SurfaceCreateInfoKHR ci = MU_ZERO_STRUCT(VkWin32SurfaceCreateInfoKHR);
+								ci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+								ci.hinstance = win->hinstance;
+								ci.hwnd = win->hwnd;
+
+								VkInstance r_instance = VK_NULL_HANDLE;
+								if (instance != 0) {
+									r_instance = *((VkInstance*)instance);
+								}
+
+								VkResult vkres = vkCreateWin32SurfaceKHR(r_instance, &ci, (const VkAllocationCallbacks*)allocator, (VkSurfaceKHR*)surface);
+								if (vk_result != 0) {
+									*((VkResult*)vk_result) = vkres;
+								}
+
+								return; if (result) {}
+							#endif
+						}
+
+			#else
+
+				#define MUCOSA_WIN32_CALL(...)
+
+			#endif /* MUCOSA_WIN32 */
+
+			/* X11 */
 
 			#ifdef MUCOSA_X11
+
 				#define MUCOSA_X11_CALL(...) __VA_ARGS__
 
 				#include <X11/Xlib.h> // Includes <X11/X.h>
@@ -35057,6 +34357,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 				/* OpenGL */
 
 				#ifdef MUCOSA_OPENGL
+
 					#ifndef MUCOSA_NO_INCLUDE_OPENGL
 						// There's gotta be a better way to do this lmao
 						#ifndef glClearColor
@@ -35149,985 +34450,100 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 				#endif /* MUCOSA_OPENGL */
 
-				/* Structs */
+				/* Time */
 
-					struct muCOSA_X11_input {
-						muButtonState keyboard_key_states[MU_KEYBOARD_KEY_LAST-MU_KEYBOARD_KEY_FIRST+1];
-						muState keyboard_state_states[MU_KEYBOARD_STATE_LAST-MU_KEYBOARD_STATE_FIRST+1];
-						muButtonState mouse_button_states[MU_MOUSE_BUTTON_LAST-MU_MOUSE_BUTTON_FIRST+1];
-					};
-					typedef struct muCOSA_X11_input muCOSA_X11_input;
+					/* Setup */
 
-					struct muCOSA_X11_input_context {
-						muBool active;
-						XIM im;
-						XIC ic;
-					};
-					typedef struct muCOSA_X11_input_context muCOSA_X11_input_context;
+						struct muCOSA_X11_time {
+							double orig_time;
+						};
+						typedef struct muCOSA_X11_time muCOSA_X11_time;
 
-					struct muCOSA_X11Window {
-						muBool active;
-
-						muBool closed;
-						muBool visible;
-						muBool resizable;
-
-						Display* display;
-						Window parent_window;
-						Window window;
-
-						MU_LOCK
-
-						Atom delete_atom;
-
-						muGraphicsAPI api;
-						MUCOSA_OPENGL_CALL(
-							GLXContext gl_context;
-						)
-
-						uint32_m min_width; uint32_m min_height;
-						uint32_m max_width; uint32_m max_height;
-						XSizeHints* size_hints;
-
-						muCursorStyle cursor_style;
-						Cursor cursor;
-						int32_m scroll_level;
-
-						muCOSA_X11_input input;
-						muCOSA_X11_input_context ic;
-						void (*text_input_callback)(muWindow window, muByte* input);
-
-						int32_m x;
-						int32_m y;
-						muBool minimized;
-						muBool maximized;
-
-						void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
-						void (*position_callback)(muWindow window, int32_m x, int32_m y);
-						void (*focus_callback)(muWindow window, muBool focused);
-						void (*maximize_callback)(muWindow window, muBool maximized);
-						void (*minimize_callback)(muWindow window, muBool minimized);
-
-						void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
-						void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
-
-						void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
-						void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
-						void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
-
-					};
-					typedef struct muCOSA_X11Window muCOSA_X11Window;
-
-					MU_HRARRAY_DEFAULT_FUNC(muCOSA_X11Window)
-
-					struct muCOSA_X11Context {
-						double original_time;
-
-						muCOSA_X11Window_array windows;
-
-						// @TODO Threadsafe here (?)
-						pthread_t clipboard_thread;
-						muBool clipboard_thread_exists;
-						muBool clipboard_thread_running;
-						muByte* clipboard_text;
-						size_m clipboard_size;
-					};
-					typedef struct muCOSA_X11Context muCOSA_X11Context;
-
-					double muCOSA_X11_inner_get_time(void);
-					muCOSA_X11Context muCOSA_X11Context_init(void) {
-						muCOSA_X11Context context = MU_ZERO_STRUCT(muCOSA_X11Context);
-						context.original_time = muCOSA_X11_inner_get_time();
-						context.clipboard_thread_exists = MU_FALSE;
-						context.clipboard_thread_running = MU_FALSE;
-						context.clipboard_text = 0;
-						context.clipboard_size = 0;
-						return context;
-					}
-
-				/* Useful funcs */
-
-					/* Input context */
-						// https://gist.github.com/Determinant/19bbecb6db35312861f6cf9f54fdd3a5
-						// https://forums.gentoo.org/viewtopic-t-757913-start-0.html
-						// https://www.cl.cam.ac.uk/~mgk25/ucs/keysym2ucs.c
-						// http://www1.kokusaika.jp/advisory/org/en/x_im.html
-						// https://gist.github.com/baines/5a49f1334281b2685af5dcae81a6fa8a
-						// https://www.x.org/releases/X11R7.6/doc/libX11/specs/libX11/libX11.html#Input_Methods
-						// https://github.com/wez/wezterm/issues/250
-						// https://handmade.network/forums/articles/t/2834-tutorial_a_tour_through_xlib_and_related_technologies
-
-						void muCOSA_X11_set_ic_locale(void) {
-							#ifndef MUCOSA_NO_LOCALE_MOD
-								mu_setlocale(LC_CTYPE, "");
-								XSetLocaleModifiers("");
-							#endif
+						double muCOSA_X11_get_system_time(void);
+						void muCOSA_X11_time_init(muCOSA_X11_time* time) {
+							time->orig_time = muCOSA_X11_get_system_time();
 						}
 
-						void muCOSA_X11_set_ic_cursor_pos(muCOSA_X11Window* p_win, int32_m x, int32_m y) {
-							XPoint point = { (short)x, (short)y };
-							XVaNestedList ic_val = XVaCreateNestedList(0, XNSpotLocation, &point, NULL);
-							XSetICValues(p_win->ic.ic, XNPreeditAttributes, ic_val, NULL);
-							XFree(ic_val);
-						}
-
-						// https://handmade.network/forums/articles/t/2834-tutorial_a_tour_through_xlib_and_related_technologies
-						muCOSA_X11_input_context muCOSA_X11_create_input_context(muCOSAResult* result, muCOSA_X11Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							muCOSA_X11_input_context ret = MU_ZERO_STRUCT(muCOSA_X11_input_context);
-							ret.im = XOpenIM(p_win->display, 0, 0, 0);
-							if (!ret.im) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_INPUT_METHOD)
-								return MU_ZERO_STRUCT(muCOSA_X11_input_context);
-							}
-
-							XIMStyles* styles = 0;
-							if (XGetIMValues(ret.im, XNQueryInputStyle, &styles, NULL) || !styles) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_GET_INPUT_STYLES)
-								XCloseIM(ret.im);
-								return MU_ZERO_STRUCT(muCOSA_X11_input_context);
-							}
-
-							XIMStyle best_style = 0;
-							for (size_m i = 0; i < styles->count_styles; i++) {
-								if (styles->supported_styles[i] == (XIMPreeditNothing | XIMStatusNothing)) {
-									best_style = styles->supported_styles[i];
-									break;
-								}
-							}
-							XFree(styles);
-
-							if (!best_style) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE)
-								XCloseIM(ret.im);
-								return MU_ZERO_STRUCT(muCOSA_X11_input_context);
-							}
-
-							ret.ic = XCreateIC(ret.im,
-								XNInputStyle, best_style, 
-								XNClientWindow, p_win->window,
-							NULL);
-							if (!ret.ic) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_INPUT_CONTEXT)
-								XCloseIM(ret.im);
-								return MU_ZERO_STRUCT(muCOSA_X11_input_context);
-							}
-
-							XSetICFocus(ret.ic);
-							ret.active = MU_TRUE;
-							return ret;
-						}
-
-						muCOSA_X11_input_context muCOSA_X11_close_input_context(muCOSA_X11Window* p_win) {
-							muCOSA_X11_input_context ret = p_win->ic;
-							XDestroyIC(ret.ic);
-							XCloseIM(ret.im);
-							ret.active = MU_FALSE;
-							return ret;
-						}
-
-						// @TODO Find an alternative to XGrabKeyboard that has less reported side effects.
-						// Maybe calling XGrabKey?
-						void muCOSA_X11_get_keyboard_focus(muCOSA_X11Window* p_win) {
-							XGrabKeyboard(p_win->display, p_win->window, True, GrabModeAsync, GrabModeAsync, CurrentTime);
-						}
-
-						void muCOSA_X11_let_keyboard_focus(muCOSA_X11Window* p_win) {
-							XUngrabKeyboard(p_win->display, CurrentTime);
-						}
-
-						void muCOSA_X11_handle_text_input_event(muCOSA_X11Window* p_win, XKeyEvent* p_kev, muWindow window) {
-							// 24 should be enough for UTF-8
-							char utf8_buf[24]; mu_memset(utf8_buf, 0, sizeof(utf8_buf));
-							Status status = 0;
-							KeySym ksym;
-							size_m n = Xutf8LookupString(p_win->ic.ic, p_kev, utf8_buf, sizeof(utf8_buf)-1, &ksym, &status);
-
-							if (status == XBufferOverflow) {
-								// :P
-								return;
-							}
-
-							if (n && p_win->text_input_callback) {
-								p_win->text_input_callback(window, (muByte*)utf8_buf);
-							}
-						}
-
-					/* Keyboard key input */
-
-						// https://www.cl.cam.ac.uk/~mgk25/ucs/keysymdef.h
-							#define MUCOSA_X11_XK_VoidSymbol 0xffffff
-							#define MUCOSA_X11_XK_BackSpace 0xff08
-							#define MUCOSA_X11_XK_Tab 0xff09
-							#define MUCOSA_X11_XK_Clear 0xff0b
-							#define MUCOSA_X11_XK_Return 0xff0d
-							#define MUCOSA_X11_XK_Pause 0xff13
-							#define MUCOSA_X11_XK_Escape 0xff1b
-							#define MUCOSA_X11_XK_Mode_switch 0xff7e
-							#define MUCOSA_X11_XK_space 0x0020
-							#define MUCOSA_X11_XK_Prior 0xff55
-							#define MUCOSA_X11_XK_Next 0xff56
-							#define MUCOSA_X11_XK_End 0xff57
-							#define MUCOSA_X11_XK_Home 0xff50
-							#define MUCOSA_X11_XK_Left 0xff51
-							#define MUCOSA_X11_XK_Up 0xff52
-							#define MUCOSA_X11_XK_Right 0xff53
-							#define MUCOSA_X11_XK_Down 0xff54
-							#define MUCOSA_X11_XK_Select 0xff60
-							#define MUCOSA_X11_XK_Print 0xff61
-							#define MUCOSA_X11_XK_Execute 0xff62
-							#define MUCOSA_X11_XK_Insert 0xff63
-							#define MUCOSA_X11_XK_Delete 0xffff
-							#define MUCOSA_X11_XK_Help 0xff6a
-							#define MUCOSA_X11_XK_0 0x0030
-							#define MUCOSA_X11_XK_1 0x0031
-							#define MUCOSA_X11_XK_2 0x0032
-							#define MUCOSA_X11_XK_3 0x0033
-							#define MUCOSA_X11_XK_4 0x0034
-							#define MUCOSA_X11_XK_5 0x0035
-							#define MUCOSA_X11_XK_6 0x0036
-							#define MUCOSA_X11_XK_7 0x0037
-							#define MUCOSA_X11_XK_8 0x0038
-							#define MUCOSA_X11_XK_9 0x0039
-							#define MUCOSA_X11_XK_a 0x0061
-							#define MUCOSA_X11_XK_b 0x0062
-							#define MUCOSA_X11_XK_c 0x0063
-							#define MUCOSA_X11_XK_d 0x0064
-							#define MUCOSA_X11_XK_e 0x0065
-							#define MUCOSA_X11_XK_f 0x0066
-							#define MUCOSA_X11_XK_g 0x0067
-							#define MUCOSA_X11_XK_h 0x0068
-							#define MUCOSA_X11_XK_i 0x0069
-							#define MUCOSA_X11_XK_j 0x006a
-							#define MUCOSA_X11_XK_k 0x006b
-							#define MUCOSA_X11_XK_l 0x006c
-							#define MUCOSA_X11_XK_m 0x006d
-							#define MUCOSA_X11_XK_n 0x006e
-							#define MUCOSA_X11_XK_o 0x006f
-							#define MUCOSA_X11_XK_p 0x0070
-							#define MUCOSA_X11_XK_q 0x0071
-							#define MUCOSA_X11_XK_r 0x0072
-							#define MUCOSA_X11_XK_s 0x0073
-							#define MUCOSA_X11_XK_t 0x0074
-							#define MUCOSA_X11_XK_u 0x0075
-							#define MUCOSA_X11_XK_v 0x0076
-							#define MUCOSA_X11_XK_w 0x0077
-							#define MUCOSA_X11_XK_x 0x0078
-							#define MUCOSA_X11_XK_y 0x0079
-							#define MUCOSA_X11_XK_z 0x007a
-							#define MUCOSA_X11_XK_Super_L 0xffeb
-							#define MUCOSA_X11_XK_Super_R 0xffec
-							#define MUCOSA_X11_XK_KP_0 0xffb0
-							#define MUCOSA_X11_XK_KP_1 0xffb1
-							#define MUCOSA_X11_XK_KP_2 0xffb2
-							#define MUCOSA_X11_XK_KP_3 0xffb3
-							#define MUCOSA_X11_XK_KP_4 0xffb4
-							#define MUCOSA_X11_XK_KP_5 0xffb5
-							#define MUCOSA_X11_XK_KP_6 0xffb6
-							#define MUCOSA_X11_XK_KP_7 0xffb7
-							#define MUCOSA_X11_XK_KP_8 0xffb8
-							#define MUCOSA_X11_XK_KP_9 0xffb9
-							#define MUCOSA_X11_XK_KP_Multiply 0xffaa
-							#define MUCOSA_X11_XK_KP_Add 0xffab
-							#define MUCOSA_X11_XK_KP_Separator 0xffac
-							#define MUCOSA_X11_XK_KP_Subtract 0xffad
-							#define MUCOSA_X11_XK_KP_Decimal 0xffae
-							#define MUCOSA_X11_XK_KP_Divide 0xffaf
-							#define MUCOSA_X11_XK_F1 0xffbe
-							#define MUCOSA_X11_XK_F2 0xffbf
-							#define MUCOSA_X11_XK_F3 0xffc0
-							#define MUCOSA_X11_XK_F4 0xffc1
-							#define MUCOSA_X11_XK_F5 0xffc2
-							#define MUCOSA_X11_XK_F6 0xffc3
-							#define MUCOSA_X11_XK_F7 0xffc4
-							#define MUCOSA_X11_XK_F8 0xffc5
-							#define MUCOSA_X11_XK_F9 0xffc6
-							#define MUCOSA_X11_XK_F10 0xffc7
-							#define MUCOSA_X11_XK_F11 0xffc8
-							#define MUCOSA_X11_XK_F12 0xffc9
-							#define MUCOSA_X11_XK_F13 0xffca
-							#define MUCOSA_X11_XK_F14 0xffcb
-							#define MUCOSA_X11_XK_F15 0xffcc
-							#define MUCOSA_X11_XK_F16 0xffcd
-							#define MUCOSA_X11_XK_F17 0xffce
-							#define MUCOSA_X11_XK_F18 0xffcf
-							#define MUCOSA_X11_XK_F19 0xffd0
-							#define MUCOSA_X11_XK_F20 0xffd1
-							#define MUCOSA_X11_XK_F21 0xffd2
-							#define MUCOSA_X11_XK_F22 0xffd3
-							#define MUCOSA_X11_XK_F23 0xffd4
-							#define MUCOSA_X11_XK_F24 0xffd5
-							#define MUCOSA_X11_XK_Num_Lock 0xff7f
-							#define MUCOSA_X11_XK_Scroll_Lock 0xff14
-							#define MUCOSA_X11_XK_Shift_L 0xffe1
-							#define MUCOSA_X11_XK_Shift_R 0xffe2
-							#define MUCOSA_X11_XK_Control_L 0xffe3
-							#define MUCOSA_X11_XK_Control_R 0xffe4
-							#define MUCOSA_X11_XK_Menu 0xff67
-							#define MUCOSA_X11_XK_3270_Attn 0xfd0e
-							#define MUCOSA_X11_XK_3270_CursorSelect 0xfd1c
-							#define MUCOSA_X11_XK_3270_ExSelect 0xfd1b
-							#define MUCOSA_X11_XK_3270_EraseEOF 0xfd06
-							#define MUCOSA_X11_XK_3270_Play 0xfd16
-							#define MUCOSA_X11_XK_3270_PA1 0xfd0a
-
-						int muCOSA_X11_keyboard_key_get_XK_key(muKeyboardKey key) {
-							switch (key) {
-								default: return MUCOSA_X11_XK_VoidSymbol; break;
-								case MU_KEYBOARD_KEY_BACKSPACE: return MUCOSA_X11_XK_BackSpace; break;
-								case MU_KEYBOARD_KEY_TAB: return MUCOSA_X11_XK_Tab; break;
-								case MU_KEYBOARD_KEY_CLEAR: return MUCOSA_X11_XK_Clear; break;
-								case MU_KEYBOARD_KEY_RETURN: return MUCOSA_X11_XK_Return; break;
-								case MU_KEYBOARD_KEY_PAUSE: return MUCOSA_X11_XK_Pause; break;
-								case MU_KEYBOARD_KEY_ESCAPE: return MUCOSA_X11_XK_Escape; break;
-								case MU_KEYBOARD_KEY_MODECHANGE: return MUCOSA_X11_XK_Mode_switch; break;
-								case MU_KEYBOARD_KEY_SPACE: return MUCOSA_X11_XK_space; break;
-								case MU_KEYBOARD_KEY_PRIOR: return MUCOSA_X11_XK_Prior; break;
-								case MU_KEYBOARD_KEY_NEXT: return MUCOSA_X11_XK_Next; break;
-								case MU_KEYBOARD_KEY_END: return MUCOSA_X11_XK_End; break;
-								case MU_KEYBOARD_KEY_HOME: return MUCOSA_X11_XK_Home; break;
-								case MU_KEYBOARD_KEY_LEFT: return MUCOSA_X11_XK_Left; break;
-								case MU_KEYBOARD_KEY_UP: return MUCOSA_X11_XK_Up; break;
-								case MU_KEYBOARD_KEY_RIGHT: return MUCOSA_X11_XK_Right; break;
-								case MU_KEYBOARD_KEY_DOWN: return MUCOSA_X11_XK_Down; break;
-								case MU_KEYBOARD_KEY_SELECT: return MUCOSA_X11_XK_Select; break;
-								case MU_KEYBOARD_KEY_PRINT: return MUCOSA_X11_XK_Print; break;
-								case MU_KEYBOARD_KEY_EXECUTE: return MUCOSA_X11_XK_Execute; break;
-								case MU_KEYBOARD_KEY_INSERT: return MUCOSA_X11_XK_Insert; break;
-								case MU_KEYBOARD_KEY_DELETE: return MUCOSA_X11_XK_Delete; break;
-								case MU_KEYBOARD_KEY_HELP: return MUCOSA_X11_XK_Help; break;
-								case MU_KEYBOARD_KEY_0: return MUCOSA_X11_XK_0; break;
-								case MU_KEYBOARD_KEY_1: return MUCOSA_X11_XK_1; break;
-								case MU_KEYBOARD_KEY_2: return MUCOSA_X11_XK_2; break;
-								case MU_KEYBOARD_KEY_3: return MUCOSA_X11_XK_3; break;
-								case MU_KEYBOARD_KEY_4: return MUCOSA_X11_XK_4; break;
-								case MU_KEYBOARD_KEY_5: return MUCOSA_X11_XK_5; break;
-								case MU_KEYBOARD_KEY_6: return MUCOSA_X11_XK_6; break;
-								case MU_KEYBOARD_KEY_7: return MUCOSA_X11_XK_7; break;
-								case MU_KEYBOARD_KEY_8: return MUCOSA_X11_XK_8; break;
-								case MU_KEYBOARD_KEY_9: return MUCOSA_X11_XK_9; break;
-								case MU_KEYBOARD_KEY_A: return MUCOSA_X11_XK_a; break;
-								case MU_KEYBOARD_KEY_B: return MUCOSA_X11_XK_b; break;
-								case MU_KEYBOARD_KEY_C: return MUCOSA_X11_XK_c; break;
-								case MU_KEYBOARD_KEY_D: return MUCOSA_X11_XK_d; break;
-								case MU_KEYBOARD_KEY_E: return MUCOSA_X11_XK_e; break;
-								case MU_KEYBOARD_KEY_F: return MUCOSA_X11_XK_f; break;
-								case MU_KEYBOARD_KEY_G: return MUCOSA_X11_XK_g; break;
-								case MU_KEYBOARD_KEY_H: return MUCOSA_X11_XK_h; break;
-								case MU_KEYBOARD_KEY_I: return MUCOSA_X11_XK_i; break;
-								case MU_KEYBOARD_KEY_J: return MUCOSA_X11_XK_j; break;
-								case MU_KEYBOARD_KEY_K: return MUCOSA_X11_XK_k; break;
-								case MU_KEYBOARD_KEY_L: return MUCOSA_X11_XK_l; break;
-								case MU_KEYBOARD_KEY_M: return MUCOSA_X11_XK_m; break;
-								case MU_KEYBOARD_KEY_N: return MUCOSA_X11_XK_n; break;
-								case MU_KEYBOARD_KEY_O: return MUCOSA_X11_XK_o; break;
-								case MU_KEYBOARD_KEY_P: return MUCOSA_X11_XK_p; break;
-								case MU_KEYBOARD_KEY_Q: return MUCOSA_X11_XK_q; break;
-								case MU_KEYBOARD_KEY_R: return MUCOSA_X11_XK_r; break;
-								case MU_KEYBOARD_KEY_S: return MUCOSA_X11_XK_s; break;
-								case MU_KEYBOARD_KEY_T: return MUCOSA_X11_XK_t; break;
-								case MU_KEYBOARD_KEY_U: return MUCOSA_X11_XK_u; break;
-								case MU_KEYBOARD_KEY_V: return MUCOSA_X11_XK_v; break;
-								case MU_KEYBOARD_KEY_W: return MUCOSA_X11_XK_w; break;
-								case MU_KEYBOARD_KEY_X: return MUCOSA_X11_XK_x; break;
-								case MU_KEYBOARD_KEY_Y: return MUCOSA_X11_XK_y; break;
-								case MU_KEYBOARD_KEY_Z: return MUCOSA_X11_XK_z; break;
-								case MU_KEYBOARD_KEY_LEFT_WINDOWS: return MUCOSA_X11_XK_Super_L; break;
-								case MU_KEYBOARD_KEY_RIGHT_WINDOWS: return MUCOSA_X11_XK_Super_R; break;
-								case MU_KEYBOARD_KEY_NUMPAD_0: return MUCOSA_X11_XK_KP_0; break;
-								case MU_KEYBOARD_KEY_NUMPAD_1: return MUCOSA_X11_XK_KP_1; break;
-								case MU_KEYBOARD_KEY_NUMPAD_2: return MUCOSA_X11_XK_KP_2; break;
-								case MU_KEYBOARD_KEY_NUMPAD_3: return MUCOSA_X11_XK_KP_3; break;
-								case MU_KEYBOARD_KEY_NUMPAD_4: return MUCOSA_X11_XK_KP_4; break;
-								case MU_KEYBOARD_KEY_NUMPAD_5: return MUCOSA_X11_XK_KP_5; break;
-								case MU_KEYBOARD_KEY_NUMPAD_6: return MUCOSA_X11_XK_KP_6; break;
-								case MU_KEYBOARD_KEY_NUMPAD_7: return MUCOSA_X11_XK_KP_7; break;
-								case MU_KEYBOARD_KEY_NUMPAD_8: return MUCOSA_X11_XK_KP_8; break;
-								case MU_KEYBOARD_KEY_NUMPAD_9: return MUCOSA_X11_XK_KP_9; break;
-								case MU_KEYBOARD_KEY_MULTIPLY: return MUCOSA_X11_XK_KP_Multiply; break;
-								case MU_KEYBOARD_KEY_ADD: return MUCOSA_X11_XK_KP_Add; break;
-								case MU_KEYBOARD_KEY_SEPARATOR: return MUCOSA_X11_XK_KP_Separator; break;
-								case MU_KEYBOARD_KEY_SUBTRACT: return MUCOSA_X11_XK_KP_Subtract; break;
-								case MU_KEYBOARD_KEY_DECIMAL: return MUCOSA_X11_XK_KP_Decimal; break;
-								case MU_KEYBOARD_KEY_DIVIDE: return MUCOSA_X11_XK_KP_Divide; break;
-								case MU_KEYBOARD_KEY_F1: return MUCOSA_X11_XK_F1; break;
-								case MU_KEYBOARD_KEY_F2: return MUCOSA_X11_XK_F2; break;
-								case MU_KEYBOARD_KEY_F3: return MUCOSA_X11_XK_F3; break;
-								case MU_KEYBOARD_KEY_F4: return MUCOSA_X11_XK_F4; break;
-								case MU_KEYBOARD_KEY_F5: return MUCOSA_X11_XK_F5; break;
-								case MU_KEYBOARD_KEY_F6: return MUCOSA_X11_XK_F6; break;
-								case MU_KEYBOARD_KEY_F7: return MUCOSA_X11_XK_F7; break;
-								case MU_KEYBOARD_KEY_F8: return MUCOSA_X11_XK_F8; break;
-								case MU_KEYBOARD_KEY_F9: return MUCOSA_X11_XK_F9; break;
-								case MU_KEYBOARD_KEY_F10: return MUCOSA_X11_XK_F10;break;
-								case MU_KEYBOARD_KEY_F11: return MUCOSA_X11_XK_F11;break;
-								case MU_KEYBOARD_KEY_F12: return MUCOSA_X11_XK_F12; break;
-								case MU_KEYBOARD_KEY_F13: return MUCOSA_X11_XK_F13; break;
-								case MU_KEYBOARD_KEY_F14: return MUCOSA_X11_XK_F14; break;
-								case MU_KEYBOARD_KEY_F15: return MUCOSA_X11_XK_F15; break;
-								case MU_KEYBOARD_KEY_F16: return MUCOSA_X11_XK_F16; break;
-								case MU_KEYBOARD_KEY_F17: return MUCOSA_X11_XK_F17; break;
-								case MU_KEYBOARD_KEY_F18: return MUCOSA_X11_XK_F18; break;
-								case MU_KEYBOARD_KEY_F19: return MUCOSA_X11_XK_F19; break;
-								case MU_KEYBOARD_KEY_F20: return MUCOSA_X11_XK_F20; break;
-								case MU_KEYBOARD_KEY_F21: return MUCOSA_X11_XK_F21; break;
-								case MU_KEYBOARD_KEY_F22: return MUCOSA_X11_XK_F22; break;
-								case MU_KEYBOARD_KEY_F23: return MUCOSA_X11_XK_F23; break;
-								case MU_KEYBOARD_KEY_F24: return MUCOSA_X11_XK_F24; break;
-								case MU_KEYBOARD_KEY_NUMLOCK: return MUCOSA_X11_XK_Num_Lock; break;
-								case MU_KEYBOARD_KEY_SCROLL: return MUCOSA_X11_XK_Scroll_Lock; break;
-								case MU_KEYBOARD_KEY_LEFT_SHIFT: return MUCOSA_X11_XK_Shift_L; break;
-								case MU_KEYBOARD_KEY_RIGHT_SHIFT: return MUCOSA_X11_XK_Shift_R; break;
-								case MU_KEYBOARD_KEY_LEFT_CONTROL: return MUCOSA_X11_XK_Control_L; break;
-								case MU_KEYBOARD_KEY_RIGHT_CONTROL: return MUCOSA_X11_XK_Control_R; break;
-								case MU_KEYBOARD_KEY_LEFT_MENU: return MUCOSA_X11_XK_Menu; break;
-								case MU_KEYBOARD_KEY_RIGHT_MENU: return MUCOSA_X11_XK_Menu; break;
-								case MU_KEYBOARD_KEY_ATTN: return MUCOSA_X11_XK_3270_Attn; break;
-								case MU_KEYBOARD_KEY_CRSEL: return MUCOSA_X11_XK_3270_CursorSelect; break;
-								case MU_KEYBOARD_KEY_EXSEL: return MUCOSA_X11_XK_3270_ExSelect; break;
-								case MU_KEYBOARD_KEY_EREOF: return MUCOSA_X11_XK_3270_EraseEOF; break;
-								case MU_KEYBOARD_KEY_PLAY: return MUCOSA_X11_XK_3270_Play; break;
-								case MU_KEYBOARD_KEY_PA1: return MUCOSA_X11_XK_3270_PA1; break;
-							}
-						}
-
-						muKeyboardKey muCOSA_X11_XK_key_to_keyboard_key(int key) {
-							switch (key) {
-								default: return MU_KEYBOARD_KEY_UNKNOWN; break;
-								case MUCOSA_X11_XK_BackSpace: return MU_KEYBOARD_KEY_BACKSPACE; break;
-								case MUCOSA_X11_XK_Tab: return MU_KEYBOARD_KEY_TAB; break;
-								case MUCOSA_X11_XK_Clear: return MU_KEYBOARD_KEY_CLEAR; break;
-								case MUCOSA_X11_XK_Return: return MU_KEYBOARD_KEY_RETURN; break;
-								case MUCOSA_X11_XK_Menu: return MU_KEYBOARD_KEY_LEFT_MENU; break;
-								case MUCOSA_X11_XK_Pause: return MU_KEYBOARD_KEY_PAUSE; break;
-								case MUCOSA_X11_XK_Escape: return MU_KEYBOARD_KEY_ESCAPE; break;
-								case MUCOSA_X11_XK_Mode_switch: return MU_KEYBOARD_KEY_MODECHANGE; break;
-								case MUCOSA_X11_XK_space: return MU_KEYBOARD_KEY_SPACE; break;
-								case MUCOSA_X11_XK_Prior: return MU_KEYBOARD_KEY_PRIOR; break;
-								case MUCOSA_X11_XK_Next: return MU_KEYBOARD_KEY_NEXT; break;
-								case MUCOSA_X11_XK_End: return MU_KEYBOARD_KEY_END; break;
-								case MUCOSA_X11_XK_Home: return MU_KEYBOARD_KEY_HOME; break;
-								case MUCOSA_X11_XK_Left: return MU_KEYBOARD_KEY_LEFT; break;
-								case MUCOSA_X11_XK_Up: return MU_KEYBOARD_KEY_UP; break;
-								case MUCOSA_X11_XK_Right: return MU_KEYBOARD_KEY_RIGHT; break;
-								case MUCOSA_X11_XK_Down: return MU_KEYBOARD_KEY_DOWN; break;
-								case MUCOSA_X11_XK_Select: return MU_KEYBOARD_KEY_SELECT; break;
-								case MUCOSA_X11_XK_Print: return MU_KEYBOARD_KEY_PRINT; break;
-								case MUCOSA_X11_XK_Execute: return MU_KEYBOARD_KEY_EXECUTE; break;
-								case MUCOSA_X11_XK_Insert: return MU_KEYBOARD_KEY_INSERT; break;
-								case MUCOSA_X11_XK_Delete: return MU_KEYBOARD_KEY_DELETE; break;
-								case MUCOSA_X11_XK_Help: return MU_KEYBOARD_KEY_HELP; break;
-								case MUCOSA_X11_XK_0: return MU_KEYBOARD_KEY_0; break;
-								case MUCOSA_X11_XK_1: return MU_KEYBOARD_KEY_1; break;
-								case MUCOSA_X11_XK_2: return MU_KEYBOARD_KEY_2; break;
-								case MUCOSA_X11_XK_3: return MU_KEYBOARD_KEY_3; break;
-								case MUCOSA_X11_XK_4: return MU_KEYBOARD_KEY_4; break;
-								case MUCOSA_X11_XK_5: return MU_KEYBOARD_KEY_5; break;
-								case MUCOSA_X11_XK_6: return MU_KEYBOARD_KEY_6; break;
-								case MUCOSA_X11_XK_7: return MU_KEYBOARD_KEY_7; break;
-								case MUCOSA_X11_XK_8: return MU_KEYBOARD_KEY_8; break;
-								case MUCOSA_X11_XK_9: return MU_KEYBOARD_KEY_9; break;
-								case MUCOSA_X11_XK_a: return MU_KEYBOARD_KEY_A; break;
-								case MUCOSA_X11_XK_b: return MU_KEYBOARD_KEY_B; break;
-								case MUCOSA_X11_XK_c: return MU_KEYBOARD_KEY_C; break;
-								case MUCOSA_X11_XK_d: return MU_KEYBOARD_KEY_D; break;
-								case MUCOSA_X11_XK_e: return MU_KEYBOARD_KEY_E; break;
-								case MUCOSA_X11_XK_f: return MU_KEYBOARD_KEY_F; break;
-								case MUCOSA_X11_XK_g: return MU_KEYBOARD_KEY_G; break;
-								case MUCOSA_X11_XK_h: return MU_KEYBOARD_KEY_H; break;
-								case MUCOSA_X11_XK_i: return MU_KEYBOARD_KEY_I; break;
-								case MUCOSA_X11_XK_j: return MU_KEYBOARD_KEY_J; break;
-								case MUCOSA_X11_XK_k: return MU_KEYBOARD_KEY_K; break;
-								case MUCOSA_X11_XK_l: return MU_KEYBOARD_KEY_L; break;
-								case MUCOSA_X11_XK_m: return MU_KEYBOARD_KEY_M; break;
-								case MUCOSA_X11_XK_n: return MU_KEYBOARD_KEY_N; break;
-								case MUCOSA_X11_XK_o: return MU_KEYBOARD_KEY_O; break;
-								case MUCOSA_X11_XK_p: return MU_KEYBOARD_KEY_P; break;
-								case MUCOSA_X11_XK_q: return MU_KEYBOARD_KEY_Q; break;
-								case MUCOSA_X11_XK_r: return MU_KEYBOARD_KEY_R; break;
-								case MUCOSA_X11_XK_s: return MU_KEYBOARD_KEY_S; break;
-								case MUCOSA_X11_XK_t: return MU_KEYBOARD_KEY_T; break;
-								case MUCOSA_X11_XK_u: return MU_KEYBOARD_KEY_U; break;
-								case MUCOSA_X11_XK_v: return MU_KEYBOARD_KEY_V; break;
-								case MUCOSA_X11_XK_w: return MU_KEYBOARD_KEY_W; break;
-								case MUCOSA_X11_XK_x: return MU_KEYBOARD_KEY_X; break;
-								case MUCOSA_X11_XK_y: return MU_KEYBOARD_KEY_Y; break;
-								case MUCOSA_X11_XK_z: return MU_KEYBOARD_KEY_Z; break;
-								case MUCOSA_X11_XK_Super_L: return MU_KEYBOARD_KEY_LEFT_WINDOWS; break;
-								case MUCOSA_X11_XK_Super_R: return MU_KEYBOARD_KEY_RIGHT_WINDOWS; break;
-								case MUCOSA_X11_XK_KP_0: return MU_KEYBOARD_KEY_NUMPAD_0; break;
-								case MUCOSA_X11_XK_KP_1: return MU_KEYBOARD_KEY_NUMPAD_1; break;
-								case MUCOSA_X11_XK_KP_2: return MU_KEYBOARD_KEY_NUMPAD_2; break;
-								case MUCOSA_X11_XK_KP_3: return MU_KEYBOARD_KEY_NUMPAD_3; break;
-								case MUCOSA_X11_XK_KP_4: return MU_KEYBOARD_KEY_NUMPAD_4; break;
-								case MUCOSA_X11_XK_KP_5: return MU_KEYBOARD_KEY_NUMPAD_5; break;
-								case MUCOSA_X11_XK_KP_6: return MU_KEYBOARD_KEY_NUMPAD_6; break;
-								case MUCOSA_X11_XK_KP_7: return MU_KEYBOARD_KEY_NUMPAD_7; break;
-								case MUCOSA_X11_XK_KP_8: return MU_KEYBOARD_KEY_NUMPAD_8; break;
-								case MUCOSA_X11_XK_KP_9: return MU_KEYBOARD_KEY_NUMPAD_9; break;
-								case MUCOSA_X11_XK_KP_Multiply: return MU_KEYBOARD_KEY_MULTIPLY; break;
-								case MUCOSA_X11_XK_KP_Add: return MU_KEYBOARD_KEY_ADD; break;
-								case MUCOSA_X11_XK_KP_Separator: return MU_KEYBOARD_KEY_SEPARATOR; break;
-								case MUCOSA_X11_XK_KP_Subtract: return MU_KEYBOARD_KEY_SUBTRACT; break;
-								case MUCOSA_X11_XK_KP_Decimal: return MU_KEYBOARD_KEY_DECIMAL; break;
-								case MUCOSA_X11_XK_KP_Divide: return MU_KEYBOARD_KEY_DIVIDE; break;
-								case MUCOSA_X11_XK_F1: return MU_KEYBOARD_KEY_F1; break;
-								case MUCOSA_X11_XK_F2: return MU_KEYBOARD_KEY_F2; break;
-								case MUCOSA_X11_XK_F3: return MU_KEYBOARD_KEY_F3; break;
-								case MUCOSA_X11_XK_F4: return MU_KEYBOARD_KEY_F4; break;
-								case MUCOSA_X11_XK_F5: return MU_KEYBOARD_KEY_F5; break;
-								case MUCOSA_X11_XK_F6: return MU_KEYBOARD_KEY_F6; break;
-								case MUCOSA_X11_XK_F7: return MU_KEYBOARD_KEY_F7; break;
-								case MUCOSA_X11_XK_F8: return MU_KEYBOARD_KEY_F8; break;
-								case MUCOSA_X11_XK_F9: return MU_KEYBOARD_KEY_F9; break;
-								case MUCOSA_X11_XK_F10: return MU_KEYBOARD_KEY_F10; break;
-								case MUCOSA_X11_XK_F11: return MU_KEYBOARD_KEY_F11; break;
-								case MUCOSA_X11_XK_F12: return MU_KEYBOARD_KEY_F12; break;
-								case MUCOSA_X11_XK_F13: return MU_KEYBOARD_KEY_F13; break;
-								case MUCOSA_X11_XK_F14: return MU_KEYBOARD_KEY_F14; break;
-								case MUCOSA_X11_XK_F15: return MU_KEYBOARD_KEY_F15; break;
-								case MUCOSA_X11_XK_F16: return MU_KEYBOARD_KEY_F16; break;
-								case MUCOSA_X11_XK_F17: return MU_KEYBOARD_KEY_F17; break;
-								case MUCOSA_X11_XK_F18: return MU_KEYBOARD_KEY_F18; break;
-								case MUCOSA_X11_XK_F19: return MU_KEYBOARD_KEY_F19; break;
-								case MUCOSA_X11_XK_F20: return MU_KEYBOARD_KEY_F20; break;
-								case MUCOSA_X11_XK_F21: return MU_KEYBOARD_KEY_F21; break;
-								case MUCOSA_X11_XK_F22: return MU_KEYBOARD_KEY_F22; break;
-								case MUCOSA_X11_XK_F23: return MU_KEYBOARD_KEY_F23; break;
-								case MUCOSA_X11_XK_F24: return MU_KEYBOARD_KEY_F24; break;
-								case MUCOSA_X11_XK_Num_Lock: return MU_KEYBOARD_KEY_NUMLOCK; break;
-								case MUCOSA_X11_XK_Scroll_Lock: return MU_KEYBOARD_KEY_SCROLL; break;
-								case MUCOSA_X11_XK_Shift_L: return MU_KEYBOARD_KEY_LEFT_SHIFT; break;
-								case MUCOSA_X11_XK_Shift_R: return MU_KEYBOARD_KEY_RIGHT_SHIFT; break;
-								case MUCOSA_X11_XK_Control_L: return MU_KEYBOARD_KEY_LEFT_CONTROL; break;
-								case MUCOSA_X11_XK_Control_R: return MU_KEYBOARD_KEY_RIGHT_CONTROL; break;
-								case MUCOSA_X11_XK_3270_Attn: return MU_KEYBOARD_KEY_ATTN; break;
-								case MUCOSA_X11_XK_3270_CursorSelect: return MU_KEYBOARD_KEY_CRSEL; break;
-								case MUCOSA_X11_XK_3270_ExSelect: return MU_KEYBOARD_KEY_EXSEL; break;
-								case MUCOSA_X11_XK_3270_EraseEOF: return MU_KEYBOARD_KEY_EREOF; break;
-								case MUCOSA_X11_XK_3270_Play: return MU_KEYBOARD_KEY_PLAY; break;
-								case MUCOSA_X11_XK_3270_PA1: return MU_KEYBOARD_KEY_PA1; break;
-							}
-						}
-
-						void muCOSA_X11_keyboard_key_handle_event(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win, XKeyEvent* p_kev, unsigned int keycode, muByte down) {
-							muKeyboardKey key = muCOSA_X11_XK_key_to_keyboard_key(XkbKeycodeToKeysym(p_win->display, keycode, 0, 0));
-							if (key != MU_KEYBOARD_KEY_UNKNOWN) {
-								p_win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST] = down;
-
-								if (p_win->keyboard_key_callback != MU_NULL_PTR) {
-									muCOSA_X11Window_release_element(0, &c->windows, window);
-									p_win->keyboard_key_callback(window, key, p_win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST]);
-									muCOSA_X11Window_hold_element(0, &c->windows, window);
-								}
-							}
-
-							if (c->windows.data[window].ic.active && c->windows.data[window].text_input_callback) {
-								muCOSA_X11_handle_text_input_event(p_win, p_kev, window);
-							}
-						}
-
-					/* Cursor */
-
-						// https://tronche.com/gui/x/xlib/appendix/b/
-						int muCOSA_X11_cursor_get_style(muCursorStyle style) {
-							switch (style) {
-								default: return 2; break;
-								case MU_CURSOR_STYLE_IBEAM: return 152; break;
-								case MU_CURSOR_STYLE_WAIT: case MU_CURSOR_STYLE_WAIT_ARROW: return 150; break;
-								case MU_CURSOR_STYLE_CROSSHAIR: return 34; break;
-								case MU_CURSOR_STYLE_HAND: return 58; break;
-								case MU_CURSOR_STYLE_SIZE_EAST_WEST: return 108; break;
-								case MU_CURSOR_STYLE_SIZE_NORTH_SOUTH: return 116; break;
-								case MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST: case MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST: return 120; break;
-								case MU_CURSOR_STYLE_SIZE_ALL: return 52; break;
-								case MU_CURSOR_STYLE_NO: return 0; break;
-							}
-						}
-
-						void muCOSA_X11_cursor_handle_event(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win, int button, muByte down) {
-							// down = true -> button being pressed down
-							// down = false -> button being released
-							switch (button) {
-								default: break;
-
-								case Button1: {
-									p_win->input.mouse_button_states[MU_MOUSE_BUTTON_LEFT-MU_MOUSE_BUTTON_FIRST] = down;
-									if (p_win->mouse_button_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->mouse_button_callback(window, MU_MOUSE_BUTTON_LEFT, down);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-
-								case Button2: {
-									p_win->input.mouse_button_states[MU_MOUSE_BUTTON_MIDDLE-MU_MOUSE_BUTTON_FIRST] = down;
-									if (p_win->mouse_button_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->mouse_button_callback(window, MU_MOUSE_BUTTON_MIDDLE, down);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-
-								case Button3: {
-									p_win->input.mouse_button_states[MU_MOUSE_BUTTON_RIGHT-MU_MOUSE_BUTTON_FIRST] = down;
-									if (p_win->mouse_button_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->mouse_button_callback(window, MU_MOUSE_BUTTON_RIGHT, down);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-
-								// Not 100% sure if 120 is the appropriate value here for matching with window's WM_MOUSEWHEEL.
-
-								/* Scroll wheel up */
-								case Button4: {
-									if (!down) {
-										p_win->scroll_level += 120;
-									}
-									if (p_win->scroll_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->scroll_callback(window, 120);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-
-								/* Scroll wheel down */
-								case Button5: {
-									if (!down) {
-										p_win->scroll_level -= 120;
-									}
-									if (p_win->scroll_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->scroll_callback(window, -120);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-							}
-						}
-
-						void muCOSA_X11_cursor_handle_motion_event(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win, XMotionEvent motion_event) {
-							if (p_win->cursor_position_callback != MU_NULL_PTR) {
-								muCOSA_X11Window_release_element(0, &c->windows, window);
-								p_win->cursor_position_callback(window, (int32_m)motion_event.x, (int32_m)motion_event.y);
-								muCOSA_X11Window_hold_element(0, &c->windows, window);
-							}
-						}
-
-					/* Window */
-
-						// https://www.linuxquestions.org/questions/programming-9/how-to-read-the-state-by-using-_net_wm_state-in-xlib-836879/
-						Atom muCOSA_X11Window_get_atom_plural(muCOSA_X11Window* p_win, const char** names, size_m namelen) {
-							Atom wm_state = XInternAtom(p_win->display, "_NET_WM_STATE", MU_TRUE);
-							if (wm_state == None) {
-								return None;
-							}
-							Atom type;
-							int format;
-							unsigned long n_item = 0, bytes_after;
-							unsigned char* properties = 0;
-							XGetWindowProperty(
-								p_win->display, p_win->window,
-								wm_state, 0, (~0L), False, AnyPropertyType,
-								&type, &format, &n_item, &bytes_after, &properties
-							);
-
-							for (size_m i = 0; i < n_item; i++) {
-								Atom prop = ((Atom*)properties)[0];
-								char* prop_name = XGetAtomName(p_win->display, prop);
-								if (prop_name != 0) {
-									for (size_m i = 0; i < namelen; i++) {
-										if (mu_strcmp(prop_name, names[i]) == 0) {
-											XFree(properties);
-											return prop;
-										}
-									}
-								}
-							}
-
-							if (properties != 0) {
-								XFree(properties);
-							}
-							return None;
-						}
-
-						Atom muCOSA_X11Window_get_atom(muCOSA_X11Window* p_win, const char* name) {
-							const char* names[1] = { name };
-							return muCOSA_X11Window_get_atom_plural(p_win, names, 1);
-						}
-
-						// https://stackoverflow.com/questions/36188154/get-x11-window-caption-height
-						void muCOSA_X11_inner_window_get_extents(Display* display, Window window, long* left, long* right, long* top, long* bottom) {
-							MU_SET_RESULT(left, 0) MU_SET_RESULT(right, 0) MU_SET_RESULT(top, 0) MU_SET_RESULT(bottom, 0)
-
-							Atom a = XInternAtom(display, "_NET_FRAME_EXTENTS", True);
-							if (a == None) {
-								return;
-							}
-							Atom t;
-							int f;
-							unsigned long _n, b;
-							unsigned char* data = 0;
-							int r = XGetWindowProperty(display, window, 
-								a, 0, 4, False, AnyPropertyType, 
-								&t, &f, &_n, &b, &data
-							);
-
-							if (r == Success && _n == 4 && b == 0) {
-								long* extents = (long*)data;
-								MU_SET_RESULT(left, extents[0])
-								MU_SET_RESULT(right, extents[1])
-								MU_SET_RESULT(top, extents[2])
-								MU_SET_RESULT(bottom, extents[3])
-							}
-						}
-
-						void muCOSA_X11Window_get_extents(muCOSA_X11Window* p_win, long* left, long* right, long* top, long* bottom) {
-							muCOSA_X11_inner_window_get_extents(p_win->display, p_win->window, left, right, top, bottom);
-						}
-
-						void muCOSA_X11Window_update_min_max_dim(muCOSA_X11Window* p_win) {
-							*p_win->size_hints = MU_ZERO_STRUCT(XSizeHints);
-							p_win->size_hints->flags = PMinSize | PMaxSize;
-							p_win->size_hints->min_width = p_win->min_width;
-							p_win->size_hints->min_height = p_win->min_height;
-							p_win->size_hints->max_width = p_win->min_width;
-							p_win->size_hints->max_height = p_win->min_height;
-							XSetWMNormalHints(p_win->display, p_win->window, p_win->size_hints);
-						}
-
-						void muCOSA_X11_inner_window_get_position(Display* display, Window window, Window par, int* x, int* y) {
-							// https://stackoverflow.com/questions/3806872/window-position-in-xlib
-							int rx, ry;
-							Window child;
-							XTranslateCoordinates(display, window, par, 0, 0, &rx, &ry, &child);
-
-							MU_SET_RESULT(x, rx)
-							MU_SET_RESULT(y, ry)
-						}
-
-						void muCOSA_X11_inner_window_set_position(muCOSA_X11Window* p_win, int x, int y) {
-							// https://stackoverflow.com/questions/3806872/window-position-in-xlib
-							XWindowAttributes xwa = MU_ZERO_STRUCT(XWindowAttributes);
-							XGetWindowAttributes(p_win->display, p_win->window, &xwa);
-
-							XMoveWindow(p_win->display, p_win->window, (x-xwa.x), (y-xwa.y));
-						}
-
-						muBool muCOSA_X11_inner_get_maximized(muCOSA_X11Window* p_win) {
-							static const char* names[2] = { "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_MAXIMIZED_HORZ" };
-							if (muCOSA_X11Window_get_atom_plural(p_win, names, 2) != None) {
-								return MU_TRUE;
-							}
-							return MU_FALSE;
-						}
-
-						void muCOSA_X11_inner_set_maximized(muCOSA_X11Window* p_win, muBool maximized) {
-							// https://forum.juce.com/t/how-to-maximize-not-fullscreen/28346
-							XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent); ev.type = ClientMessage; ev.window = p_win->window;
-							ev.message_type = XInternAtom(p_win->display, "_NET_WM_STATE", False);
-							ev.format = 32;
-							ev.data.l[0] = maximized;
-							ev.data.l[1] = XInternAtom(p_win->display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
-							ev.data.l[2] = XInternAtom(p_win->display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
-							ev.data.l[3] = 1; ev.data.l[4] = 0;
-							XSendEvent(p_win->display, p_win->parent_window,
-								False, SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev
-							);
-							XFlush(p_win->display);
-						}
-
-						muBool muCOSA_X11_inner_get_minimized(muCOSA_X11Window* p_win) {
-							if (muCOSA_X11Window_get_atom(p_win, "_NET_WM_STATE_HIDDEN") != None) {
-								return MU_TRUE;
-							}
-							return MU_FALSE;
-						}
-
-						void muCOSA_X11_inner_set_minimized(muCOSA_X11Window* p_win, muBool minimized) {
-							XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent); ev.type = ClientMessage; ev.window = p_win->window;
-							if (minimized) {
-								ev.message_type = XInternAtom(p_win->display, "WM_CHANGE_STATE", False);
-								ev.format = 32;
-								ev.data.l[0] = IconicState;
-							} else {
-								ev.message_type = XInternAtom(p_win->display, "_NET_ACTIVE_WINDOW", False);
-								ev.format = 32;
-								ev.data.l[0] = 1;
-								ev.data.l[1] = CurrentTime;
-								ev.data.l[2] = ev.data.l[3] = ev.data.l[4] = 0;
-							}
-							XSendEvent(p_win->display, p_win->parent_window,
-								False, SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev
-							);
-							XFlush(p_win->display);
-						}
-
-					/* Event */
-
-						muCOSAResult muCOSA_X11Window_handle_event(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win, XEvent event) {
-							switch (event.type) {
-								default: return MUCOSA_SUCCESS; break;
-
-								/* Refreshing keyboard mapping */
-								case KeymapNotify: {
-									XRefreshKeyboardMapping(&event.xmapping);
-								} break;
-
-								/* Closing the window */
-								case ClientMessage: {
-									if (event.xclient.data.l[0] == (long int)p_win->delete_atom) {
-										XUnmapWindow(p_win->display, p_win->window);
-										p_win->closed = MU_TRUE;
-									}
-								} break;
-
-								/* Mouse button press */
-								case ButtonPress: {
-									muCOSA_X11_cursor_handle_event(c, window, p_win, event.xbutton.button, MU_TRUE);
-								} break;
-								/* Mouse button release */
-								case ButtonRelease: {
-									muCOSA_X11_cursor_handle_event(c, window, p_win, event.xbutton.button, MU_FALSE);
-								} break;
-								/* Mouse button movement */
-								case MotionNotify: {
-									muCOSA_X11_cursor_handle_motion_event(c, window, p_win, event.xmotion);
-								} break;
-
-								/* Keyboard key press */
-								case KeyPress: {
-									muCOSA_X11_keyboard_key_handle_event(c, window, p_win, &event.xkey, event.xkey.keycode, MU_TRUE);
-								} break;
-								/* Keyboard key release */
-								case KeyRelease: {
-									muCOSA_X11_keyboard_key_handle_event(c, window, p_win, &event.xkey, event.xkey.keycode, MU_FALSE);
-								} break;
-
-								/* Dimension changing */
-								case Expose: {
-									XWindowAttributes attribs;
-									XGetWindowAttributes(p_win->display, p_win->window, &attribs);
-									if (p_win->dimensions_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->dimensions_callback(window, (uint32_m)attribs.width, (uint32_m)attribs.height);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-
-								/* Position changing */
-								case ConfigureNotify: {
-									if (p_win->x != event.xconfigure.x || p_win->y != event.xconfigure.y) {
-										p_win->x = (int32_m)event.xconfigure.x;
-										p_win->y = (int32_m)event.xconfigure.y;
-										if (p_win->position_callback != MU_NULL_PTR) {
-											muCOSA_X11Window_release_element(0, &c->windows, window);
-											p_win->position_callback(window, p_win->x, p_win->y);
-											muCOSA_X11Window_hold_element(0, &c->windows, window);
-										}
-									}
-								} break;
-
-								/* Focusing in/out */
-								// @TODO Fix FocusIn/FocusOut getting called when window is being dragged
-								case FocusIn: {
-									if (p_win->ic.active) {
-										XSetICFocus(p_win->ic.ic);
-									}
-									if (p_win->focus_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->focus_callback(window, MU_TRUE);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-								case FocusOut: {
-									if (p_win->ic.active) {
-										XUnsetICFocus(p_win->ic.ic);
-									}
-									if (p_win->focus_callback != MU_NULL_PTR) {
-										muCOSA_X11Window_release_element(0, &c->windows, window);
-										p_win->focus_callback(window, MU_FALSE);
-										muCOSA_X11Window_hold_element(0, &c->windows, window);
-									}
-								} break;
-							}
-
-							return MUCOSA_SUCCESS;
-						}
-
-						void muCOSA_X11Window_handle_focus_input_flushing(muCOSA_X11Window* p_win) {
-							Window focused_window;
-							int revert_to;
-							XGetInputFocus(p_win->display, &focused_window, &revert_to);
-
-							if (focused_window != p_win->window) {
-								p_win->input = MU_ZERO_STRUCT(muCOSA_X11_input);
-							}
-						}
-
-						void muCOSA_X11Window_handle_min_max_events(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win) {
-							muBool maximized = muCOSA_X11_inner_get_maximized(p_win);
-							if (p_win->maximized != maximized) {
-								p_win->maximized = maximized;
-								if (p_win->maximize_callback != MU_NULL_PTR) {
-									muCOSA_X11Window_release_element(0, &c->windows, window);
-									p_win->maximize_callback(window, maximized);
-									muCOSA_X11Window_hold_element(0, &c->windows, window);
-								}
-							}
-
-							muBool minimized = muCOSA_X11_inner_get_minimized(p_win);
-							if (p_win->minimized != minimized) {
-								p_win->minimized = minimized;
-								if (p_win->minimize_callback != MU_NULL_PTR) {
-									muCOSA_X11Window_release_element(0, &c->windows, window);
-									p_win->minimize_callback(window, minimized);
-									muCOSA_X11Window_hold_element(0, &c->windows, window);
-								}
-							}
-						}
-
-					/* Keyboard state input */
-
-						void muCOSA_X11_check_state_input(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win, unsigned int n, const char* name, muKeyboardState state) {
-							muBool check = (n & (XInternAtom(p_win->display, name, False) - 1)) != 0;
-							if (check != p_win->input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST]) {
-								p_win->input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST] = check;
-
-								if (p_win->keyboard_state_callback != MU_NULL_PTR) {
-									muCOSA_X11Window_release_element(0, &c->windows, window);
-									p_win->keyboard_state_callback(window, state, check);
-									muCOSA_X11Window_hold_element(0, &c->windows, window);
-								}
-							}
-						}
-
-						void muCOSA_X11_handle_state_input(muCOSA_X11Context* c, muWindow window, muCOSA_X11Window* p_win) {
-							// http://levonp.blogspot.com/2010/08/retrieving-caps-lock-info-using-xlib.html
-							unsigned int n;
-							XkbGetIndicatorState(p_win->display, XkbUseCoreKbd, &n);
-
-							muCOSA_X11_check_state_input(c, window, p_win, n, "Caps Lock", MU_KEYBOARD_STATE_CAPS_LOCK);
-							muCOSA_X11_check_state_input(c, window, p_win, n, "Num Lock", MU_KEYBOARD_STATE_NUM_LOCK);
-							// Been having issues with this... being triggered by Caps Lock and Num Lock
-							// sometimes... :L
-							muCOSA_X11_check_state_input(c, window, p_win, n, "Scroll Lock", MU_KEYBOARD_STATE_SCROLL_LOCK);
-						}
-
-					/* Time */
+					/* Important functions */
 
 						// https://stackoverflow.com/questions/3756323/how-to-get-the-current-time-in-milliseconds-from-c-in-linux
-						double muCOSA_X11_inner_get_time(void) {
+						double muCOSA_X11_get_system_time(void) {
 							struct timespec spec;
 							clock_gettime(CLOCK_REALTIME, &spec);
 							return (double)((double)(spec.tv_sec) + ((double)(spec.tv_nsec) / (double)(1.0e9)));
 						}
 
-					/* Clipboard */
+						double muCOSA_X11_time_get(muCOSA_X11_time* time) {
+							return muCOSA_X11_get_system_time() - time->orig_time;
+						}
 
-						// NOTE: only meant to be called by thread
-						void* muCOSA_X11_inner_clipboard_set(void* p) {
-							muCOSA_X11Context* c = (muCOSA_X11Context*)p;
+						void muCOSA_X11_time_set(muCOSA_X11_time* time, double dtime) {
+							time->orig_time = muCOSA_X11_get_system_time() - dtime;
+						}
+
+						void muCOSA_X11_sleep(double time) {
+							// https://stackoverflow.com/a/1157217
+
+							struct timespec ts;
+							ts.tv_sec = (time_t)time;
+							ts.tv_nsec = (long)(time * (double)1e+9);
+
+							mu_fflush(mu_stdout);
+							int n = nanosleep(&ts, NULL);
+
+							// Dunno about you guys, but nanosleep literally just doesn't work on my system.
+							// Literally, it always returns -1, I have never gotten it to work. YAY!
+							// - Yup, doesn't work on mine. Maybe cuz of Mint? :L
+							if (n != 0) {
+								sleep((unsigned)time);
+							}
+						}
+
+				/* Clipboard */
+
+					/* Setup */
+
+						struct muCOSA_X11_clipboard {
+							pthread_t thread;
+							muBool thread_exists;
+							muBool thread_running;
+							muByte* text;
+							size_m size;
+						};
+						typedef struct muCOSA_X11_clipboard muCOSA_X11_clipboard;
+
+						void muCOSA_X11_clipboard_init(muCOSA_X11_clipboard* clipboard) {
+							clipboard->thread_exists = MU_FALSE;
+							clipboard->thread_running = MU_FALSE;
+							clipboard->text = 0;
+						}
+
+						void muCOSA_X11_clipboard_term(muCOSA_X11_clipboard* clipboard) {
+							// Kill thread
+							if (clipboard->thread_exists) {
+								if (clipboard->thread_running) {
+									// Note: this essentially acts as the kill signal to the clipboard thread; it will
+									// recognize that this is now false and exit soon after, so we can safely join.
+									clipboard->thread_running = MU_FALSE;
+									pthread_join(clipboard->thread, 0);
+								}
+								pthread_cancel(clipboard->thread);
+								clipboard->thread_exists = MU_FALSE;
+							}
+							// Free text
+							if (clipboard->text) {
+								mu_free(clipboard->text);
+								clipboard->text = 0;
+								clipboard->size = 0;
+							}
+						}
+
+					/* Important functions */
+
+						// Note: this is meant to be used as the function for the thread.
+						// p = (muCOSA_X11_clipboard*)
+						void* muCOSA_X11_thread_clipboard_set(void* p) {
+							muCOSA_X11_clipboard* c = (muCOSA_X11_clipboard*)p;
 							Display* d = XOpenDisplay(NULL);
 							Window w = XCreateSimpleWindow(d, RootWindow(d, DefaultScreen(d)), -10, -10, 1, 1, 0, 0, 0);
 
@@ -36136,12 +34552,14 @@ ensure that rendered buffer sections don't get modified, or else UB.
 
 							XEvent ev;
 							muBool got_event = MU_FALSE;
-							while (!got_event && c->clipboard_thread_running) {
+							while (!got_event && c->thread_running) {
 								while (!XPending(d)) {
-									if (!c->clipboard_thread_running) {
+									if (!c->thread_running) {
 										XCloseDisplay(d);
 										return 0;
 									}
+									// Yuck.
+									muCOSA_X11_sleep(0.05);
 								}
 								XNextEvent(d, &ev);
 								switch (ev.type) {
@@ -36178,7 +34596,7 @@ ensure that rendered buffer sections don't get modified, or else UB.
 												XFree(an);
 											}
 											XChangeProperty(d, sev->requestor, sev->property, utf8, 8, PropModeReplace,
-												(unsigned char*)c->clipboard_text, c->clipboard_size
+												(unsigned char*)c->text, c->size
 											);
 
 											XSelectionEvent ssev = MU_ZERO_STRUCT(XSelectionEvent);
@@ -36195,962 +34613,37 @@ ensure that rendered buffer sections don't get modified, or else UB.
 							}
 
 							XCloseDisplay(d);
-							c->clipboard_thread_running = MU_FALSE;
+							c->thread_running = MU_FALSE;
 							return 0;
 						}
 
-				/* Functions */
+						void muCOSA_X11_clipboard_set(muCOSAResult* result, muCOSA_X11_clipboard* clipboard, const char* text, size_m size) {
+							muCOSA_X11_clipboard_term(clipboard);
 
-					/* Is supported */
+							clipboard->text = (muByte*)mu_malloc(size);
+							if (!clipboard->text) {
+								MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+								return;
+							}
+							mu_memcpy(clipboard->text, text, size);
+							clipboard->size = size;
 
-						muBool muCOSA_X11_is_supported(void) {
-							return MU_TRUE;
+							clipboard->thread_running = MU_TRUE;
+							if (pthread_create(&clipboard->thread, NULL, muCOSA_X11_thread_clipboard_set, (void*)clipboard) != 0) {
+								MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_THREAD)
+								clipboard->thread_running = MU_FALSE;
+								return;
+							}
+
+							clipboard->thread_exists = MU_TRUE;
 						}
-
-					/* Initiation / Termination */
-
-						void muCOSA_X11_init(muCOSAResult* result, muCOSA_X11Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							muCOSA_X11_set_ic_locale();
-							c->windows = MU_ZERO_STRUCT(muCOSA_X11Window_array);
-						}
-
-						muWindow muCOSA_X11_window_destroy(muCOSAResult* result, muCOSA_X11Context* c, muWindow window);
-						void muCOSA_X11_term(muCOSAResult* result, muCOSA_X11Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							for (size_m i = 0; i < c->windows.length; i++) {
-								muCOSA_X11_window_destroy(0, c, i);
-							}
-
-							if (c->clipboard_thread_running) {
-								c->clipboard_thread_running = MU_FALSE;
-								MU_ASSERT(pthread_join(c->clipboard_thread, NULL) == 0, result, MUCOSA_FAILED_JOIN_THREAD, return;)
-							}
-							if (c->clipboard_text) {
-								mu_free(c->clipboard_text);
-								c->clipboard_text = 0;
-							}
-						}
-
-					/* Window */
-
-						/* Creation / Destruction */
-
-							muWindow muCOSA_X11_window_create(muCOSAResult* result, muCOSA_X11Context* c,
-								muGraphicsAPI api, muBool (*load_functions)(void),
-								muByte* name, uint16_m width, uint16_m height,
-								muWindowCreateInfo create_info
-							) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								mumaResult muma_res = MUMA_SUCCESS;
-								muCOSAResult mu_res = MUCOSA_SUCCESS;
-
-								mu_res = muCOSA_verify_window_create_info(create_info);
-								MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res, return MU_NONE;)
-
-								size_m win = MU_NONE;
-								muCOSA_X11Window_find_push(&muma_res, &c->windows, MU_ZERO_STRUCT(muCOSA_X11Window), &win);
-								if (muma_res != MUMA_SUCCESS) {
-									MU_SET_RESULT(result, muma_result_to_muCOSA_result(muma_res))
-									return MU_NONE;
-								}
-								muCOSA_X11Window_hold_element(&muma_res, &c->windows, win);
-								MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_muCOSA_result(muma_res), return MU_NONE;)
-
-								c->windows.data[win].size_hints = XAllocSizeHints();
-								MU_ASSERT(c->windows.data[win].size_hints != 0, result, MUCOSA_ALLOCATION_FAILED,
-									MU_RELEASE(c->windows, win, muCOSA_X11Window_) return MU_NONE;)
-
-								c->windows.data[win].active = MU_FALSE;
-
-								/* Create display */
-
-								c->windows.data[win].display = XOpenDisplay(MU_NULL_PTR);
-								MU_ASSERT(c->windows.data[win].display != NULL, result, MUCOSA_FAILED_CONNECTION_TO_SERVER, 
-									// Note: OK to just release here, since it's still marked as inactive
-									XFree(c->windows.data[win].size_hints);
-									MU_RELEASE(c->windows, win, muCOSA_X11Window_) return MU_NONE;)
-
-								/*
-								The XCloseDisplay function closes the connection to the X server for the
-								display specified in the Display structure and destroys all windows,
-								resource IDs (Window, Font, Pixmap, Colormap, Cursor, and GContext), or
-								other resources that the client has created on this display, unless the
-								close-down mode of the resource has been changed (see XSetCloseDownMode).
-								Therefore, these windows, resource IDs, and other resources should never be
-								referenced again or an error will be generated. Before exiting, you should
-								call XCloseDisplay explicitly so that any pending errors are reported as
-								XCloseDisplay performs a final XSync operation. 
-								*/
-								// https://www.x.org/releases/X11R7.5/doc/man/man3/XOpenDisplay.3.html
-
-								// In other words, just call XCloseDisplay, and everything will be OK.
-
-								/* Create window */
-
-								c->windows.data[win].parent_window = DefaultRootWindow(c->windows.data[win].display);
-
-								MUCOSA_OPENGL_CALL(
-									muCOSA_X11_gl_attributes gl_att = MU_ZERO_STRUCT(muCOSA_X11_gl_attributes); if (gl_att.att[2]) {}
-									GLXFBConfig* fbcs = 0;
-									GLXFBConfig fbc;
-									int fbc_count = 0;
-								)
-								XVisualInfo* vi = 0;
-								if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-									MUCOSA_OPENGL_CALL(
-										gl_att = muCOSA_X11_get_gl_attributes(create_info.pixel_format);
-										fbcs = glXChooseFBConfig(
-											c->windows.data[win].display, 
-											DefaultScreen(c->windows.data[win].display),
-											gl_att.att, &fbc_count
-										);
-										if (fbcs == 0) {
-											MU_SET_RESULT(result, MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER)
-										} else {
-											// @TODO Choose best format
-											fbc = fbcs[0];
-											XFree(fbcs);
-
-											vi = glXGetVisualFromFBConfig(c->windows.data[win].display, fbc);
-											if (vi == 0) {
-												MU_SET_RESULT(result, MUCOSA_FAILED_USE_PIXEL_FORMAT)
-											}
-										}
-									)
-								}
-
-								// This probably isn't being done right :L
-								int depth = 8*3;
-								Visual* v = 0;
-								unsigned long valuemask = CWEventMask;
-								XSetWindowAttributes win_attribs = MU_ZERO_STRUCT(XSetWindowAttributes);
-								win_attribs.event_mask = ExposureMask | StructureNotifyMask
-								| KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask
-								| PointerMotionMask | FocusChangeMask
-								;
-								if (vi != 0) {
-									depth = vi->depth;
-									v = vi->visual;
-
-									win_attribs.colormap = XCreateColormap(
-										c->windows.data[win].display, c->windows.data[win].parent_window,
-										vi->visual, AllocNone
-									);
-									valuemask |= CWColormap;
-								}
-
-								// @TODO Figure out how to tell if this worked or not
-								c->windows.data[win].window = XCreateWindow(c->windows.data[win].display,
-									c->windows.data[win].parent_window,
-									0, 0,
-									(unsigned int)width, (unsigned int)height,
-									0, // (Border width)
-									// (Bits per pixel / "depth")
-									depth,
-									InputOutput,
-									v,
-									valuemask, &win_attribs
-								);
-
-								XFree(vi);
-
-								/* Create cursor */
-
-								c->windows.data[win].cursor_style = create_info.cursor_style;
-								c->windows.data[win].cursor = XCreateFontCursor(c->windows.data[win].display, muCOSA_X11_cursor_get_style(c->windows.data[win].cursor_style));
-								XDefineCursor(c->windows.data[win].display, c->windows.data[win].window, c->windows.data[win].cursor);
-
-								/* API initialization */
-
-								if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-									MUCOSA_OPENGL_CALL(
-										mu_res = muCOSA_X11_init_opengl(
-											c->windows.data[win].display, &c->windows.data[win].gl_context,
-											api, fbc
-										);
-										MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res, 
-											XCloseDisplay(c->windows.data[win].display); MU_RELEASE(c->windows, win, muCOSA_X11Window_) return MU_NONE;)
-									)
-								} else if (api != MU_NO_GRAPHICS_API) {
-									MU_SET_RESULT(result, MUCOSA_UNKNOWN_GRAPHICS_API)
-									XFree(c->windows.data[win].size_hints);
-									XCloseDisplay(c->windows.data[win].display);
-									MU_RELEASE(c->windows, win, muCOSA_X11Window_)
-									return MU_NONE;
-								}
-
-								/* API loading */
-
-								if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-									MUCOSA_OPENGL_CALL(
-										glXMakeCurrent(c->windows.data[win].display, c->windows.data[win].window, c->windows.data[win].gl_context);
-									)
-								}
-
-								if (load_functions != MU_NULL_PTR) {
-									MU_ASSERT(load_functions() == MU_TRUE, result, MUCOSA_FAILED_LOAD_FUNCTIONS, 
-										if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-											MUCOSA_OPENGL_CALL(glXDestroyContext(c->windows.data[win].display, c->windows.data[win].gl_context);)
-										}
-										XFree(c->windows.data[win].size_hints);
-										XCloseDisplay(c->windows.data[win].display); MU_RELEASE(c->windows, win, muCOSA_X11Window_) return MU_NONE;)
-								}
-
-								/* Name */
-
-								XChangeProperty(
-									c->windows.data[win].display, c->windows.data[win].window,
-									XInternAtom(c->windows.data[win].display, "_NET_WM_NAME", MU_FALSE),
-									XInternAtom(c->windows.data[win].display, "UTF8_STRING", MU_FALSE),
-									8, PropModeReplace, (unsigned char*)name, mu_strlen((const char*)name) // <--- strlen or actual UTF-8 char count?
-								);
-
-								/* Delete message */
-
-								c->windows.data[win].delete_atom = XInternAtom(c->windows.data[win].display, "WM_DELETE_WINDOW", MU_FALSE);
-								XSetWMProtocols(c->windows.data[win].display, c->windows.data[win].window, &c->windows.data[win].delete_atom, 1);
-
-								/* Size hints */
-
-								*c->windows.data[win].size_hints = MU_ZERO_STRUCT(XSizeHints);
-								c->windows.data[win].size_hints->flags = PPosition | PMinSize | PMaxSize;
-								c->windows.data[win].size_hints->x = create_info.x;
-								c->windows.data[win].size_hints->y = create_info.y;
-								c->windows.data[win].size_hints->min_width = create_info.min_width;
-								c->windows.data[win].size_hints->min_height = create_info.min_height;
-								c->windows.data[win].size_hints->max_width = create_info.max_width;
-								c->windows.data[win].size_hints->max_height = create_info.max_height;
-								if (!create_info.resizable) {
-									c->windows.data[win].size_hints->min_width = width;
-									c->windows.data[win].size_hints->min_height = height;
-									c->windows.data[win].size_hints->max_width = width;
-									c->windows.data[win].size_hints->max_height = height;
-								}
-								XSetWMNormalHints(c->windows.data[win].display, c->windows.data[win].window, c->windows.data[win].size_hints);
-
-								/* Map */
-
-								if (create_info.visible) {
-									XMapWindow(c->windows.data[win].display, c->windows.data[win].window);
-								}
-								XSync(c->windows.data[win].display, False);
-
-								muCOSA_X11_inner_set_maximized(&c->windows.data[win], create_info.maximized);
-								muCOSA_X11_inner_set_minimized(&c->windows.data[win], create_info.minimized);
-
-								/* Position correctly */
-
-								for (size_m i = 0; i < 10; i++) {
-									muCOSA_X11_inner_window_set_position(&c->windows.data[win], (int)create_info.x, (int)create_info.y);
-								}
-
-								/* G i v e */
-
-								c->windows.data[win].active = MU_TRUE;
-								c->windows.data[win].api = api;
-								c->windows.data[win].closed = MU_FALSE;
-								c->windows.data[win].visible = create_info.visible;
-								c->windows.data[win].resizable = create_info.resizable;
-								c->windows.data[win].min_width = create_info.min_width;
-								c->windows.data[win].min_height = create_info.min_height;
-								c->windows.data[win].max_width = create_info.max_width;
-								c->windows.data[win].max_height = create_info.max_height;
-								c->windows.data[win].scroll_level = 0;
-								c->windows.data[win].input = MU_ZERO_STRUCT(muCOSA_X11_input);
-								c->windows.data[win].ic = MU_ZERO_STRUCT(muCOSA_X11_input_context);
-								c->windows.data[win].text_input_callback = 0;
-								c->windows.data[win].dimensions_callback = create_info.dimensions_callback;
-								c->windows.data[win].position_callback = create_info.position_callback;
-								c->windows.data[win].focus_callback = create_info.focus_callback;
-								c->windows.data[win].maximize_callback = create_info.maximize_callback;
-								c->windows.data[win].minimize_callback = create_info.minimize_callback;
-								c->windows.data[win].keyboard_key_callback = create_info.keyboard_key_callback;
-								c->windows.data[win].keyboard_state_callback = create_info.keyboard_state_callback;
-								c->windows.data[win].cursor_position_callback = create_info.cursor_position_callback;
-								c->windows.data[win].mouse_button_callback = create_info.mouse_button_callback;
-								c->windows.data[win].scroll_callback = create_info.scroll_callback;
-								c->windows.data[win].x = create_info.x;
-								c->windows.data[win].y = create_info.y;
-								c->windows.data[win].minimized = create_info.minimized;
-								c->windows.data[win].maximized = create_info.maximized;
-								MU_RELEASE(c->windows, win, muCOSA_X11Window_)
-								return win;
-							}
-
-							muWindow muCOSA_X11_window_destroy(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return window;, muCOSA_X11Window_)
-
-								if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-									MUCOSA_OPENGL_CALL(
-										glXDestroyContext(c->windows.data[window].display, c->windows.data[window].gl_context);
-									)
-								}
-
-								XFree(c->windows.data[window].size_hints);
-
-								XSync(c->windows.data[window].display, False);
-								XCloseDisplay(c->windows.data[window].display);
-
-								c->windows.data[window].active = MU_FALSE;
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-								return MU_NONE;
-							}
-
-						/* Main loop */
-
-							muBool muCOSA_X11_window_get_closed(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_TRUE;, muCOSA_X11Window_)
-
-								muBool closed = c->windows.data[window].closed;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-								return closed;
-							}
-
-							void muCOSA_X11_window_close(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								XUnmapWindow(c->windows.data[window].display, c->windows.data[window].window);
-								c->windows.data[window].closed = MU_TRUE;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_update(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-								muCOSAResult mu_res = MUCOSA_SUCCESS;
-
-								while (XPending(c->windows.data[window].display)) {
-									XEvent event;
-									XNextEvent(c->windows.data[window].display, &event);
-
-									if (!XFilterEvent(&event, None)) {
-										mu_res = muCOSA_X11Window_handle_event(c, window, &c->windows.data[window], event);
-										MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res, MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;)
-									}
-								}
-
-								muCOSA_X11_handle_state_input(c, window, &c->windows.data[window]);
-								muCOSA_X11Window_handle_focus_input_flushing(&c->windows.data[window]);
-								muCOSA_X11Window_handle_min_max_events(c, window, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_swap_buffers(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-									MUCOSA_OPENGL_CALL(
-										glXSwapBuffers(c->windows.data[window].display, c->windows.data[window].window);
-									)
-								}
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-						/* Get / Set */
-
-							muBool muCOSA_X11_window_get_focused(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_X11Window_)
-
-								Window focused;
-								int revert_to;
-								XGetInputFocus(c->windows.data[window].display, &focused, &revert_to);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return focused == c->windows.data[window].window;
-							}
-
-							void muCOSA_X11_window_focus(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								if (muCOSA_X11Window_get_atom(&c->windows.data[window], "_NET_WM_STATE_HIDDEN") != None) {
-									// https://stackoverflow.com/questions/30192347/how-to-restore-a-window-with-xlib
-									XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent); ev.type = ClientMessage; ev.window = c->windows.data[window].window;
-									ev.message_type = XInternAtom(c->windows.data[window].display, "_NET_ACTIVE_WINDOW", True);
-									MU_ASSERT(ev.message_type != None, result, MUCOSA_UNSUPPORTED_FEATURE, MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;)
-
-									ev.format = 32;
-									ev.data.l[0] = 1; ev.data.l[1] = CurrentTime;
-									ev.data.l[2] = ev.data.l[3] = ev.data.l[4] = 0;
-									XSendEvent(c->windows.data[window].display, c->windows.data[window].parent_window, False, 
-										SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev
-									);
-									XFlush(c->windows.data[window].display);
-								}
-
-								// Try blocking for a bit to register the deminimization
-								// This is a hack and a half
-								double time_beg = muCOSA_X11_inner_get_time();
-								while (muCOSA_X11_inner_get_minimized(&c->windows.data[window]) && 
-									(muCOSA_X11_inner_get_time()-time_beg) < .001f) {
-
-								}
-
-								if (muCOSA_X11_inner_get_minimized(&c->windows.data[window]) || !c->windows.data[window].visible) {
-									MU_SET_RESULT(result, MUCOSA_INVALID_WINDOW_STATE)
-									MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-									return;
-								}
-
-								XSetInputFocus(c->windows.data[window].display, c->windows.data[window].window, RevertToPointerRoot, CurrentTime);
-								XRaiseWindow(c->windows.data[window].display, c->windows.data[window].window);
-
-								void (*focus_callback)(muWindow window, muBool focused) = c->windows.data[window].focus_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (focus_callback != MU_NULL_PTR && callback) {
-									focus_callback(window, MU_TRUE);
-								}
-							}
-
-							muBool muCOSA_X11_window_get_visible(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_X11Window_)
-
-								muBool visible = c->windows.data[window].visible;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return visible;
-							}
-
-							void muCOSA_X11_window_set_visible(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muBool visible) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								if (visible && !c->windows.data[window].visible) {
-									XMapWindow(c->windows.data[window].display, c->windows.data[window].window);
-									c->windows.data[window].input = MU_ZERO_STRUCT(muCOSA_X11_input);
-								} else if (!visible && c->windows.data[window].visible) {
-									XUnmapWindow(c->windows.data[window].display, c->windows.data[window].window);
-									c->windows.data[window].input = MU_ZERO_STRUCT(muCOSA_X11_input);
-								}
-
-								c->windows.data[window].visible = visible;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_get_position(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m* x, int32_m* y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								int rx = 0, ry = 0;
-								muCOSA_X11_inner_window_get_position(c->windows.data[window].display, c->windows.data[window].window, c->windows.data[window].parent_window, &rx, &ry);
-
-								MU_SET_RESULT(x, rx) MU_SET_RESULT(y, ry)
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_position(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m x, int32_m y, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								muCOSA_X11_inner_window_set_position(&c->windows.data[window], x, y);
-								c->windows.data[window].x = x;
-								c->windows.data[window].y = y;
-								void (*position_callback)(muWindow window, int32_m x, int32_m y) = c->windows.data[window].position_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (position_callback != MU_NULL_PTR && callback) {
-									position_callback(window, x, y);
-								}
-							}
-
-							void muCOSA_X11_window_get_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m* width, uint32_m* height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								XWindowAttributes xwa = MU_ZERO_STRUCT(XWindowAttributes);
-								XGetWindowAttributes(c->windows.data[window].display, c->windows.data[window].window, &xwa);
-
-								MU_SET_RESULT(width, xwa.width) MU_SET_RESULT(height, xwa.height)
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m width, uint32_m height, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								MU_ASSERT(c->windows.data[window].resizable, result, MUCOSA_WINDOW_NON_RESIZABLE, 
-									MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;
-								)
-								MU_ASSERT(width >= c->windows.data[window].min_width && width <= c->windows.data[window].max_width &&
-									height >= c->windows.data[window].min_height && height <= c->windows.data[window].max_height,
-									result, MUCOSA_INVALID_DIMENSIONS, MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;
-								)
-
-								XResizeWindow(c->windows.data[window].display, c->windows.data[window].window, width, height);
-								void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height) = c->windows.data[window].dimensions_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (dimensions_callback != MU_NULL_PTR && callback) {
-									dimensions_callback(window, width, height);
-								}
-							}
-
-							muBool muCOSA_X11_window_get_maximized(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_X11Window_)
-
-								muBool maximized = muCOSA_X11_inner_get_maximized(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return maximized;
-							}
-
-							void muCOSA_X11_window_set_maximized(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muBool maximized, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								muCOSA_X11_inner_set_maximized(&c->windows.data[window], maximized);
-
-								void (*maximize_callback)(muWindow window, muBool maximized) = c->windows.data[window].maximize_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (maximize_callback != MU_NULL_PTR && callback) {
-									maximize_callback(window, maximized);
-								}
-							}
-
-							muBool muCOSA_X11_window_get_minimized(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_X11Window_)
-
-								muBool minimized = muCOSA_X11_inner_get_minimized(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return minimized;
-							}
-
-							void muCOSA_X11_window_set_minimized(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muBool minimized, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								muCOSA_X11_inner_set_minimized(&c->windows.data[window], minimized);
-
-								void (*minimize_callback)(muWindow window, muBool minimized) = c->windows.data[window].minimize_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (minimize_callback != MU_NULL_PTR && callback) {
-									minimize_callback(window, minimized);
-								}
-							}
-
-							void muCOSA_X11_window_get_minimum_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m* min_width, uint32_m* min_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								MU_SET_RESULT(min_width, c->windows.data[window].min_width)
-								MU_SET_RESULT(min_height, c->windows.data[window].min_height)
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_minimum_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m min_width, uint32_m min_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].min_width = min_width;
-								c->windows.data[window].min_height = min_height;
-								muCOSA_X11Window_update_min_max_dim(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_get_maximum_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m* max_width, uint32_m* max_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								MU_SET_RESULT(max_width, c->windows.data[window].max_width)
-								MU_SET_RESULT(max_height, c->windows.data[window].max_height)
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_maximum_dimensions(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m max_width, uint32_m max_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].max_width = max_width;
-								c->windows.data[window].max_height = max_height;
-								muCOSA_X11Window_update_min_max_dim(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_get_cursor_position(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m* x, int32_m* y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								// https://stackoverflow.com/questions/3585871/how-can-i-get-the-current-mouse-pointer-position-co-ordinates-in-x
-								int screen_count = XScreenCount(c->windows.data[window].display);
-
-								Bool oresult = False;
-								int root_x, root_y;
-								for (int i = 0; i < screen_count; i++) {
-									Window root_window = XRootWindow(c->windows.data[window].display, i);
-
-									Window window_ret, window_chi;
-									int win_x, win_y;
-									unsigned int mask_return;
-									oresult = XQueryPointer(c->windows.data[window].display, root_window, 
-										&window_ret, &window_chi, &root_x, &root_y, &win_x, &win_y, &mask_return
-									);
-									// "window_ret" is the window the cursor is located in
-									// "root_x" and "root_y" are cursor pos relative to "window_ret"
-									// "win_x" and "win_y" are cursor pos relative to "root_window" (which I'm pretty sure is the whole display)
-
-									if (oresult == True) {
-										int wx, wy;
-										muCOSA_X11_inner_window_get_position(c->windows.data[window].display, c->windows.data[window].window, c->windows.data[window].parent_window, &wx, &wy);
-
-										// I really don't get how this works, lol...
-										MU_SET_RESULT(x, win_x - wx)
-										MU_SET_RESULT(y, win_y - wy)
-
-										MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-										return;
-									}
-								}
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								MU_SET_RESULT(result, MUCOSA_NONEXISTENT_DEVICE)
-							}
-
-							void muCOSA_X11_window_set_cursor_position(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m x, int32_m y, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								if (callback) {}
-								XWarpPointer(c->windows.data[window].display, c->windows.data[window].window, c->windows.data[window].window, 0, 0, 0, 0, x, y);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							muCursorStyle muCOSA_X11_window_get_cursor_style(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_CURSOR_STYLE_UNKNOWN;, muCOSA_X11Window_)
-
-								muCursorStyle style = c->windows.data[window].cursor_style;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return style;
-							}
-
-							void muCOSA_X11_window_set_cursor_style(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muCursorStyle style) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								XUndefineCursor(c->windows.data[window].display, c->windows.data[window].window);
-								XFreeCursor(c->windows.data[window].display, c->windows.data[window].cursor);
-
-								c->windows.data[window].cursor_style = style;
-								c->windows.data[window].cursor = XCreateFontCursor(c->windows.data[window].display, muCOSA_X11_cursor_get_style(c->windows.data[window].cursor_style));
-								XDefineCursor(c->windows.data[window].display, c->windows.data[window].window, c->windows.data[window].cursor);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							int32_m muCOSA_X11_window_get_scroll_level(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_X11Window_)
-
-								int32_m scroll_level = c->windows.data[window].scroll_level;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return scroll_level;
-							}
-
-							void muCOSA_X11_window_set_scroll_level(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m scroll_level, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								int32_m old_scroll = c->windows.data[window].scroll_level;
-								c->windows.data[window].scroll_level = scroll_level;
-								void (*scroll_callback)(muWindow window, int32_m scroll_level_add) = c->windows.data[window].scroll_callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								if (scroll_level != old_scroll && scroll_callback != MU_NULL_PTR && callback) {
-									scroll_callback(window, scroll_level-old_scroll);
-								}
-							}
-
-						/* Get / Let */
-
-							void muCOSA_X11_window_get_text_input_focus(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, muByte* input)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								MU_ASSERT(!c->windows.data[window].ic.active, result, MUCOSA_ALREADY_ACTIVE,
-									MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;)
-
-								muCOSAResult res = MUCOSA_SUCCESS;
-								c->windows.data[window].ic = muCOSA_X11_create_input_context(&res, &c->windows.data[window]);
-								if (res != MUCOSA_SUCCESS) {
-									MU_SET_RESULT(result, res)
-									c->windows.data[window].ic = MU_ZERO_STRUCT(muCOSA_X11_input_context);
-									MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-									return;
-								}
-								muCOSA_X11_set_ic_cursor_pos(&c->windows.data[window], text_cursor_x, text_cursor_y);
-								c->windows.data[window].text_input_callback = callback;
-
-								// Not necessary to call and usually has weird side effects...
-								// muCOSA_X11_get_keyboard_focus(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_update_text_cursor(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int32_m x, int32_m y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								if (c->windows.data[window].ic.active) {
-									muCOSA_X11_set_ic_cursor_pos(&c->windows.data[window], x, y);
-								}
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_let_text_input_focus(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								MU_ASSERT(c->windows.data[window].ic.active, result, MUCOSA_ALREADY_INACTIVE,
-									MU_RELEASE(c->windows, window, muCOSA_X11Window_) return;)
-
-								c->windows.data[window].ic = muCOSA_X11_close_input_context(&c->windows.data[window]);
-								c->windows.data[window].text_input_callback = 0;
-
-								//muCOSA_X11_let_keyboard_focus(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-						/* Get */
-
-							void muCOSA_X11_window_get_frame_extents(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								long l_left=0, l_right=0, l_top=0, l_bottom=0;
-								muCOSA_X11Window_get_extents(&c->windows.data[window], &l_left, &l_right, &l_top, &l_bottom);
-								MU_SET_RESULT(left, (uint32_m)l_left)
-								MU_SET_RESULT(right, (uint32_m)l_right)
-								MU_SET_RESULT(top, (uint32_m)l_top)
-								MU_SET_RESULT(bottom, (uint32_m)l_bottom)
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							muButtonState muCOSA_X11_window_get_keyboard_key_state(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muKeyboardKey key) {
-								MU_ASSERT(key >= MU_KEYBOARD_KEY_FIRST && key <= MU_KEYBOARD_KEY_LAST, result, MUCOSA_UNKNOWN_KEYBOARD_KEY, return 0;)
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_X11Window_)
-
-								muButtonState state = c->windows.data[window].input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST];
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return state;
-							}
-
-							muState muCOSA_X11_window_get_keyboard_state_state(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muKeyboardState state) {
-								MU_ASSERT(state >= MU_KEYBOARD_STATE_FIRST && state <= MU_KEYBOARD_STATE_LAST, result, MUCOSA_UNKNOWN_KEYBOARD_STATE, return 0;)
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_X11Window_)
-
-								muState ret_state = c->windows.data[window].input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST];
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return ret_state;
-							}
-
-							muButtonState muCOSA_X11_window_get_mouse_button_state(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muMouseButton button) {
-								MU_ASSERT(button >= MU_MOUSE_BUTTON_FIRST && button <= MU_MOUSE_BUTTON_LAST, result, MUCOSA_UNKNOWN_MOUSE_BUTTON, return 0;)
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_X11Window_)
-
-								muButtonState state = c->windows.data[window].input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST];
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-								return state;
-							}
-
-						/* Set */
-
-							void muCOSA_X11_window_set_title(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muByte* title) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								XChangeProperty(c->windows.data[window].display, c->windows.data[window].window,
-									XInternAtom(c->windows.data[window].display, "_NET_WM_NAME", False),
-									XInternAtom(c->windows.data[window].display, "UTF8_STRING", False),
-									8, PropModeReplace, (unsigned char*)title, (int)mu_strlen((const char*)title)
-								);
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_dimensions_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].dimensions_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_position_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].position_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_focus_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muBool focused)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].focus_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_maximize_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muBool maximized)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].maximize_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_minimize_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muBool minimized)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].minimize_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_keyboard_key_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].keyboard_key_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_keyboard_state_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].keyboard_state_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-							void muCOSA_X11_window_set_mouse_button_callback(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-								c->windows.data[window].mouse_button_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-							}
-
-					/* Time */
-
-						double muCOSA_X11_time_get(muCOSAResult* result, muCOSA_X11Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							return muCOSA_X11_inner_get_time() - c->original_time;
-						}
-
-						void muCOSA_X11_time_set(muCOSAResult* result, muCOSA_X11Context* c, double time) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							c->original_time = c->original_time + (muCOSA_X11_inner_get_time() - c->original_time) - time;
-						}
-
-						void muCOSA_X11_sleep(muCOSAResult* result, muCOSA_X11Context* c, double time) {
-							if (c) {}
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							MU_ASSERT(time >= 0.f, result, MUCOSA_INVALID_TIME, return;)
-
-							// https://stackoverflow.com/a/1157217
-
-							struct timespec ts;
-							ts.tv_sec = (time_t)time;
-							ts.tv_nsec = (long)(time * (double)1e+9);
-
-							mu_fflush(mu_stdout);
-							int n = nanosleep(&ts, NULL);
-
-							// Dunno about you guys, but nanosleep literally just doesn't work on my
-							// system. Literally, it always returns -1, I have never gotten it to work.
-							if (n != 0) {
-								sleep((unsigned)time);
-							}
-						}
-
-					/* Clipboard */
 
 						// https://www.uninformativ.de/blog/postings/2017-04-02/0/POSTING-en.html
-						muByte* muCOSA_X11_clipboard_get(muCOSAResult* result, muCOSA_X11Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							Display* d = 0;
-							Window w;
 
-							for (size_m i = 0; i < c->windows.length; i++) {
-								if (c->windows.data[i].active) {
-									d = c->windows.data[i].display;
-									w = c->windows.data[i].window;
-								}
-							}
-
-							muBool created = MU_FALSE;
-							if (d == 0) {
-								created = MU_TRUE;
-								d = XOpenDisplay(NULL);
-								w = XCreateSimpleWindow(d, RootWindow(d, DefaultScreen(d)), -10, -10, 1, 1, 0, 0, 0);
-							}
+						// I kinda like that this function is so independent... it's nice. Still ugly, tho.
+						muByte* muCOSA_X11_clipboard_get(muCOSAResult* result) {
+							Display* d = XOpenDisplay(NULL);
+							Window w = XCreateSimpleWindow(d, RootWindow(d, DefaultScreen(d)), -10, -10, 1, 1, 0, 0, 0);
 
 							Atom sel = XInternAtom(d, "CLIPBOARD", False);
 							Window owner = XGetSelectionOwner(d, sel);
@@ -37200,138 +34693,1338 @@ ensure that rendered buffer sections don't get modified, or else UB.
 								}
 							}
 
-							if (created) {
-								XCloseDisplay(d);
-							}
+							XCloseDisplay(d);
 							return data;
 						}
 
-						void muCOSA_X11_clipboard_set(muCOSAResult* result, muCOSA_X11Context* c, muByte* text, size_m text_size) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+				/* Context */
 
-							if (c->clipboard_thread_running) {
-								c->clipboard_thread_running = MU_FALSE;
-								MU_ASSERT(pthread_join(c->clipboard_thread, NULL) == 0, result, MUCOSA_FAILED_JOIN_THREAD, return;)
-								if (c->clipboard_text) {
-									mu_free(c->clipboard_text);
+					void muCOSA_X11_set_ic_locale(void) {
+						#ifndef MUCOSA_NO_LOCALE_MOD
+							mu_setlocale(MU_LC_CTYPE, "");
+							XSetLocaleModifiers("");
+						#endif
+					}
+
+					struct muCOSA_X11_context {
+						muCOSA_X11_time time;
+						muCOSA_X11_clipboard clipboard;
+					};
+					typedef struct muCOSA_X11_context muCOSA_X11_context;
+
+					void muCOSA_X11_context_init(muCOSA_X11_context* context) {
+						muCOSA_X11_set_ic_locale();
+						muCOSA_X11_time_init(&context->time);
+						muCOSA_X11_clipboard_init(&context->clipboard);
+					}
+
+					void muCOSA_X11_context_term(muCOSA_X11_context* context) {
+						muCOSA_X11_clipboard_term(&context->clipboard);
+					}
+
+				/* Window */
+
+					/* Setup */
+
+						struct muCOSA_X11_input {
+							muButtonState keyboard_key_states[MU_KEYBOARD_KEY_LAST-MU_KEYBOARD_KEY_FIRST+1];
+							muState keyboard_state_states[MU_KEYBOARD_STATE_LAST-MU_KEYBOARD_STATE_FIRST+1];
+							muButtonState mouse_button_states[MU_MOUSE_BUTTON_LAST-MU_MOUSE_BUTTON_FIRST+1];
+						};
+						typedef struct muCOSA_X11_input muCOSA_X11_input;
+
+						struct muCOSA_X11_ic {
+							muBool active;
+							void (*callback)(muWindow window, const char* input);
+							XIM im;
+							XIC ic;
+						};
+						typedef struct muCOSA_X11_ic muCOSA_X11_ic;
+
+						struct muCOSA_X11_window {
+							XSizeHints* size_hints;
+							Display* display;
+
+							Window parent_window;
+							Window window;
+
+							muGraphicsAPI api;
+							MUCOSA_OPENGL_CALL(
+								GLXContext gl_context;
+							)
+
+							muCursorStyle cursor_style;
+							Cursor cursor;
+
+							Atom delete_atom;
+
+							muCOSA_X11_input input;
+							muCOSA_X11_ic ic;
+
+							muBool closed;
+							muBool visible;
+							muBool resizable;
+							uint32_m min_width; uint32_m min_height;
+							uint32_m max_width; uint32_m max_height;
+							int32_m scroll_level;
+							int32_m x; int32_m y;
+							muBool minimized;
+							muBool maximized;
+							void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
+							void (*position_callback)(muWindow window, int32_m x, int32_m y);
+							void (*focus_callback)(muWindow window, muBool focused);
+							void (*maximize_callback)(muWindow window, muBool maximized);
+							void (*minimize_callback)(muWindow window, muBool minimized);
+							void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
+							void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
+							void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
+							void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
+							void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
+						};
+						typedef struct muCOSA_X11_window muCOSA_X11_window;
+
+						/* IC */
+
+							/* Event handling */
+
+								void muCOSA_X11_handle_text_input_event(muCOSA_X11_window* win, XKeyEvent* p_kev) {
+									// 12 should be enough for UTF-8
+									char utf8_buf[12]; mu_memset(utf8_buf, 0, sizeof(utf8_buf));
+									Status status = 0;
+									KeySym ksym;
+									size_m n = Xutf8LookupString(win->ic.ic, p_kev, utf8_buf, sizeof(utf8_buf)-1, &ksym, &status);
+
+									if (status == XBufferOverflow) {
+										// :P
+										return;
+									}
+
+									if (n && win->ic.callback) {
+										win->ic.callback(win, utf8_buf);
+									}
+								}
+
+							/* Get / Let */
+
+								void muCOSA_X11_window_update_text_cursor(muCOSA_X11_window* win, int32_m x, int32_m y) {
+									if (!win->ic.active) {
+										return;
+									}
+									XPoint point = { (short)x, (short)y };
+									XVaNestedList icval = XVaCreateNestedList(0, XNSpotLocation, &point, NULL);
+									if (icval) {
+										XSetICValues(win->ic.ic, XNPreeditAttributes, icval, NULL);
+										XFree(icval);
+									}
+								}
+
+								void muCOSA_X11_window_get_text_input_focus(muCOSAResult* result, muCOSA_X11_window* win, int32_m x, int32_m y, void (*callback)(muWindow window, const char* input)) {
+									if (win->ic.active) {
+										MU_SET_RESULT(result, MUCOSA_ALREADY_ACTIVE)
+										return;
+									}
+
+									// https://handmade.network/forums/articles/t/2834-tutorial_a_tour_through_xlib_and_related_technologies
+									win->ic.im = XOpenIM(win->display, 0, 0, 0);
+									if (!win->ic.im) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_INPUT_METHOD)
+										return;
+									}
+
+									XIMStyles* styles = 0;
+									if (XGetIMValues(win->ic.im, XNQueryInputStyle, &styles, NULL) || !styles) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_GET_INPUT_STYLES)
+										XCloseIM(win->ic.im);
+										return;
+									}
+
+									XIMStyle style = 0;
+									for (size_m i = 0; i < styles->count_styles; i++) {
+										if (styles->supported_styles[i] == (XIMPreeditNothing | XIMStatusNothing)) {
+											style = styles->supported_styles[i];
+											break;
+										}
+									}
+									XFree(styles);
+
+									if (!style) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE)
+										XCloseIM(win->ic.im);
+										return;
+									}
+
+									win->ic.ic = XCreateIC(win->ic.im, XNInputStyle, style, XNClientWindow, win->window, NULL);
+									if (!win->ic.ic) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_CREATE_INPUT_CONTEXT)
+										XCloseIM(win->ic.im);
+										return;
+									}
+									XSetICFocus(win->ic.ic);
+
+									win->ic.active = MU_TRUE;
+									muCOSA_X11_window_update_text_cursor(win, x, y);
+									win->ic.callback = callback;
+								}
+
+								void muCOSA_X11_window_let_text_input_focus(muCOSA_X11_window* win) {
+									if (!win->ic.active) {
+										return;
+									}
+
+									XDestroyIC(win->ic.ic);
+									XCloseIM(win->ic.im);
+
+									win->ic.active = MU_FALSE;
+									win->ic.callback = 0;
+								}
+
+						/* Input */
+
+							/* Keyboard key */
+
+								/* Useful functions */
+
+									// https://www.cl.cam.ac.uk/~mgk25/ucs/keysymdef.h
+										#define MUCOSA_X11_XK_VoidSymbol 0xffffff
+										#define MUCOSA_X11_XK_BackSpace 0xff08
+										#define MUCOSA_X11_XK_Tab 0xff09
+										#define MUCOSA_X11_XK_Clear 0xff0b
+										#define MUCOSA_X11_XK_Return 0xff0d
+										#define MUCOSA_X11_XK_Pause 0xff13
+										#define MUCOSA_X11_XK_Escape 0xff1b
+										#define MUCOSA_X11_XK_Mode_switch 0xff7e
+										#define MUCOSA_X11_XK_space 0x0020
+										#define MUCOSA_X11_XK_Prior 0xff55
+										#define MUCOSA_X11_XK_Next 0xff56
+										#define MUCOSA_X11_XK_End 0xff57
+										#define MUCOSA_X11_XK_Home 0xff50
+										#define MUCOSA_X11_XK_Left 0xff51
+										#define MUCOSA_X11_XK_Up 0xff52
+										#define MUCOSA_X11_XK_Right 0xff53
+										#define MUCOSA_X11_XK_Down 0xff54
+										#define MUCOSA_X11_XK_Select 0xff60
+										#define MUCOSA_X11_XK_Print 0xff61
+										#define MUCOSA_X11_XK_Execute 0xff62
+										#define MUCOSA_X11_XK_Insert 0xff63
+										#define MUCOSA_X11_XK_Delete 0xffff
+										#define MUCOSA_X11_XK_Help 0xff6a
+										#define MUCOSA_X11_XK_0 0x0030
+										#define MUCOSA_X11_XK_1 0x0031
+										#define MUCOSA_X11_XK_2 0x0032
+										#define MUCOSA_X11_XK_3 0x0033
+										#define MUCOSA_X11_XK_4 0x0034
+										#define MUCOSA_X11_XK_5 0x0035
+										#define MUCOSA_X11_XK_6 0x0036
+										#define MUCOSA_X11_XK_7 0x0037
+										#define MUCOSA_X11_XK_8 0x0038
+										#define MUCOSA_X11_XK_9 0x0039
+										#define MUCOSA_X11_XK_a 0x0061
+										#define MUCOSA_X11_XK_b 0x0062
+										#define MUCOSA_X11_XK_c 0x0063
+										#define MUCOSA_X11_XK_d 0x0064
+										#define MUCOSA_X11_XK_e 0x0065
+										#define MUCOSA_X11_XK_f 0x0066
+										#define MUCOSA_X11_XK_g 0x0067
+										#define MUCOSA_X11_XK_h 0x0068
+										#define MUCOSA_X11_XK_i 0x0069
+										#define MUCOSA_X11_XK_j 0x006a
+										#define MUCOSA_X11_XK_k 0x006b
+										#define MUCOSA_X11_XK_l 0x006c
+										#define MUCOSA_X11_XK_m 0x006d
+										#define MUCOSA_X11_XK_n 0x006e
+										#define MUCOSA_X11_XK_o 0x006f
+										#define MUCOSA_X11_XK_p 0x0070
+										#define MUCOSA_X11_XK_q 0x0071
+										#define MUCOSA_X11_XK_r 0x0072
+										#define MUCOSA_X11_XK_s 0x0073
+										#define MUCOSA_X11_XK_t 0x0074
+										#define MUCOSA_X11_XK_u 0x0075
+										#define MUCOSA_X11_XK_v 0x0076
+										#define MUCOSA_X11_XK_w 0x0077
+										#define MUCOSA_X11_XK_x 0x0078
+										#define MUCOSA_X11_XK_y 0x0079
+										#define MUCOSA_X11_XK_z 0x007a
+										#define MUCOSA_X11_XK_Super_L 0xffeb
+										#define MUCOSA_X11_XK_Super_R 0xffec
+										#define MUCOSA_X11_XK_KP_0 0xffb0
+										#define MUCOSA_X11_XK_KP_1 0xffb1
+										#define MUCOSA_X11_XK_KP_2 0xffb2
+										#define MUCOSA_X11_XK_KP_3 0xffb3
+										#define MUCOSA_X11_XK_KP_4 0xffb4
+										#define MUCOSA_X11_XK_KP_5 0xffb5
+										#define MUCOSA_X11_XK_KP_6 0xffb6
+										#define MUCOSA_X11_XK_KP_7 0xffb7
+										#define MUCOSA_X11_XK_KP_8 0xffb8
+										#define MUCOSA_X11_XK_KP_9 0xffb9
+										#define MUCOSA_X11_XK_KP_Multiply 0xffaa
+										#define MUCOSA_X11_XK_KP_Add 0xffab
+										#define MUCOSA_X11_XK_KP_Separator 0xffac
+										#define MUCOSA_X11_XK_KP_Subtract 0xffad
+										#define MUCOSA_X11_XK_KP_Decimal 0xffae
+										#define MUCOSA_X11_XK_KP_Divide 0xffaf
+										#define MUCOSA_X11_XK_F1 0xffbe
+										#define MUCOSA_X11_XK_F2 0xffbf
+										#define MUCOSA_X11_XK_F3 0xffc0
+										#define MUCOSA_X11_XK_F4 0xffc1
+										#define MUCOSA_X11_XK_F5 0xffc2
+										#define MUCOSA_X11_XK_F6 0xffc3
+										#define MUCOSA_X11_XK_F7 0xffc4
+										#define MUCOSA_X11_XK_F8 0xffc5
+										#define MUCOSA_X11_XK_F9 0xffc6
+										#define MUCOSA_X11_XK_F10 0xffc7
+										#define MUCOSA_X11_XK_F11 0xffc8
+										#define MUCOSA_X11_XK_F12 0xffc9
+										#define MUCOSA_X11_XK_F13 0xffca
+										#define MUCOSA_X11_XK_F14 0xffcb
+										#define MUCOSA_X11_XK_F15 0xffcc
+										#define MUCOSA_X11_XK_F16 0xffcd
+										#define MUCOSA_X11_XK_F17 0xffce
+										#define MUCOSA_X11_XK_F18 0xffcf
+										#define MUCOSA_X11_XK_F19 0xffd0
+										#define MUCOSA_X11_XK_F20 0xffd1
+										#define MUCOSA_X11_XK_F21 0xffd2
+										#define MUCOSA_X11_XK_F22 0xffd3
+										#define MUCOSA_X11_XK_F23 0xffd4
+										#define MUCOSA_X11_XK_F24 0xffd5
+										#define MUCOSA_X11_XK_Num_Lock 0xff7f
+										#define MUCOSA_X11_XK_Scroll_Lock 0xff14
+										#define MUCOSA_X11_XK_Shift_L 0xffe1
+										#define MUCOSA_X11_XK_Shift_R 0xffe2
+										#define MUCOSA_X11_XK_Control_L 0xffe3
+										#define MUCOSA_X11_XK_Control_R 0xffe4
+										#define MUCOSA_X11_XK_Menu 0xff67
+										#define MUCOSA_X11_XK_3270_Attn 0xfd0e
+										#define MUCOSA_X11_XK_3270_CursorSelect 0xfd1c
+										#define MUCOSA_X11_XK_3270_ExSelect 0xfd1b
+										#define MUCOSA_X11_XK_3270_EraseEOF 0xfd06
+										#define MUCOSA_X11_XK_3270_Play 0xfd16
+										#define MUCOSA_X11_XK_3270_PA1 0xfd0a
+
+									muKeyboardKey muCOSA_X11_XK_key_to_keyboard_key(int key) {
+										switch (key) {
+											default: return MU_KEYBOARD_KEY_UNKNOWN; break;
+											case MUCOSA_X11_XK_BackSpace: return MU_KEYBOARD_KEY_BACKSPACE; break;
+											case MUCOSA_X11_XK_Tab: return MU_KEYBOARD_KEY_TAB; break;
+											case MUCOSA_X11_XK_Clear: return MU_KEYBOARD_KEY_CLEAR; break;
+											case MUCOSA_X11_XK_Return: return MU_KEYBOARD_KEY_RETURN; break;
+											case MUCOSA_X11_XK_Menu: return MU_KEYBOARD_KEY_LEFT_MENU; break;
+											case MUCOSA_X11_XK_Pause: return MU_KEYBOARD_KEY_PAUSE; break;
+											case MUCOSA_X11_XK_Escape: return MU_KEYBOARD_KEY_ESCAPE; break;
+											case MUCOSA_X11_XK_Mode_switch: return MU_KEYBOARD_KEY_MODECHANGE; break;
+											case MUCOSA_X11_XK_space: return MU_KEYBOARD_KEY_SPACE; break;
+											case MUCOSA_X11_XK_Prior: return MU_KEYBOARD_KEY_PRIOR; break;
+											case MUCOSA_X11_XK_Next: return MU_KEYBOARD_KEY_NEXT; break;
+											case MUCOSA_X11_XK_End: return MU_KEYBOARD_KEY_END; break;
+											case MUCOSA_X11_XK_Home: return MU_KEYBOARD_KEY_HOME; break;
+											case MUCOSA_X11_XK_Left: return MU_KEYBOARD_KEY_LEFT; break;
+											case MUCOSA_X11_XK_Up: return MU_KEYBOARD_KEY_UP; break;
+											case MUCOSA_X11_XK_Right: return MU_KEYBOARD_KEY_RIGHT; break;
+											case MUCOSA_X11_XK_Down: return MU_KEYBOARD_KEY_DOWN; break;
+											case MUCOSA_X11_XK_Select: return MU_KEYBOARD_KEY_SELECT; break;
+											case MUCOSA_X11_XK_Print: return MU_KEYBOARD_KEY_PRINT; break;
+											case MUCOSA_X11_XK_Execute: return MU_KEYBOARD_KEY_EXECUTE; break;
+											case MUCOSA_X11_XK_Insert: return MU_KEYBOARD_KEY_INSERT; break;
+											case MUCOSA_X11_XK_Delete: return MU_KEYBOARD_KEY_DELETE; break;
+											case MUCOSA_X11_XK_Help: return MU_KEYBOARD_KEY_HELP; break;
+											case MUCOSA_X11_XK_0: return MU_KEYBOARD_KEY_0; break;
+											case MUCOSA_X11_XK_1: return MU_KEYBOARD_KEY_1; break;
+											case MUCOSA_X11_XK_2: return MU_KEYBOARD_KEY_2; break;
+											case MUCOSA_X11_XK_3: return MU_KEYBOARD_KEY_3; break;
+											case MUCOSA_X11_XK_4: return MU_KEYBOARD_KEY_4; break;
+											case MUCOSA_X11_XK_5: return MU_KEYBOARD_KEY_5; break;
+											case MUCOSA_X11_XK_6: return MU_KEYBOARD_KEY_6; break;
+											case MUCOSA_X11_XK_7: return MU_KEYBOARD_KEY_7; break;
+											case MUCOSA_X11_XK_8: return MU_KEYBOARD_KEY_8; break;
+											case MUCOSA_X11_XK_9: return MU_KEYBOARD_KEY_9; break;
+											case MUCOSA_X11_XK_a: return MU_KEYBOARD_KEY_A; break;
+											case MUCOSA_X11_XK_b: return MU_KEYBOARD_KEY_B; break;
+											case MUCOSA_X11_XK_c: return MU_KEYBOARD_KEY_C; break;
+											case MUCOSA_X11_XK_d: return MU_KEYBOARD_KEY_D; break;
+											case MUCOSA_X11_XK_e: return MU_KEYBOARD_KEY_E; break;
+											case MUCOSA_X11_XK_f: return MU_KEYBOARD_KEY_F; break;
+											case MUCOSA_X11_XK_g: return MU_KEYBOARD_KEY_G; break;
+											case MUCOSA_X11_XK_h: return MU_KEYBOARD_KEY_H; break;
+											case MUCOSA_X11_XK_i: return MU_KEYBOARD_KEY_I; break;
+											case MUCOSA_X11_XK_j: return MU_KEYBOARD_KEY_J; break;
+											case MUCOSA_X11_XK_k: return MU_KEYBOARD_KEY_K; break;
+											case MUCOSA_X11_XK_l: return MU_KEYBOARD_KEY_L; break;
+											case MUCOSA_X11_XK_m: return MU_KEYBOARD_KEY_M; break;
+											case MUCOSA_X11_XK_n: return MU_KEYBOARD_KEY_N; break;
+											case MUCOSA_X11_XK_o: return MU_KEYBOARD_KEY_O; break;
+											case MUCOSA_X11_XK_p: return MU_KEYBOARD_KEY_P; break;
+											case MUCOSA_X11_XK_q: return MU_KEYBOARD_KEY_Q; break;
+											case MUCOSA_X11_XK_r: return MU_KEYBOARD_KEY_R; break;
+											case MUCOSA_X11_XK_s: return MU_KEYBOARD_KEY_S; break;
+											case MUCOSA_X11_XK_t: return MU_KEYBOARD_KEY_T; break;
+											case MUCOSA_X11_XK_u: return MU_KEYBOARD_KEY_U; break;
+											case MUCOSA_X11_XK_v: return MU_KEYBOARD_KEY_V; break;
+											case MUCOSA_X11_XK_w: return MU_KEYBOARD_KEY_W; break;
+											case MUCOSA_X11_XK_x: return MU_KEYBOARD_KEY_X; break;
+											case MUCOSA_X11_XK_y: return MU_KEYBOARD_KEY_Y; break;
+											case MUCOSA_X11_XK_z: return MU_KEYBOARD_KEY_Z; break;
+											case MUCOSA_X11_XK_Super_L: return MU_KEYBOARD_KEY_LEFT_WINDOWS; break;
+											case MUCOSA_X11_XK_Super_R: return MU_KEYBOARD_KEY_RIGHT_WINDOWS; break;
+											case MUCOSA_X11_XK_KP_0: return MU_KEYBOARD_KEY_NUMPAD_0; break;
+											case MUCOSA_X11_XK_KP_1: return MU_KEYBOARD_KEY_NUMPAD_1; break;
+											case MUCOSA_X11_XK_KP_2: return MU_KEYBOARD_KEY_NUMPAD_2; break;
+											case MUCOSA_X11_XK_KP_3: return MU_KEYBOARD_KEY_NUMPAD_3; break;
+											case MUCOSA_X11_XK_KP_4: return MU_KEYBOARD_KEY_NUMPAD_4; break;
+											case MUCOSA_X11_XK_KP_5: return MU_KEYBOARD_KEY_NUMPAD_5; break;
+											case MUCOSA_X11_XK_KP_6: return MU_KEYBOARD_KEY_NUMPAD_6; break;
+											case MUCOSA_X11_XK_KP_7: return MU_KEYBOARD_KEY_NUMPAD_7; break;
+											case MUCOSA_X11_XK_KP_8: return MU_KEYBOARD_KEY_NUMPAD_8; break;
+											case MUCOSA_X11_XK_KP_9: return MU_KEYBOARD_KEY_NUMPAD_9; break;
+											case MUCOSA_X11_XK_KP_Multiply: return MU_KEYBOARD_KEY_MULTIPLY; break;
+											case MUCOSA_X11_XK_KP_Add: return MU_KEYBOARD_KEY_ADD; break;
+											case MUCOSA_X11_XK_KP_Separator: return MU_KEYBOARD_KEY_SEPARATOR; break;
+											case MUCOSA_X11_XK_KP_Subtract: return MU_KEYBOARD_KEY_SUBTRACT; break;
+											case MUCOSA_X11_XK_KP_Decimal: return MU_KEYBOARD_KEY_DECIMAL; break;
+											case MUCOSA_X11_XK_KP_Divide: return MU_KEYBOARD_KEY_DIVIDE; break;
+											case MUCOSA_X11_XK_F1: return MU_KEYBOARD_KEY_F1; break;
+											case MUCOSA_X11_XK_F2: return MU_KEYBOARD_KEY_F2; break;
+											case MUCOSA_X11_XK_F3: return MU_KEYBOARD_KEY_F3; break;
+											case MUCOSA_X11_XK_F4: return MU_KEYBOARD_KEY_F4; break;
+											case MUCOSA_X11_XK_F5: return MU_KEYBOARD_KEY_F5; break;
+											case MUCOSA_X11_XK_F6: return MU_KEYBOARD_KEY_F6; break;
+											case MUCOSA_X11_XK_F7: return MU_KEYBOARD_KEY_F7; break;
+											case MUCOSA_X11_XK_F8: return MU_KEYBOARD_KEY_F8; break;
+											case MUCOSA_X11_XK_F9: return MU_KEYBOARD_KEY_F9; break;
+											case MUCOSA_X11_XK_F10: return MU_KEYBOARD_KEY_F10; break;
+											case MUCOSA_X11_XK_F11: return MU_KEYBOARD_KEY_F11; break;
+											case MUCOSA_X11_XK_F12: return MU_KEYBOARD_KEY_F12; break;
+											case MUCOSA_X11_XK_F13: return MU_KEYBOARD_KEY_F13; break;
+											case MUCOSA_X11_XK_F14: return MU_KEYBOARD_KEY_F14; break;
+											case MUCOSA_X11_XK_F15: return MU_KEYBOARD_KEY_F15; break;
+											case MUCOSA_X11_XK_F16: return MU_KEYBOARD_KEY_F16; break;
+											case MUCOSA_X11_XK_F17: return MU_KEYBOARD_KEY_F17; break;
+											case MUCOSA_X11_XK_F18: return MU_KEYBOARD_KEY_F18; break;
+											case MUCOSA_X11_XK_F19: return MU_KEYBOARD_KEY_F19; break;
+											case MUCOSA_X11_XK_F20: return MU_KEYBOARD_KEY_F20; break;
+											case MUCOSA_X11_XK_F21: return MU_KEYBOARD_KEY_F21; break;
+											case MUCOSA_X11_XK_F22: return MU_KEYBOARD_KEY_F22; break;
+											case MUCOSA_X11_XK_F23: return MU_KEYBOARD_KEY_F23; break;
+											case MUCOSA_X11_XK_F24: return MU_KEYBOARD_KEY_F24; break;
+											case MUCOSA_X11_XK_Num_Lock: return MU_KEYBOARD_KEY_NUMLOCK; break;
+											case MUCOSA_X11_XK_Scroll_Lock: return MU_KEYBOARD_KEY_SCROLL; break;
+											case MUCOSA_X11_XK_Shift_L: return MU_KEYBOARD_KEY_LEFT_SHIFT; break;
+											case MUCOSA_X11_XK_Shift_R: return MU_KEYBOARD_KEY_RIGHT_SHIFT; break;
+											case MUCOSA_X11_XK_Control_L: return MU_KEYBOARD_KEY_LEFT_CONTROL; break;
+											case MUCOSA_X11_XK_Control_R: return MU_KEYBOARD_KEY_RIGHT_CONTROL; break;
+											case MUCOSA_X11_XK_3270_Attn: return MU_KEYBOARD_KEY_ATTN; break;
+											case MUCOSA_X11_XK_3270_CursorSelect: return MU_KEYBOARD_KEY_CRSEL; break;
+											case MUCOSA_X11_XK_3270_ExSelect: return MU_KEYBOARD_KEY_EXSEL; break;
+											case MUCOSA_X11_XK_3270_EraseEOF: return MU_KEYBOARD_KEY_EREOF; break;
+											case MUCOSA_X11_XK_3270_Play: return MU_KEYBOARD_KEY_PLAY; break;
+											case MUCOSA_X11_XK_3270_PA1: return MU_KEYBOARD_KEY_PA1; break;
+										}
+									}
+
+								/* Event handling */
+
+									void muCOSA_X11_input_handle_keyboard_key(muCOSA_X11_window* win, XKeyEvent* p_kev, unsigned int keycode, muByte down) {
+										muKeyboardKey key = muCOSA_X11_XK_key_to_keyboard_key(XkbKeycodeToKeysym(win->display, keycode, 0, 0));
+										if (key != MU_KEYBOARD_KEY_UNKNOWN) {
+											win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST] = down;
+
+											if (win->keyboard_key_callback != MU_NULL_PTR) {
+												win->keyboard_key_callback(win, key, win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST]);
+											}
+										}
+
+										if (win->ic.active && win->ic.callback) {
+											muCOSA_X11_handle_text_input_event(win, p_kev);
+										}
+									}
+
+								/* Get */
+
+									muButtonState muCOSA_X11_window_get_keyboard_key_state(muCOSA_X11_window* win, muKeyboardKey key) {
+										return win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST];
+									}
+
+							/* Keyboard state */
+
+								/* Event handling */
+
+									void muCOSA_X11_input_check_state(muCOSA_X11_window* win, unsigned int n, const char* name, muKeyboardState state) {
+										muBool check = (n & XInternAtom(win->display, name, False)) == 1;
+
+										if (check != win->input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST]) {
+											win->input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST] = check;
+
+											if (win->keyboard_state_callback != 0) {
+												win->keyboard_state_callback(win, state, check);
+											}
+										}
+									}
+
+									void muCOSA_X11_input_handle_states(muCOSA_X11_window* win) {
+										// http://levonp.blogspot.com/2010/08/retrieving-caps-lock-info-using-xlib.html
+										unsigned int n;
+										XkbGetIndicatorState(win->display, XkbUseCoreKbd, &n);
+
+										muCOSA_X11_input_check_state(win, n, "Caps Lock", MU_KEYBOARD_STATE_CAPS_LOCK);
+										muCOSA_X11_input_check_state(win, n, "Num Lock", MU_KEYBOARD_STATE_NUM_LOCK);
+										// Been having issues with this... being triggered by Caps Lock and Num Lock
+										// sometimes... :L
+										muCOSA_X11_input_check_state(win, n, "Scroll Lock", MU_KEYBOARD_STATE_SCROLL_LOCK);
+									}
+
+								/* Get */
+
+									muState muCOSA_X11_window_get_keyboard_state_state(muCOSA_X11_window* win, muKeyboardState state) {
+										return win->input.keyboard_state_states[state-MU_KEYBOARD_STATE_FIRST];
+									}
+
+							/* Cursor */
+
+								/* Useful functions */
+
+									int muCOSA_X11_cursor_get_style(muCursorStyle style) {
+										switch (style) {
+											default: return 2; break;
+											case MU_CURSOR_STYLE_IBEAM: return 152; break;
+											case MU_CURSOR_STYLE_WAIT: case MU_CURSOR_STYLE_WAIT_ARROW: return 150; break;
+											case MU_CURSOR_STYLE_CROSSHAIR: return 34; break;
+											case MU_CURSOR_STYLE_HAND: return 58; break;
+											case MU_CURSOR_STYLE_SIZE_EAST_WEST: return 108; break;
+											case MU_CURSOR_STYLE_SIZE_NORTH_SOUTH: return 116; break;
+											case MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST: case MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST: return 120; break;
+											case MU_CURSOR_STYLE_SIZE_ALL: return 52; break;
+											case MU_CURSOR_STYLE_NO: return 0; break;
+										}
+									}
+
+								/* Event handling */
+
+									void muCOSA_X11_input_handle_cursor_button(muCOSA_X11_window* win, int button, muByte down) {
+										switch (button) {
+											default: break;
+
+											case Button1: {
+												win->input.mouse_button_states[MU_MOUSE_BUTTON_LEFT-MU_MOUSE_BUTTON_FIRST] = down;
+												if (win->mouse_button_callback != 0) {
+													win->mouse_button_callback(win, MU_MOUSE_BUTTON_LEFT, down);
+												}
+											} break;
+
+											case Button2: {
+												win->input.mouse_button_states[MU_MOUSE_BUTTON_MIDDLE-MU_MOUSE_BUTTON_FIRST] = down;
+												if (win->mouse_button_callback != 0) {
+													win->mouse_button_callback(win, MU_MOUSE_BUTTON_MIDDLE, down);
+												}
+											} break;
+
+											case Button3: {
+												win->input.mouse_button_states[MU_MOUSE_BUTTON_RIGHT-MU_MOUSE_BUTTON_FIRST] = down;
+												if (win->mouse_button_callback != 0) {
+													win->mouse_button_callback(win, MU_MOUSE_BUTTON_RIGHT, down);
+												}
+											} break;
+
+											// Not 100% sure if 120 is the appropriate value here for matching with Win32's WM_MOUSEWHEEL.
+
+											/* Scroll wheel up */
+											case Button4: {
+												if (!down) {
+													win->scroll_level += 120;
+												}
+												if (win->scroll_callback != 0) {
+													win->scroll_callback(win, 120);
+												}
+											} break;
+
+											/* Scroll wheel down */
+											case Button5: {
+												if (!down) {
+													win->scroll_level -= 120;
+												}
+												if (win->scroll_callback != 0) {
+													win->scroll_callback(win, -120);
+												}
+											} break;
+										}
+									}
+
+									void muCOSA_X11_input_handle_cursor_motion(muCOSA_X11_window* win, XMotionEvent motion_event) {
+										if (win->cursor_position_callback != 0) {
+											win->cursor_position_callback(win, (int32_m)motion_event.x, (int32_m)motion_event.y);
+										}
+									}
+
+								/* Get / Set */
+
+									void muCOSA_X11_window_get_position(muCOSA_X11_window* win, int32_m* wx, int32_m* wy);
+									void muCOSA_X11_window_get_cursor_position(muCOSAResult* result, muCOSA_X11_window* win, int32_m* x, int32_m* y) {
+										// https://stackoverflow.com/questions/3585871/how-can-i-get-the-current-mouse-pointer-position-co-ordinates-in-x
+										int screen_count = XScreenCount(win->display);
+
+										Bool oresult = False;
+										int root_x, root_y;
+										for (int i = 0; i < screen_count; i++) {
+											Window root_window = XRootWindow(win->display, i);
+
+											Window window_ret, window_chi;
+											int win_x, win_y;
+											unsigned int mask_return;
+											oresult = XQueryPointer(win->display, root_window,  &window_ret, &window_chi, &root_x, &root_y, &win_x, &win_y, &mask_return);
+											// "window_ret" is the window the cursor is located in
+											// "root_x" and "root_y" are cursor pos relative to "window_ret"
+											// "win_x" and "win_y" are cursor pos relative to "root_window" (which I'm pretty sure is the whole display)
+
+											if (oresult == True) {
+												int32_m wx, wy;
+												muCOSA_X11_window_get_position(win, &wx, &wy);
+
+												// I really don't get how this works, lol...
+												MU_SET_RESULT(x, (int32_m)win_x - wx)
+												MU_SET_RESULT(y, (int32_m)win_y - wy)
+												return;
+											}
+										}
+
+										MU_SET_RESULT(result, MUCOSA_NONEXISTENT_DEVICE)
+									}
+
+									void muCOSA_X11_window_set_cursor_position(muCOSA_X11_window* win, int32_m x, int32_m y) {
+										XWarpPointer(win->display, win->window, win->window, 0, 0, 0, 0, x, y);
+										 XFlush(win->display);
+									}
+
+									muCursorStyle muCOSA_X11_window_get_cursor_style(muCOSA_X11_window* win) {
+										return win->cursor_style;
+									}
+
+									void muCOSA_X11_window_set_cursor_style(muCOSA_X11_window* win, muCursorStyle style) {
+										XUndefineCursor(win->display, win->window);
+										XFreeCursor(win->display, win->cursor);
+
+										win->cursor_style = style;
+										win->cursor = XCreateFontCursor(win->display, muCOSA_X11_cursor_get_style(style));
+										XDefineCursor(win->display, win->window, win->cursor);
+									}
+
+									int32_m muCOSA_X11_window_get_scroll_level(muCOSA_X11_window* win) {
+										return win->scroll_level;
+									}
+
+									void muCOSA_X11_window_set_scroll_level(muCOSA_X11_window* win, int32_m scroll_level) {
+										win->scroll_level = scroll_level;
+									}
+
+								/* Get */
+
+									muButtonState muCOSA_X11_window_get_mouse_button_state(muCOSA_X11_window* win, muMouseButton button) {
+										return win->input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST];
+									}
+
+							/* Global handling */
+
+								void muCOSA_X11_window_get_position(muCOSA_X11_window* win, int32_m* x, int32_m* y);
+								void muCOSA_X11_input_handle_event(muCOSA_X11_window* win, XEvent event) {
+									switch (event.type) {
+										default: return; break;
+
+										/* Refreshing keyboard mapping */
+										case KeymapNotify: XRefreshKeyboardMapping(&event.xmapping); break;
+
+										/* Closing the window */
+										case ClientMessage: {
+											if (event.xclient.data.l[0] == (long int)win->delete_atom) {
+												XUnmapWindow(win->display, win->window);
+												win->closed = MU_TRUE;
+											}
+										} break;
+
+										/* Mouse button press/release */
+										case ButtonPress: muCOSA_X11_input_handle_cursor_button(win, event.xbutton.button, MU_TRUE); break;
+										case ButtonRelease: muCOSA_X11_input_handle_cursor_button(win, event.xbutton.button, MU_FALSE); break;
+										/* Mouse button movement */
+										case MotionNotify: muCOSA_X11_input_handle_cursor_motion(win, event.xmotion); break;
+
+										/* Keyboard key press/release */
+										case KeyPress: muCOSA_X11_input_handle_keyboard_key(win, &event.xkey, event.xkey.keycode, MU_TRUE); break;
+										case KeyRelease: muCOSA_X11_input_handle_keyboard_key(win, &event.xkey, event.xkey.keycode, MU_FALSE); break;
+
+										/* Dimension changing */
+										case Expose: {
+											XWindowAttributes attribs;
+											XGetWindowAttributes(win->display, win->window, &attribs);
+											if (win->dimensions_callback != 0) {
+												win->dimensions_callback(win, (uint32_m)attribs.width, (uint32_m)attribs.height);
+											}
+										} break;
+
+										/* Position changing */
+										case ConfigureNotify: {
+											// This is given incorrect values sometimes, so we just have to manually get the
+											// position. :L
+											int32_m wx, wy;
+											muCOSA_X11_window_get_position(win, &wx, &wy);
+											if (win->x != wx || win->y != wy) {
+												win->x = wx;
+												win->y = wy;
+												if (win->position_callback != 0) {
+													win->position_callback(win, win->x, win->y);
+												}
+											}
+										} break;
+
+										/* Focusing in/out */
+										// @TODO Fix FocusIn/FocusOut getting called when window is being dragged
+										case FocusIn: {
+											if (win->ic.active) {
+												XSetICFocus(win->ic.ic);
+											}
+											if (win->focus_callback != 0) {
+												win->focus_callback(win, MU_TRUE);
+											}
+										} break;
+										case FocusOut: {
+											if (win->ic.active) {
+												XUnsetICFocus(win->ic.ic);
+											}
+											if (win->focus_callback != 0) {
+												win->focus_callback(win, MU_FALSE);
+											}
+										} break;
+									}
+								}
+
+								void muCOSA_X11_input_handle_focus_flushing(muCOSA_X11_window* win) {
+									Window focused_window;
+									int revert_to;
+									XGetInputFocus(win->display, &focused_window, &revert_to);
+
+									if (focused_window != win->window) {
+										win->input = MU_ZERO_STRUCT(muCOSA_X11_input);
+									}
+								}
+
+								muBool muCOSA_X11_window_get_maximized(muCOSA_X11_window* win);
+								muBool muCOSA_X11_window_get_minimized(muCOSA_X11_window* win);
+								void muCOSA_X11_input_handle_min_max_events(muCOSA_X11_window* win) {
+									muBool maximized = muCOSA_X11_window_get_maximized(win);
+									if (win->maximized != maximized) {
+										win->maximized = maximized;
+										if (win->maximize_callback != 0) {
+											win->maximize_callback(win, maximized);
+										}
+									}
+
+									muBool minimized = muCOSA_X11_window_get_minimized(win);
+									if (win->minimized != minimized) {
+										win->minimized = minimized;
+										if (win->minimize_callback != 0) {
+											win->minimize_callback(win, minimized);
+										}
+									}
+								}
+
+						/* Creation / Destruction */
+
+							int muCOSA_X11_cursor_get_style(muCursorStyle style);
+							void muCOSA_X11_window_set_maximized(muCOSA_X11_window* win, muBool maximized);
+							void muCOSA_X11_window_set_minimized(muCOSA_X11_window* win, muBool minimized);
+							void muCOSA_X11_window_set_position(muCOSA_X11_window* win, int32_m x, int32_m y);
+							void muCOSA_X11_window_create(muCOSA_X11_window* win, muCOSAResult* result, muGraphicsAPI api, muBool (*load_functions)(void), const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info) {
+								/* Size hints and display */
+
+									win->size_hints = XAllocSizeHints();
+									if (win->size_hints == 0) {
+										MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+										return;
+									}
+
+									win->display = XOpenDisplay(0);
+									if (win->display == NULL) {
+										MU_SET_RESULT(result, MUCOSA_FAILED_CONNECTION_TO_SERVER)
+										XFree(win->size_hints);
+										return;
+									}
+
+									// From here on out, calling XCloseDisplay will close all objects created with the
+									// display, so don't worry about it.
+									// https://www.x.org/releases/X11R7.5/doc/man/man3/XOpenDisplay.3.html
+
+								/* Window */
+
+									win->parent_window = DefaultRootWindow(win->display);
+
+									/* Visual */
+
+										XVisualInfo* vi = 0;
+										MUCOSA_OPENGL_CALL(
+											muCOSA_X11_gl_attributes gl_att = MU_ZERO_STRUCT(muCOSA_X11_gl_attributes); if (gl_att.att[2]) {}
+											GLXFBConfig* fbcs = 0;
+											GLXFBConfig fbc;
+											int fbc_count = 0;
+										)
+
+										win->api = api;
+										if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+											MUCOSA_OPENGL_CALL(
+												gl_att = muCOSA_X11_get_gl_attributes(create_info.pixel_format);
+												fbcs = glXChooseFBConfig(win->display, DefaultScreen(win->display), gl_att.att, &fbc_count);
+
+												if (fbcs != 0) {
+													// @TODO Choose best format
+													fbc = fbcs[0];
+													XFree(fbcs);
+													vi = glXGetVisualFromFBConfig(win->display, fbc);
+												}
+											)
+										}
+
+									/* Attributes */
+
+										// I'm pretty sure this isn't being done right... :L
+										int depth = 8*3;
+										Visual* v = 0;
+										unsigned long valuemask = CWEventMask;
+										XSetWindowAttributes win_attribs = MU_ZERO_STRUCT(XSetWindowAttributes);
+										win_attribs.event_mask = ExposureMask | StructureNotifyMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask | FocusChangeMask;
+
+										if (vi != 0) {
+											depth = vi->depth;
+											v = vi->visual;
+
+											win_attribs.colormap = XCreateColormap(win->display, win->parent_window, vi->visual, AllocNone);
+											valuemask |= CWColormap;
+										}
+
+									/* Creation */
+
+										// @TODO Figure out how to tell if this worked or not
+										win->window = XCreateWindow(win->display, win->parent_window, 0, 0, (unsigned int)width, (unsigned int)height, 0, depth, InputOutput, v, valuemask, &win_attribs);
+
+										if (vi != 0) {
+											XFree(vi);
+										}
+
+								/* Cursor */
+
+									win->cursor_style = create_info.cursor_style;
+									win->cursor = XCreateFontCursor(win->display, muCOSA_X11_cursor_get_style(win->cursor_style));
+									XDefineCursor(win->display, win->window, win->cursor);
+
+								/* Graphics API */
+
+									/* Initialization */
+
+										if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+											MUCOSA_OPENGL_CALL(
+												muCOSAResult res = muCOSA_X11_init_opengl(win->display, &win->gl_context, api, fbc);
+												if (res != MUCOSA_SUCCESS) {
+													MU_SET_RESULT(result, res)
+													XFree(win->size_hints);
+													XSync(win->display, False);
+													XCloseDisplay(win->display);
+												}
+											)
+										}
+
+									/* Loading */
+
+										if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+											MUCOSA_OPENGL_CALL(
+												glXMakeCurrent(win->display, win->window, win->gl_context);
+											)
+										}
+
+										if (load_functions != 0) {
+											if (!load_functions()) {
+												if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
+													MUCOSA_OPENGL_CALL(glXDestroyContext(win->display, win->gl_context);)
+												}
+												XFree(win->size_hints);
+												XSync(win->display, False);
+												XCloseDisplay(win->display);
+											}
+										}
+
+								/* Name */
+
+									XChangeProperty(win->display, win->window, XInternAtom(win->display, "_NET_WM_NAME", False), XInternAtom(win->display, "UTF8_STRING", False), 8, PropModeReplace, (unsigned char*)name, mu_strlen(name));
+
+								/* Delete message */
+
+									win->delete_atom = XInternAtom(win->display, "WM_DELETE_WINDOW", False);
+									XSetWMProtocols(win->display, win->window, &win->delete_atom, 1);
+
+								/* Size hints */
+
+									*win->size_hints = MU_ZERO_STRUCT(XSizeHints);
+									win->size_hints->flags = PPosition | PMinSize | PMaxSize;
+									win->size_hints->x = create_info.x;
+									win->size_hints->y = create_info.y;
+									win->size_hints->min_width = create_info.min_width;
+									win->size_hints->min_height = create_info.min_height;
+									win->size_hints->max_width = create_info.max_width;
+									win->size_hints->max_height = create_info.max_height;
+									if (!create_info.resizable) {
+										win->size_hints->min_width = width;
+										win->size_hints->min_height = height;
+										win->size_hints->max_width = width;
+										win->size_hints->max_height = height;
+									}
+									XSetWMNormalHints(win->display, win->window, win->size_hints);
+
+								/* Map */
+
+									if (create_info.visible) {
+										XMapWindow(win->display, win->window);
+									}
+									XSync(win->display, False);
+
+									muCOSA_X11_window_set_maximized(win, create_info.maximized);
+									muCOSA_X11_window_set_minimized(win, create_info.minimized);
+
+								/* Position */
+
+									for (size_m i = 0; i < 10; i++) {
+										muCOSA_X11_window_set_position(win, create_info.x, create_info.y);
+									}
+
+								/* Give */
+
+									win->input = MU_ZERO_STRUCT(muCOSA_X11_input);
+									win->ic = MU_ZERO_STRUCT(muCOSA_X11_ic);
+									win->closed = MU_FALSE;
+									win->visible = create_info.visible;
+									win->resizable = create_info.resizable;
+									win->min_width = create_info.min_width;
+									win->min_height = create_info.min_height;
+									win->max_width = create_info.max_width;
+									win->max_height = create_info.max_height;
+									win->scroll_level = 0;
+									win->x = create_info.x;
+									win->y = create_info.y;
+									win->minimized = create_info.minimized;
+									win->maximized = create_info.maximized;
+									win->dimensions_callback = create_info.dimensions_callback;
+									win->position_callback = create_info.position_callback;
+									win->focus_callback = create_info.focus_callback;
+									win->maximize_callback = create_info.maximize_callback;
+									win->minimize_callback = create_info.minimize_callback;
+									win->keyboard_key_callback = create_info.keyboard_key_callback;
+									win->keyboard_state_callback = create_info.keyboard_state_callback;
+									win->cursor_position_callback = create_info.cursor_position_callback;
+									win->mouse_button_callback = create_info.mouse_button_callback;
+									win->scroll_callback = create_info.scroll_callback;
+							}
+
+							void muCOSA_X11_window_destroy(muCOSA_X11_window* win) {
+								XFree(win->size_hints);
+
+								if (win->api >= MUCOSA_OPENGL_FIRST && win->api <= MUCOSA_OPENGL_LAST) {
+									MUCOSA_OPENGL_CALL(glXDestroyContext(win->display, win->gl_context);)
+								}
+
+								XSync(win->display, False);
+								XCloseDisplay(win->display);
+							}
+
+						/* Atom logic */
+
+							Atom muCOSA_X11_window_get_atoms(muCOSA_X11_window* win, const char** names, size_m namelen) {
+								Atom wm_state = XInternAtom(win->display, "_NET_WM_STATE", MU_TRUE);
+								if (wm_state == None) {
+									return None;
+								}
+
+								Atom type;
+								int format;
+								unsigned long n_item = 0, bytes_after;
+								unsigned char* properties = 0;
+								XGetWindowProperty(win->display, win->window, wm_state, 0, (~0L), False, AnyPropertyType, &type, &format, &n_item, &bytes_after, &properties);
+
+								for (size_m i = 0; i < n_item; i++) {
+									Atom prop = ((Atom*)properties)[0];
+									char* prop_name = XGetAtomName(win->display, prop);
+									if (prop_name != 0) {
+										for (size_m i = 0; i < namelen; i++) {
+											if (mu_strcmp(prop_name, names[i]) == 0) {
+												XFree(properties);
+												return prop;
+											}
+										}
+									}
+								}
+
+								if (properties != 0) {
+									XFree(properties);
+								}
+								return None;
+							}
+
+							Atom muCOSA_X11_window_get_atom(muCOSA_X11_window* win, const char* name) {
+								const char* names[1] = { name };
+								return muCOSA_X11_window_get_atoms(win, names, 1);
+							}
+
+					/* Main loop */
+
+						muBool muCOSA_X11_window_get_closed(muCOSA_X11_window* win) {
+							return win->closed;
+						}
+
+						void muCOSA_X11_window_close(muCOSA_X11_window* win) {
+							XUnmapWindow(win->display, win->window);
+							win->closed = MU_TRUE;
+						}
+
+						void muCOSA_X11_window_update(muCOSA_X11_window* win) {
+							while (XPending(win->display)) {
+								XEvent event;
+								XNextEvent(win->display, &event);
+
+								if (!XFilterEvent(&event, None)) {
+									muCOSA_X11_input_handle_event(win, event);
 								}
 							}
 
-							c->clipboard_text = 0;
-							if (text_size > 0) {
-								c->clipboard_text = (muByte*)mu_malloc(text_size);
-								MU_ASSERT(c->clipboard_text != 0, result, MUCOSA_ALLOCATION_FAILED, return;)
-							}
-							c->clipboard_size = text_size;
-							mu_memcpy(c->clipboard_text, text, text_size);
+							muCOSA_X11_input_handle_states(win);
+							muCOSA_X11_input_handle_focus_flushing(win);
+							muCOSA_X11_input_handle_min_max_events(win);
+						}
 
-							c->clipboard_thread_running = MU_TRUE;
-							MU_ASSERT(pthread_create(&c->clipboard_thread, NULL, muCOSA_X11_inner_clipboard_set, (void*)c) == 0,
-								result, MUCOSA_FAILED_CREATE_THREAD, return;)
+						void muCOSA_X11_window_swap_buffers(muCOSA_X11_window* win) {
+							if (win->api >= MUCOSA_OPENGL_FIRST && win->api <= MUCOSA_OPENGL_LAST) {
+								MUCOSA_OPENGL_CALL(
+									glXSwapBuffers(win->display, win->window);
+								)
+							}
+						}
+
+					/* Get / Set */
+
+						muBool muCOSA_X11_window_get_focused(muCOSA_X11_window* win) {
+							Window focused;
+							int revert_to;
+							XGetInputFocus(win->display, &focused, &revert_to);
+							return focused == win->window;
+						}
+
+						muBool muCOSA_X11_window_get_minimized(muCOSA_X11_window* win);
+						// This function, in my opinion, represents everything wrong with X11. Atom management
+						// hell, message sending hell, nothing registering when you actually do it, etc.
+						void muCOSA_X11_window_focus(muCOSAResult* result, muCOSA_X11_window* win) {
+							if (muCOSA_X11_window_get_atom(win, "_NET_WM_STATE_HIDDEN") != None) {
+								// https://stackoverflow.com/questions/30192347/how-to-restore-a-window-with-xlib
+								XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent);
+
+								ev.type = ClientMessage;
+								ev.window = win->window;
+								ev.message_type = XInternAtom(win->display, "_NET_ACTIVE_WINDOW", True);
+								ev.format = 32;
+								ev.data.l[0] = 1; ev.data.l[1] = CurrentTime;
+								ev.data.l[2] = ev.data.l[3] = ev.data.l[4] = 0;
+
+								XSendEvent(win->display, win->parent_window, False, SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev);
+								XFlush(win->display);
+							}
+
+							// Try blocking for a bit to register the deminimization
+							// This is a hack and a half
+							double time_beg = muCOSA_X11_get_system_time();
+							while (muCOSA_X11_window_get_minimized(win) && (muCOSA_X11_get_system_time()-time_beg) < .01f) {}
+
+							if (muCOSA_X11_window_get_minimized(win) || !win->visible) {
+								MU_SET_RESULT(result, MUCOSA_INVALID_WINDOW_STATE)
+								return;
+							}
+
+							XSetInputFocus(win->display, win->window, RevertToPointerRoot, CurrentTime);
+							XRaiseWindow(win->display, win->window);
+						}
+
+						muBool muCOSA_X11_window_get_visible(muCOSA_X11_window* win) {
+							return win->visible;
+						}
+
+						void muCOSA_X11_window_set_visible(muCOSA_X11_window* win, muBool visible) {
+							if (visible && !win->visible) {
+								XMapWindow(win->display, win->window);
+								win->input = MU_ZERO_STRUCT(muCOSA_X11_input);
+							} else if (!visible && win->visible) {
+								XUnmapWindow(win->display, win->window);
+								win->input = MU_ZERO_STRUCT(muCOSA_X11_input);
+							}
+
+							win->visible = visible;
+						}
+
+						void muCOSA_X11_window_get_position(muCOSA_X11_window* win, int32_m* x, int32_m* y) {
+							int rx, ry;
+							Window child;
+							XTranslateCoordinates(win->display, win->window, win->parent_window, 0, 0, &rx, &ry, &child);
+							MU_SET_RESULT(x, (int32_m)rx)
+							MU_SET_RESULT(y, (int32_m)ry)
+						}
+
+						void muCOSA_X11_window_set_position(muCOSA_X11_window* win, int32_m x, int32_m y) {
+							XWindowAttributes xwa;
+							XGetWindowAttributes(win->display, win->window, &xwa);
+							XMoveWindow(win->display, win->window, (x-(int32_m)xwa.x), (y-(int32_m)xwa.y));
+						}
+
+						void muCOSA_X11_window_get_dimensions(muCOSA_X11_window* win, uint32_m* w, uint32_m* h) {
+							XWindowAttributes xwa;
+							XGetWindowAttributes(win->display, win->window, &xwa);
+							MU_SET_RESULT(w, (uint32_m)xwa.width)
+							MU_SET_RESULT(h, (uint32_m)xwa.height)
+						}
+
+						void muCOSA_X11_window_set_dimensions(muCOSA_X11_window* win, uint32_m w, uint32_m h) {
+							XResizeWindow(win->display, win->window, w, h);
+						}
+
+						muBool muCOSA_X11_window_get_maximized(muCOSA_X11_window* win) {
+							static const char* names[2] = { "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_MAXIMIZED_HORZ" };
+							return muCOSA_X11_window_get_atoms(win, names, 2) != None;
+						}
+
+						void muCOSA_X11_window_set_maximized(muCOSA_X11_window* win, muBool maximized) {
+							// https://forum.juce.com/t/how-to-maximize-not-fullscreen/28346
+							XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent);
+
+							ev.type = ClientMessage;
+							ev.window = win->window;
+							ev.message_type = XInternAtom(win->display, "_NET_WM_STATE", False);
+							ev.format = 32;
+							ev.data.l[0] = maximized;
+							ev.data.l[1] = XInternAtom(win->display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+							ev.data.l[2] = XInternAtom(win->display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+							ev.data.l[3] = 1; ev.data.l[4] = 0;
+
+							XSendEvent(win->display, win->parent_window, False, SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev);
+							XFlush(win->display);
+						}
+
+						muBool muCOSA_X11_window_get_minimized(muCOSA_X11_window* win) {
+							return muCOSA_X11_window_get_atom(win, "_NET_WM_STATE_HIDDEN") != None;
+						}
+
+						void muCOSA_X11_window_set_minimized(muCOSA_X11_window* win, muBool minimized) {
+							XClientMessageEvent ev = MU_ZERO_STRUCT(XClientMessageEvent);
+
+							ev.type = ClientMessage;
+							ev.window = win->window;
+							if (minimized) {
+								ev.message_type = XInternAtom(win->display, "WM_CHANGE_STATE", False);
+								ev.format = 32;
+								ev.data.l[0] = IconicState;
+							} else {
+								ev.message_type = XInternAtom(win->display, "_NET_ACTIVE_WINDOW", False);
+								ev.format = 32;
+								ev.data.l[0] = 1;
+								ev.data.l[1] = CurrentTime;
+								ev.data.l[2] = ev.data.l[3] = ev.data.l[4] = 0;
+							}
+
+							XSendEvent(win->display, win->parent_window, False, SubstructureRedirectMask | SubstructureNotifyMask, (XEvent*)&ev);
+							XFlush(win->display);
+						}
+
+						void muCOSA_X11_window_get_minimum_dimensions(muCOSA_X11_window* win, uint32_m* min_w, uint32_m* min_h) {
+							MU_SET_RESULT(min_w, win->min_width)
+							MU_SET_RESULT(min_h, win->min_height)
+						}
+
+						void muCOSA_X11_window_set_minimum_dimensions(muCOSA_X11_window* win, uint32_m min_w, uint32_m min_h) {
+							win->min_width = min_w;
+							win->min_height = min_h;
+
+							*win->size_hints = MU_ZERO_STRUCT(XSizeHints);
+							win->size_hints->flags = PMinSize;
+							win->size_hints->min_width = win->min_width;
+							win->size_hints->min_height = win->min_height;
+							XSetWMNormalHints(win->display, win->window, win->size_hints);
+						}
+
+						void muCOSA_X11_window_get_maximum_dimensions(muCOSA_X11_window* win, uint32_m* max_w, uint32_m* max_h) {
+							MU_SET_RESULT(max_w, win->max_width)
+							MU_SET_RESULT(max_h, win->max_height)
+						}
+
+						void muCOSA_X11_window_set_maximum_dimensions(muCOSA_X11_window* win, uint32_m max_w, uint32_m max_h) {
+							win->max_width = max_w;
+							win->max_height = max_h;
+
+							*win->size_hints = MU_ZERO_STRUCT(XSizeHints);
+							win->size_hints->flags = PMaxSize;
+							win->size_hints->max_width = win->max_width;
+							win->size_hints->max_height = win->max_height;
+							XSetWMNormalHints(win->display, win->window, win->size_hints);
+						}
+
+					/* Get */
+
+						void muCOSA_X11_window_get_frame_extents(muCOSA_X11_window* win, uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b) {
+							Atom a = XInternAtom(win->display, "_NET_FRAME_EXTENTS", True);
+							if (a == None) {
+								MU_SET_RESULT(l, 0)
+								MU_SET_RESULT(r, 0)
+								MU_SET_RESULT(t, 0)
+								MU_SET_RESULT(b, 0)
+								return;
+							}
+
+							Atom _t;
+							int f;
+							unsigned long _n, _b;
+							unsigned char* data = 0;
+							int _r = XGetWindowProperty(win->display, win->window, a, 0, 4, False, AnyPropertyType, &_t, &f, &_n, &_b, &data);
+
+							if (_r == Success && _n == 4 && _b == 0 && data) {
+								long* extents = (long*)data;
+								MU_SET_RESULT(l, (uint32_m)extents[0])
+								MU_SET_RESULT(r, (uint32_m)extents[1])
+								MU_SET_RESULT(t, (uint32_m)extents[2])
+								MU_SET_RESULT(b, (uint32_m)extents[3])
+							} else {
+								MU_SET_RESULT(l, 0)
+								MU_SET_RESULT(r, 0)
+								MU_SET_RESULT(t, 0)
+								MU_SET_RESULT(b, 0)
+							}
+						}
+
+					/* Set */
+
+						void muCOSA_X11_window_set_title(muCOSA_X11_window* win, const char* title) {
+							XChangeProperty(win->display, win->window,
+									XInternAtom(win->display, "_NET_WM_NAME", False),
+									XInternAtom(win->display, "UTF8_STRING", False),
+									8, PropModeReplace, (unsigned char*)title, (int)mu_strlen(title)
+								);
+						}
+
+						void muCOSA_X11_window_set_dimensions_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
+							win->dimensions_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_position_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+							win->position_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_focus_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muBool focused)) {
+							win->focus_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_maximize_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muBool maximized)) {
+							win->maximize_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_minimize_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muBool minimized)) {
+							win->minimize_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_keyboard_key_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
+							win->keyboard_key_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_keyboard_state_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
+							win->keyboard_state_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_cursor_position_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+							win->cursor_position_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_mouse_button_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
+							win->mouse_button_callback = callback;
+						}
+
+						void muCOSA_X11_window_set_scroll_callback(muCOSA_X11_window* win, void (*callback)(muWindow window, int32_m scroll_level_add)) {
+							win->scroll_callback = callback;
 						}
 
 					/* OS functions */
 
-						void* muCOSA_X11_os_get_window_handle(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, muWindowHandle handle) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_NULL_PTR;, muCOSA_X11Window_)
-
-							void* ret = MU_NULL_PTR;
+						void* muCOSA_X11_os_get_window_handle(muCOSAResult* result, muCOSA_X11_window* win, muWindowHandle handle) {
 							switch (handle) {
-								default: MU_SET_RESULT(result, MUCOSA_UNKNOWN_WINDOW_HANDLE) break;
-								case MU_X11_DISPLAY: ret = &c->windows.data[window].display; break;
-								case MU_X11_WINDOW: ret = &c->windows.data[window].window; break;
-								case MU_X11_PARENT_WINDOW: ret = &c->windows.data[window].parent_window; break;
+								default: MU_SET_RESULT(result, MUCOSA_UNKNOWN_WINDOW_HANDLE) return 0; break;
+								case MU_X11_DISPLAY: return (void*)&win->display; break;
+								case MU_X11_WINDOW: return (void*)&win->window; break;
+								case MU_X11_PARENT_WINDOW: return (void*)&win->parent_window; break;
 							}
-
-							MU_RELEASE(c->windows, window, muCOSA_X11Window_)
-
-							return ret;
 						}
 
 					/* OpenGL */
 
-						void muCOSA_X11_opengl_bind_window(muCOSAResult* result, muCOSA_X11Context* c, muWindow window) {
+						void muCOSA_X11_opengl_bind_window(muCOSAResult* result, muCOSA_X11_window* win) {
 							#ifndef MUCOSA_OPENGL
 								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								return;
+								return; if (win) {}
+							#else
+								glXMakeCurrent(win->display, win->window, win->gl_context);
+								return; if (result) {}
 							#endif
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
-							if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-								MUCOSA_OPENGL_CALL(
-									glXMakeCurrent(c->windows.data[window].display, c->windows.data[window].window, c->windows.data[window].gl_context);
-								)
-							}
-
-							MU_RELEASE(c->windows, window, muCOSA_X11Window_)
 						}
 
-						void* muCOSA_X11_opengl_get_function_address(const muByte* name) {
-							MUCOSA_OPENGL_CALL(
+						void* muCOSA_X11_opengl_get_function_address(const char* name) {
+							#ifndef MUCOSA_OPENGL
+								return 0; if (name) {}
+							#else
 								void(*addr)() = glXGetProcAddress((const GLubyte*)name);
 								void* ret = 0;
 								mu_memcpy(&ret, &addr, sizeof(void*));
 								return ret;
-							)
-							if (name) {}
-							return 0;
+							#endif
 						}
 
-						void muCOSA_X11_opengl_window_swap_interval(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, int interval) {
+						void muCOSA_X11_opengl_window_swap_interval(muCOSAResult* result, muCOSA_X11_window* win, int interval) {
 							#ifndef MUCOSA_OPENGL
-								if (window) {} if (interval) {} if (c) {}
 								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
+								return; if (win) {} if (interval) {}
 							#else
-								void* ptr = muCOSA_X11_opengl_get_function_address((const muByte*)"glXSwapIntervalEXT");
-								MU_ASSERT(ptr != 0, result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE, return;)
+								muCOSA_X11_opengl_bind_window(0, win);
+
+								void* ptr = muCOSA_X11_opengl_get_function_address("glXSwapIntervalEXT");
+								if (ptr == 0) {
+									MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE)
+									return;
+								}
+
 								GLXDrawable drawable = glXGetCurrentDrawable();
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
 								if (drawable) {
 									PFNGLXSWAPINTERVALEXTPROC proc = 0;
 									mu_memcpy(&proc, &ptr, sizeof(void*));
-									proc(c->windows.data[window].display, drawable, interval);
+									proc(win->display, drawable, interval);
 								} else {
 									MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE)
 								}
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
 							#endif
 						}
 
 					/* Vulkan */
 
+						#if defined(MUCOSA_VULKAN) && !defined(MUCOSA_NO_INCLUDE_VULKAN)
+							#include MUCOSA_VULKAN_INCLUDE_PATH
+						#endif
+
 						const char** muCOSA_X11_vulkan_get_surface_instance_extensions(muCOSAResult* result, size_m* count) {
 							#ifndef MUCOSA_VULKAN
 								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								if (count) {}
-								return 0;
+								return 0; if (count) {}
 							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
 								static const char* exts[] = { "VK_KHR_surface", "VK_KHR_xlib_surface" };
 								MU_SET_RESULT(count, 2)
-								return (const char**)exts;
+								return (const char**)exts; if (result) {}
 							#endif
 						}
 
-						void muCOSA_X11_vulkan_create_window_surface(muCOSAResult* result, muCOSA_X11Context* c, muWindow window, void* vk_result, void* instance, void* allocator, void* surface) {
+						void muCOSA_X11_vulkan_create_window_surface(muCOSAResult* result, muCOSA_X11_window* win, void* vk_result, void* instance, void* allocator, void* surface) {
 							#ifndef MUCOSA_VULKAN
 								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								if (c) {} if (window) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
+								return; if (win) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
 							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_X11Window_)
-
 								VkXlibSurfaceCreateInfoKHR create_info = MU_ZERO_STRUCT(VkXlibSurfaceCreateInfoKHR);
 								create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-								create_info.dpy = c->windows.data[window].display;
-								create_info.window = c->windows.data[window].window;
+								create_info.dpy = win->display;
+								create_info.window = win->window;
 
 								VkInstance r_instance = VK_NULL_HANDLE;
 								if (instance != 0) {
@@ -37342,2399 +36035,919 @@ ensure that rendered buffer sections don't get modified, or else UB.
 								if (vk_result != MU_NULL_PTR) {
 									*((VkResult*)vk_result) = vkres;
 								}
-
-								MU_RELEASE(c->windows, window, muCOSA_X11Window_)
+								return; if (result) {}
 							#endif
 						}
 
 			#else
+
 				#define MUCOSA_X11_CALL(...)
-			#endif  /* MUCOSA_X11 */
 
-			/* Win32 implementation */
+			#endif /* MUCOSA_X11 */
 
-			#ifdef MUCOSA_WIN32
-				#define MUCOSA_WIN32_CALL(...) __VA_ARGS__
+			/* Inner */
 
-				#include <windows.h> // For all of the stuff that can't be included directly (CURSE YOU BILL)
-				#include <WinDef.h> // For basic types
-				#include <winuser.h> // For virtually everything window related (requires linkage with user32.lib I think)
-				#include <imm.h> // For IMM usage (requires linkage with imm32.lib)
-				#include <sysinfoapi.h> // For GetSystemTimeAsFileTime
-				#include <synchapi.h> // For Sleep
-				#include <stringapiset.h> // For Win32 string conversion functions
-				#include <winbase.h> // For global memory functions
+				struct muCOSA_inner {
+					muWindowSystem system;
+					void* context;
+				};
+				typedef struct muCOSA_inner muCOSA_inner;
 
-				/* Misc useful functions */
-
-					EXTERN_C IMAGE_DOS_HEADER __ImageBase;
-					HINSTANCE muCOSA_innerWin32_get_hinstance(void) {
-						return ((HINSTANCE)&__ImageBase);
-					}
-
-				/* OpenGL */
-
-				#ifdef MUCOSA_OPENGL
-
-					#ifndef MUCOSA_NO_INCLUDE_OPENGL
-						#ifndef glClearColor
-							#include <gl/gl.h>
-							#include <gl/glu.h>
-						#endif
+				muWindowSystem muCOSA_best_window_system(void) {
+					#ifdef MU_WIN32
+						return MU_WINDOW_SYSTEM_WIN32;
+					#elif defined(MU_UNIX)
+						return MU_WINDOW_SYSTEM_X11;
 					#endif
+				}
 
-					#include <wingdi.h>
-
-					typedef HGLRC WINAPI wglCreateContextAttribsARB_type(HDC hdc, HGLRC hShareContext, const int* attribList);
-					typedef BOOL WINAPI wglChoosePixelFormatARB_type(HDC hdc, const int* piAttribIList, const FLOAT* pfAttribFList, UINT nMaxFormats, int* piFormats, UINT* nNumFormats);
-
-					struct muCOSA_Win32WGL_SwapInterval {
-						MU_LOCK
-						BOOL (*wglSwapIntervalEXT)(int interval);
-					};
-					typedef struct muCOSA_Win32WGL_SwapInterval muCOSA_Win32WGL_SwapInterval;
-
-					struct muCOSA_Win32WGL {
-						MU_LOCK
-						wglCreateContextAttribsARB_type* wglCreateContextAttribsARB;
-						wglChoosePixelFormatARB_type* wglChoosePixelFormatARB;
-						muCOSA_Win32WGL_SwapInterval si;
-					};
-					typedef struct muCOSA_Win32WGL muCOSA_Win32WGL;
-
-					muCOSA_Win32WGL muCOSA_Win32WGL_init(void) {
-						muCOSA_Win32WGL wwgl = MU_ZERO_STRUCT(muCOSA_Win32WGL);
-						MU_LOCK_CREATE(wwgl.lock, wwgl.lock_active)
-						MU_LOCK_CREATE(wwgl.si.lock, wwgl.si.lock_active)
-						return wwgl;
+				void muCOSA_inner_create(muCOSAResult* result, muCOSA_inner* inner, muWindowSystem system) {
+					if (system == MU_WINDOW_SYSTEM_AUTO) {
+						system = muCOSA_best_window_system();
 					}
-					void muCOSA_Win32WGL_term(muCOSA_Win32WGL wwgl) {
-						if (wwgl.si.wglSwapIntervalEXT) {}
-						MU_LOCK_DESTROY(wwgl.lock, wwgl.lock_active)
-						MU_LOCK_DESTROY(wwgl.si.lock, wwgl.si.lock_active)
-					}
+					inner->system = system;
 
-					/* WGL tokens */
-						// @TODO Remove the ones we're not using
+					switch (system) {
+						default: *result = MUCOSA_UNKNOWN_WINDOW_SYSTEM; return; break;
 
-						// https://registry.khronos.org/OpenGL/extensions/ARB/WGL_ARB_create_context.txt
-
-						#define WGL_CONTEXT_MAJOR_VERSION_ARB             0x2091
-						#define WGL_CONTEXT_MINOR_VERSION_ARB             0x2092
-						#define WGL_CONTEXT_LAYER_PLANE_ARB               0x2093
-						#define WGL_CONTEXT_FLAGS_ARB                     0x2094
-						#define WGL_CONTEXT_PROFILE_MASK_ARB              0x9126
-
-						#define WGL_CONTEXT_DEBUG_BIT_ARB                 0x0001
-						#define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB    0x0002
-
-						#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB          0x00000001
-						#define WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB 0x00000002
-
-						#define ERROR_INVALID_VERSION_ARB                 0x2095
-						#define ERROR_INVALID_PROFILE_ARB                 0x2096
-
-						// https://registry.khronos.org/OpenGL/extensions/ARB/WGL_ARB_pixel_format.txt
-
-						#define WGL_NUMBER_PIXEL_FORMATS_ARB    0x2000
-						#define WGL_DRAW_TO_WINDOW_ARB          0x2001
-						#define WGL_DRAW_TO_BITMAP_ARB          0x2002
-						#define WGL_ACCELERATION_ARB            0x2003
-						#define WGL_NEED_PALETTE_ARB            0x2004
-						#define WGL_NEED_SYSTEM_PALETTE_ARB     0x2005
-						#define WGL_SWAP_LAYER_BUFFERS_ARB      0x2006
-						#define WGL_SWAP_METHOD_ARB             0x2007
-						#define WGL_NUMBER_OVERLAYS_ARB         0x2008
-						#define WGL_NUMBER_UNDERLAYS_ARB        0x2009
-						#define WGL_TRANSPARENT_ARB             0x200A
-						#define WGL_TRANSPARENT_RED_VALUE_ARB   0x2037
-						#define WGL_TRANSPARENT_GREEN_VALUE_ARB 0x2038
-						#define WGL_TRANSPARENT_BLUE_VALUE_ARB  0x2039
-						#define WGL_TRANSPARENT_ALPHA_VALUE_ARB 0x203A
-						#define WGL_TRANSPARENT_INDEX_VALUE_ARB 0x203B
-						#define WGL_SHARE_DEPTH_ARB             0x200C
-						#define WGL_SHARE_STENCIL_ARB           0x200D
-						#define WGL_SHARE_ACCUM_ARB             0x200E
-						#define WGL_SUPPORT_GDI_ARB             0x200F
-						#define WGL_SUPPORT_OPENGL_ARB          0x2010
-						#define WGL_DOUBLE_BUFFER_ARB           0x2011
-						#define WGL_STEREO_ARB                  0x2012
-						#define WGL_PIXEL_TYPE_ARB              0x2013
-						#define WGL_COLOR_BITS_ARB              0x2014
-						#define WGL_RED_BITS_ARB                0x2015
-						#define WGL_RED_SHIFT_ARB               0x2016
-						#define WGL_GREEN_BITS_ARB              0x2017
-						#define WGL_GREEN_SHIFT_ARB             0x2018
-						#define WGL_BLUE_BITS_ARB               0x2019
-						#define WGL_BLUE_SHIFT_ARB              0x201A
-						#define WGL_ALPHA_BITS_ARB              0x201B
-						#define WGL_ALPHA_SHIFT_ARB             0x201C
-						#define WGL_ACCUM_BITS_ARB              0x201D
-						#define WGL_ACCUM_RED_BITS_ARB          0x201E
-						#define WGL_ACCUM_GREEN_BITS_ARB        0x201F
-						#define WGL_ACCUM_BLUE_BITS_ARB         0x2020
-						#define WGL_ACCUM_ALPHA_BITS_ARB        0x2021
-						#define WGL_DEPTH_BITS_ARB              0x2022
-						#define WGL_STENCIL_BITS_ARB            0x2023
-						#define WGL_AUX_BUFFERS_ARB             0x2024
-
-						#define WGL_NO_ACCELERATION_ARB         0x2025
-						#define WGL_GENERIC_ACCELERATION_ARB    0x2026
-						#define WGL_FULL_ACCELERATION_ARB       0x2027
-
-						#define WGL_SWAP_EXCHANGE_ARB           0x2028
-						#define WGL_SWAP_COPY_ARB               0x2029
-						#define WGL_SWAP_UNDEFINED_ARB          0x202A
-
-						#define WGL_TYPE_RGBA_ARB               0x202B
-						#define WGL_TYPE_COLORINDEX_ARB         0x202C
-
-						// https://nehe.gamedev.net/tutorial/fullscreen_antialiasing/16008/
-
-						#define WGL_SAMPLE_BUFFERS_ARB  0x2041
-						#define WGL_SAMPLES_ARB     0x2042
-
-					/* Functions */
-
-						// https://gist.github.com/nickrolfe/1127313ed1dbf80254b614a721b3ee9c
-
-						muCOSAResult muCOSA_Win32_init_opengl_extensions(muCOSA_Win32WGL* p_wgl) {
-							WNDCLASSA wclass = MU_ZERO_STRUCT(WNDCLASSA);
-							wclass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-							wclass.lpfnWndProc = DefWindowProcA;
-							wclass.hInstance = muCOSA_innerWin32_get_hinstance();
-							wclass.lpszClassName = "Dummy WGL window class";
-
-							if (!RegisterClassA(&wclass)) {
-								return MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS;
-							}
-
-							HWND win = CreateWindowExA(
-								0, wclass.lpszClassName, "Dummy WGL window",
-								0, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0,
-								0, wclass.hInstance, 0
-							);
-							if (!win) {
-								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
-								return MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW;
-							}
-
-							HDC dc = GetDC(win);
-
-							// Note: this pixel format NEEDS to be chosen to make this function work. In
-							// particular, the call to wglCreateContext fails if we don't. The choice of
-							// which pixel format is arbitrary.
-
-							PIXELFORMATDESCRIPTOR format = MU_ZERO_STRUCT(PIXELFORMATDESCRIPTOR);
-							format.nSize = sizeof(PIXELFORMATDESCRIPTOR);
-							format.nVersion = 1;
-							format.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-							format.iPixelType = PFD_TYPE_RGBA;
-							format.cColorBits = 32;
-							format.cAlphaBits = 8;
-							format.cDepthBits = 24;
-							format.cStencilBits = 8;
-							format.iLayerType = PFD_MAIN_PLANE;
-
-							// Doing no error checking here in case the ATTEMPT of setting one allows
-							// wglCreateContext to pass...
-							int pixel_format = ChoosePixelFormat(dc, &format);
-							SetPixelFormat(dc, pixel_format, &format);
-
-							HGLRC context = wglCreateContext(dc);
-							if (!context) {
-								ReleaseDC(win, dc);
-								DestroyWindow(win);
-								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
-								return MUCOSA_FAILED_CREATE_OPENGL_CONTEXT;
-							}
-							if (!wglMakeCurrent(dc, context)) {
-								wglDeleteContext(context);
-								ReleaseDC(win, dc);
-								DestroyWindow(win);
-								UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
-								return MUCOSA_FAILED_LOAD_OPENGL_CONTEXT;
-							}
-
-							PROC wglCreateContextAttribsARB_proc = wglGetProcAddress("wglCreateContextAttribsARB");
-							mu_memcpy(&p_wgl->wglCreateContextAttribsARB, &wglCreateContextAttribsARB_proc, sizeof(PROC));
-							PROC wglChoosePixelFormatARB_proc = wglGetProcAddress("wglChoosePixelFormatARB");
-							mu_memcpy(&p_wgl->wglChoosePixelFormatARB, &wglChoosePixelFormatARB_proc, sizeof(PROC));
-
-							wglMakeCurrent(dc, 0);
-							wglDeleteContext(context);
-							ReleaseDC(win, dc);
-							DestroyWindow(win);
-							UnregisterClassA(wclass.lpszClassName, wclass.hInstance);
-
-							if (p_wgl->wglCreateContextAttribsARB == 0 || p_wgl->wglChoosePixelFormatARB == 0) {
-								return MUCOSA_UNSUPPORTED_OPENGL_FEATURE;
-							}
-
-							return MUCOSA_SUCCESS;
-						}
-
-						muCOSAResult muCOSA_Win32_create_opengl_context(HDC dc, muCOSA_Win32WGL* p_wgl, muPixelFormat pf, HGLRC* p_context, muGraphicsAPI api) {
-							int pixel_format_attributes[] = {
-								WGL_DRAW_TO_WINDOW_ARB, MU_TRUE,
-								WGL_SUPPORT_OPENGL_ARB, MU_TRUE,
-								WGL_DOUBLE_BUFFER_ARB,  MU_TRUE,
-								WGL_SAMPLE_BUFFERS_ARB, MU_TRUE, // ?
-								WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB, // ?
-								WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
-								WGL_RED_BITS_ARB,       pf.red_bits,
-								WGL_GREEN_BITS_ARB,     pf.green_bits,
-								WGL_BLUE_BITS_ARB,      pf.blue_bits,
-								WGL_ALPHA_BITS_ARB,     pf.alpha_bits,
-								WGL_DEPTH_BITS_ARB,     pf.depth_bits,
-								WGL_STENCIL_BITS_ARB,   pf.stencil_bits,
-								WGL_SAMPLES_ARB,        pf.samples,
-								0
-							};
-
-							int pixel_format;
-							UINT format_count;
-							p_wgl->wglChoosePixelFormatARB(dc, pixel_format_attributes, 0, 1, &pixel_format, &format_count);
-							if (!format_count) {
-								return MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT;
-							}
-
-							PIXELFORMATDESCRIPTOR format;
-							if (DescribePixelFormat(dc, pixel_format, sizeof(PIXELFORMATDESCRIPTOR), &format) == 0) {
-								return MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT;
-							}
-
-							if (!SetPixelFormat(dc, pixel_format, &format)) {
-								return MUCOSA_FAILED_SET_PIXEL_FORMAT;
-							}
-
-							int opengl_attributes[] = {
-								WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
-								WGL_CONTEXT_MINOR_VERSION_ARB, 3,
-								WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-								0
-							};
-
-							switch (api) {
-								default: return MUCOSA_UNKNOWN_GRAPHICS_API; break;
-								case MU_OPENGL_1_0:   { opengl_attributes[1] = 1; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_1_1:   { opengl_attributes[1] = 1; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_1_2:   { opengl_attributes[1] = 1; opengl_attributes[3] = 2; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								// No idea what to do here lmao
-								case MU_OPENGL_1_2_1: { opengl_attributes[1] = 1; opengl_attributes[3] = 2; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_1_3:   { opengl_attributes[1] = 1; opengl_attributes[3] = 3; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_1_4:   { opengl_attributes[1] = 1; opengl_attributes[3] = 4; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_1_5:   { opengl_attributes[1] = 1; opengl_attributes[3] = 5; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_2_0:   { opengl_attributes[1] = 2; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_2_1:   { opengl_attributes[1] = 2; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_3_0:   { opengl_attributes[1] = 3; opengl_attributes[3] = 0; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_3_1:   { opengl_attributes[1] = 3; opengl_attributes[3] = 1; opengl_attributes[4] = 0; opengl_attributes[5] = 0; } break;
-								case MU_OPENGL_3_2_CORE:          { opengl_attributes[1] = 3; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_3_2_COMPATIBILITY: { opengl_attributes[1] = 3; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_3_3_CORE:          { opengl_attributes[1] = 3; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_3_3_COMPATIBILITY: { opengl_attributes[1] = 3; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_0_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 0; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_0_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 0; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_1_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 1; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_1_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 1; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_2_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_2_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 2; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_3_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_3_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 3; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_4_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 4; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_4_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 4; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_5_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 5; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_5_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 5; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_6_CORE:          { opengl_attributes[1] = 4; opengl_attributes[3] = 6; opengl_attributes[5] = WGL_CONTEXT_CORE_PROFILE_BIT_ARB; } break;
-								case MU_OPENGL_4_6_COMPATIBILITY: { opengl_attributes[1] = 4; opengl_attributes[3] = 6; opengl_attributes[5] = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB; } break;
-							}
-
-							*p_context = p_wgl->wglCreateContextAttribsARB(dc, 0, opengl_attributes);
-							if (!*p_context) {
-								return MUCOSA_FAILED_CREATE_OPENGL_CONTEXT;
-							}
-							if (!wglMakeCurrent(dc, *p_context)) {
-								return MUCOSA_FAILED_LOAD_OPENGL_CONTEXT;
-							}
-
-							return MUCOSA_SUCCESS;
-						}
-
-				#endif
-
-				/* Structs */
-
-					struct muCOSA_Win32Input {
-						muButtonState keyboard_key_states[MU_KEYBOARD_KEY_LAST-MU_KEYBOARD_KEY_FIRST+1];
-						muState keyboard_state_states[MU_KEYBOARD_STATE_LAST-MU_KEYBOARD_STATE_FIRST+1];
-						muButtonState mouse_button_states[MU_MOUSE_BUTTON_LAST-MU_MOUSE_BUTTON_FIRST+1];
-					};
-					typedef struct muCOSA_Win32Input muCOSA_Win32Input;
-
-					struct muCOSA_Win32Window {
-						muBool active;
-						MU_LOCK
-
-						wchar_t wclass_name[2];
-						HWND hwnd;
-						HINSTANCE hinstance;
-						HDC dc;
-
-						muGraphicsAPI api;
-						MUCOSA_OPENGL_CALL(
-							HGLRC glrc;
+						MUCOSA_WIN32_CALL(
+							case MU_WINDOW_SYSTEM_WIN32: {
+								inner->context = mu_malloc(sizeof(muCOSA_Win32_context));
+								if (!inner->context) {
+									*result = MUCOSA_ALLOCATION_FAILED;
+									return;
+								}
+								muCOSA_Win32_context_init((muCOSA_Win32_context*)inner->context);
+							} break;
 						)
 
-						muCOSA_Win32Input input;
-						void (*text_input_callback)(muWindow window, muByte* input);
-						int32_m text_cursor_x;
-						int32_m text_cursor_y;
-
-						muBool closed;
-						muBool visible;
-						muBool maximized;
-						muBool minimized;
-
-						uint32_m min_width;
-						uint32_m min_height;
-						uint32_m max_width;
-						uint32_m max_height;
-
-						muCursorStyle cursor_style;
-						HCURSOR cursor;
-						int32_m scroll_level;
-						int32_m cx, cy;
-
-						void (*dimensions_callback)(muWindow window, uint32_m width, uint32_m height);
-						void (*position_callback)(muWindow window, int32_m x, int32_m y);
-						void (*focus_callback)(muWindow window, muBool focused);
-						void (*maximize_callback)(muWindow window, muBool maximized);
-						void (*minimize_callback)(muWindow window, muBool minimized);
-
-						void (*keyboard_key_callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state);
-						void (*keyboard_state_callback)(muWindow window, muKeyboardState keyboard_state, muState state);
-
-						void (*cursor_position_callback)(muWindow window, int32_m x, int32_m y);
-						void (*mouse_button_callback)(muWindow window, muMouseButton mouse_button, muButtonState state);
-						void (*scroll_callback)(muWindow window, int32_m scroll_level_add);
-					};
-					typedef struct muCOSA_Win32Window muCOSA_Win32Window;
-
-					MU_HRARRAY_DEFAULT_FUNC(muCOSA_Win32Window)
-
-					struct muCOSA_Win32Time {
-						MU_LOCK
-						double orig_time;
-					};
-					typedef struct muCOSA_Win32Time muCOSA_Win32Time;
-
-					double muCOSA_innerWin32_get_current_time(void);
-					muCOSA_Win32Time muCOSA_Win32Time_init(void) {
-						muCOSA_Win32Time time = MU_ZERO_STRUCT(muCOSA_Win32Time);
-
-						MU_LOCK_CREATE(time.lock, time.lock_active)
-
-						time.orig_time = muCOSA_innerWin32_get_current_time();
-
-						return time;
-					}
-
-					void muCOSA_Win32Time_term(muCOSA_Win32Time time) {
-						if (time.orig_time) {}
-						MU_LOCK_DESTROY(time.lock, time.lock_active)
-					}
-
-					struct muCOSA_Win32Context {
-						muCOSA_Win32Window_array windows;
-
-						MUCOSA_OPENGL_CALL(muCOSA_Win32WGL wgl;)
-
-						muCOSA_Win32Time time;
-					};
-					typedef struct muCOSA_Win32Context muCOSA_Win32Context;
-
-					muCOSA_Win32Context* muCOSA_Win32Context_get(void);
-
-					muCOSA_Win32Context muCOSA_Win32Context_init(void) {
-						muCOSA_Win32Context context = MU_ZERO_STRUCT(muCOSA_Win32Context);
-						return context;
-					}
-
-				/* Inner functions */
-
-					/* Strings cuz Microsoft sucks */
-
-						wchar_t* muCOSA_innerWin32_utf8_to_wchar(muByte* str) {
-							// Note: we can use -1 here, since it's expected for it to be null-terminated.
-							int len = MultiByteToWideChar(CP_UTF8, 0, (const char*)str, -1, NULL, 0);
-							if (len == 0) {
-								return 0;
-							}
-
-							wchar_t* wstr = (wchar_t*)mu_malloc(len * sizeof(wchar_t));
-							if (wstr == 0) {
-								return 0;
-							}
-
-							if (MultiByteToWideChar(CP_UTF8, 0, (const char*)str, -1, (LPWSTR)wstr, len) == 0) {
-								mu_free(wstr);
-								return 0;
-							}
-
-							return wstr;
-						}
-
-						muByte* muCOSA_innerWin32_wchar_to_utf8(wchar_t* wstr) {
-							// Note: we don't need length here, either. This function is only intended to
-							// be called with null-terminated wchar_t strings; for example, in the
-							// clipboard get function, the format "CF_UNICODETEXT" is specified, and,
-							// according to the docs: "A null character signals the end of the data."
-							int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL);
-							if (len == 0) {
-								return 0;
-							}
-
-							muByte* str = (muByte*)mu_malloc(len);
-							if (str == 0) {
-								return 0;
-							}
-
-							if (WideCharToMultiByte(CP_UTF8, 0, wstr, -1, (LPSTR)str, len, NULL, NULL) == 0) {
-								mu_free(str);
-								return 0;
-							}
-
-							return str;
-						}
-
-					/* Input handling */
-
-						void muCOSA_innerWin32_possible_input_flushing(muCOSA_Win32Window* p_win) {
-							if (GetFocus() != p_win->hwnd) {
-								p_win->input = MU_ZERO_STRUCT(muCOSA_Win32Input);
-							}
-						}
-
-						/* Keyboard key */
-
-							// https://stackoverflow.com/questions/15966642/how-do-you-tell-lshift-apart-from-rshift-in-wm-keydown-events
-							// RIP Bill Gates, he would've loved this API
-							WPARAM muCOSA_innerWin32_map_left_right_keys(WPARAM vk, LPARAM lParam) {
-								UINT scancode = (lParam & 0x00ff0000) >> 16;
-								int extended  = (lParam & 0x01000000) != 0;
-
-								switch (vk) {
-									default: return vk; break;
-									case VK_SHIFT: return MapVirtualKey(scancode, MAPVK_VSC_TO_VK_EX); break;
-									case VK_CONTROL: return extended ? VK_RCONTROL : VK_LCONTROL; break;
-									case VK_MENU: return extended ? VK_RMENU : VK_LMENU; break;
-								}
-							}
-
-							muKeyboardKey muCOSA_Win32_key_to_keyboard_key(int key) {
-								switch (key) {
-									default: return MU_KEYBOARD_KEY_UNKNOWN; break;
-									case VK_BACK: return MU_KEYBOARD_KEY_BACKSPACE; break;
-									case VK_TAB: return MU_KEYBOARD_KEY_TAB; break;
-									case VK_CLEAR: return MU_KEYBOARD_KEY_CLEAR; break;
-									case VK_RETURN: return MU_KEYBOARD_KEY_RETURN; break;
-									case VK_PAUSE: return MU_KEYBOARD_KEY_PAUSE; break;
-									case VK_ESCAPE: return MU_KEYBOARD_KEY_ESCAPE; break;
-									case VK_MODECHANGE: return MU_KEYBOARD_KEY_MODECHANGE; break;
-									case VK_SPACE: return MU_KEYBOARD_KEY_SPACE; break;
-									case VK_PRIOR: return MU_KEYBOARD_KEY_PRIOR; break;
-									case VK_NEXT: return MU_KEYBOARD_KEY_NEXT; break;
-									case VK_END: return MU_KEYBOARD_KEY_END; break;
-									case VK_HOME: return MU_KEYBOARD_KEY_HOME; break;
-									case VK_LEFT: return MU_KEYBOARD_KEY_LEFT; break;
-									case VK_UP: return MU_KEYBOARD_KEY_UP; break;
-									case VK_RIGHT: return MU_KEYBOARD_KEY_RIGHT; break;
-									case VK_DOWN: return MU_KEYBOARD_KEY_DOWN; break;
-									case VK_SELECT: return MU_KEYBOARD_KEY_SELECT; break;
-									case VK_PRINT: return MU_KEYBOARD_KEY_PRINT; break;
-									case VK_EXECUTE: return MU_KEYBOARD_KEY_EXECUTE; break;
-									case VK_INSERT: return MU_KEYBOARD_KEY_INSERT; break;
-									case VK_DELETE: return MU_KEYBOARD_KEY_DELETE; break;
-									case VK_HELP: return MU_KEYBOARD_KEY_HELP; break;
-									case 0x30: return MU_KEYBOARD_KEY_0; break;
-									case 0x31: return MU_KEYBOARD_KEY_1; break;
-									case 0x32: return MU_KEYBOARD_KEY_2; break;
-									case 0x33: return MU_KEYBOARD_KEY_3; break;
-									case 0x34: return MU_KEYBOARD_KEY_4; break;
-									case 0x35: return MU_KEYBOARD_KEY_5; break;
-									case 0x36: return MU_KEYBOARD_KEY_6; break;
-									case 0x37: return MU_KEYBOARD_KEY_7; break;
-									case 0x38: return MU_KEYBOARD_KEY_8; break;
-									case 0x39: return MU_KEYBOARD_KEY_9; break;
-									case 0x41: return MU_KEYBOARD_KEY_A; break;
-									case 0x42: return MU_KEYBOARD_KEY_B; break;
-									case 0x43: return MU_KEYBOARD_KEY_C; break;
-									case 0x44: return MU_KEYBOARD_KEY_D; break;
-									case 0x45: return MU_KEYBOARD_KEY_E; break;
-									case 0x46: return MU_KEYBOARD_KEY_F; break;
-									case 0x47: return MU_KEYBOARD_KEY_G; break;
-									case 0x48: return MU_KEYBOARD_KEY_H; break;
-									case 0x49: return MU_KEYBOARD_KEY_I; break;
-									case 0x4A: return MU_KEYBOARD_KEY_J; break;
-									case 0x4B: return MU_KEYBOARD_KEY_K; break;
-									case 0x4C: return MU_KEYBOARD_KEY_L; break;
-									case 0x4D: return MU_KEYBOARD_KEY_M; break;
-									case 0x4E: return MU_KEYBOARD_KEY_N; break;
-									case 0x4F: return MU_KEYBOARD_KEY_O; break;
-									case 0x50: return MU_KEYBOARD_KEY_P; break;
-									case 0x51: return MU_KEYBOARD_KEY_Q; break;
-									case 0x52: return MU_KEYBOARD_KEY_R; break;
-									case 0x53: return MU_KEYBOARD_KEY_S; break;
-									case 0x54: return MU_KEYBOARD_KEY_T; break;
-									case 0x55: return MU_KEYBOARD_KEY_U; break;
-									case 0x56: return MU_KEYBOARD_KEY_V; break;
-									case 0x57: return MU_KEYBOARD_KEY_W; break;
-									case 0x58: return MU_KEYBOARD_KEY_X; break;
-									case 0x59: return MU_KEYBOARD_KEY_Y; break;
-									case 0x5A: return MU_KEYBOARD_KEY_Z; break;
-									case VK_LWIN: return MU_KEYBOARD_KEY_LEFT_WINDOWS; break;
-									case VK_RWIN: return MU_KEYBOARD_KEY_RIGHT_WINDOWS; break;
-									case VK_NUMPAD0: return MU_KEYBOARD_KEY_NUMPAD_0; break;
-									case VK_NUMPAD1: return MU_KEYBOARD_KEY_NUMPAD_1; break;
-									case VK_NUMPAD2: return MU_KEYBOARD_KEY_NUMPAD_2; break;
-									case VK_NUMPAD3: return MU_KEYBOARD_KEY_NUMPAD_3; break;
-									case VK_NUMPAD4: return MU_KEYBOARD_KEY_NUMPAD_4; break;
-									case VK_NUMPAD5: return MU_KEYBOARD_KEY_NUMPAD_5; break;
-									case VK_NUMPAD6: return MU_KEYBOARD_KEY_NUMPAD_6; break;
-									case VK_NUMPAD7: return MU_KEYBOARD_KEY_NUMPAD_7; break;
-									case VK_NUMPAD8: return MU_KEYBOARD_KEY_NUMPAD_8; break;
-									case VK_NUMPAD9: return MU_KEYBOARD_KEY_NUMPAD_9; break;
-									case VK_MULTIPLY: return MU_KEYBOARD_KEY_MULTIPLY; break;
-									case VK_ADD: return MU_KEYBOARD_KEY_ADD; break;
-									case VK_SEPARATOR: return MU_KEYBOARD_KEY_SEPARATOR; break;
-									case VK_SUBTRACT: return MU_KEYBOARD_KEY_SUBTRACT; break;
-									case VK_DECIMAL: return MU_KEYBOARD_KEY_DECIMAL; break;
-									case VK_DIVIDE: return MU_KEYBOARD_KEY_DIVIDE; break;
-									case VK_F1: return MU_KEYBOARD_KEY_F1; break;
-									case VK_F2: return MU_KEYBOARD_KEY_F2; break;
-									case VK_F3: return MU_KEYBOARD_KEY_F3; break;
-									case VK_F4: return MU_KEYBOARD_KEY_F4; break;
-									case VK_F5: return MU_KEYBOARD_KEY_F5; break;
-									case VK_F6: return MU_KEYBOARD_KEY_F6; break;
-									case VK_F7: return MU_KEYBOARD_KEY_F7; break;
-									case VK_F8: return MU_KEYBOARD_KEY_F8; break;
-									case VK_F9: return MU_KEYBOARD_KEY_F9; break;
-									case VK_F10: return MU_KEYBOARD_KEY_F10; break;
-									case VK_F11: return MU_KEYBOARD_KEY_F11; break;
-									case VK_F12: return MU_KEYBOARD_KEY_F12; break;
-									case VK_F13: return MU_KEYBOARD_KEY_F13; break;
-									case VK_F14: return MU_KEYBOARD_KEY_F14; break;
-									case VK_F15: return MU_KEYBOARD_KEY_F15; break;
-									case VK_F16: return MU_KEYBOARD_KEY_F16; break;
-									case VK_F17: return MU_KEYBOARD_KEY_F17; break;
-									case VK_F18: return MU_KEYBOARD_KEY_F18; break;
-									case VK_F19: return MU_KEYBOARD_KEY_F19; break;
-									case VK_F20: return MU_KEYBOARD_KEY_F20; break;
-									case VK_F21: return MU_KEYBOARD_KEY_F21; break;
-									case VK_F22: return MU_KEYBOARD_KEY_F22; break;
-									case VK_F23: return MU_KEYBOARD_KEY_F23; break;
-									case VK_F24: return MU_KEYBOARD_KEY_F24; break;
-									case VK_NUMLOCK: return MU_KEYBOARD_KEY_NUMLOCK; break;
-									case VK_SCROLL: return MU_KEYBOARD_KEY_SCROLL; break;
-									case VK_LSHIFT: return MU_KEYBOARD_KEY_LEFT_SHIFT; break;
-									case VK_RSHIFT: return MU_KEYBOARD_KEY_RIGHT_SHIFT; break;
-									case VK_LCONTROL: return MU_KEYBOARD_KEY_LEFT_CONTROL; break;
-									case VK_RCONTROL: return MU_KEYBOARD_KEY_RIGHT_CONTROL; break;
-									case VK_LMENU: return MU_KEYBOARD_KEY_LEFT_MENU; break;
-									case VK_RMENU: return MU_KEYBOARD_KEY_RIGHT_MENU; break;
-									case VK_ATTN: return MU_KEYBOARD_KEY_ATTN; break;
-									case VK_CRSEL: return MU_KEYBOARD_KEY_CRSEL; break;
-									case VK_EXSEL: return MU_KEYBOARD_KEY_EXSEL; break;
-									case VK_EREOF: return MU_KEYBOARD_KEY_EREOF; break;
-									case VK_PLAY: return MU_KEYBOARD_KEY_PLAY; break;
-									case VK_PA1: return MU_KEYBOARD_KEY_PA1; break;
-								}
-							}
-
-						/* Keyboard state */
-
-							int muCOSA_innerWin32_keyboard_state_get_win32(muKeyboardState state) {
-								switch (state) {
-									default: return VK_NONAME; break;
-									case MU_KEYBOARD_STATE_CAPS_LOCK: return VK_CAPITAL; break;
-									case MU_KEYBOARD_STATE_SCROLL_LOCK: return VK_SCROLL; break;
-									case MU_KEYBOARD_STATE_NUM_LOCK: return VK_NUMLOCK; break;
-								}
-							}
-
-							void muCOSA_innerWin32_update_state(muCOSA_Win32Context* c, muWindow win, muCOSA_Win32Window* p_win) {
-								for (size_m i = MU_KEYBOARD_STATE_FIRST; i <= MU_KEYBOARD_STATE_LAST; i++) {
-									muState state = MU_OFF;
-									if ((GetKeyState(muCOSA_innerWin32_keyboard_state_get_win32(i)) & 0x0001) != 0) {
-										state = MU_ON;
-									}
-
-									if (p_win->input.keyboard_state_states[i] != state) {
-										p_win->input.keyboard_state_states[i] = state;
-										if (p_win->keyboard_state_callback != 0) {
-											muCOSAResult result;
-											MU_RELEASE(c->windows, win, muCOSA_Win32Window_)
-											p_win->keyboard_state_callback(win, i, state);
-											MU_HOLD((&result), win, c->windows, 0, MUCOSA_, return;, muCOSA_Win32Window_)
-										}
-									}
-								}
-							}
-
-						/* Cursor */
-
-							void* muCOSA_innerWin32_cursor_to_win_cursor(muCursorStyle style) {
-								switch (style) {
-									default: case MU_CURSOR_STYLE_ARROW: return IDC_ARROW; break;
-									case MU_CURSOR_STYLE_IBEAM: return IDC_IBEAM; break;
-									case MU_CURSOR_STYLE_WAIT: return IDC_WAIT; break;
-									case MU_CURSOR_STYLE_WAIT_ARROW: return IDC_APPSTARTING; break;
-									case MU_CURSOR_STYLE_CROSSHAIR: return IDC_CROSS; break;
-									case MU_CURSOR_STYLE_HAND: return IDC_HAND; break;
-									case MU_CURSOR_STYLE_SIZE_EAST_WEST: return IDC_SIZEWE; break;
-									case MU_CURSOR_STYLE_SIZE_NORTH_SOUTH: return IDC_SIZENS; break;
-									case MU_CURSOR_STYLE_SIZE_NORTH_EAST_SOUTH_WEST: return IDC_SIZENESW; break;
-									case MU_CURSOR_STYLE_SIZE_NORTH_WEST_SOUTH_EAST: return IDC_SIZENWSE; break;
-									case MU_CURSOR_STYLE_SIZE_ALL: return IDC_SIZEALL; break;
-									case MU_CURSOR_STYLE_NO: return IDC_NO; break;
-								}
-							}
-
-							void muCOSA_innerWin32_window_get_cursor_position(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m* x, int32_m* y);
-							void muCOSA_innerWin32_handle_cursor_position(muCOSA_Win32Context* c, muWindow win, muCOSA_Win32Window* p_win) {
-								muCOSAResult result = MUCOSA_SUCCESS;
-
-								int32_m cx=0, cy=0;
-								muCOSA_innerWin32_window_get_cursor_position(&result, p_win, &cx, &cy);
-
-								if (result == MUCOSA_SUCCESS && (cx != p_win->cx || cy != p_win->cy)) {
-									p_win->cx = cx;
-									p_win->cy = cy;
-
-									if (p_win->cursor_position_callback != 0) {
-										MU_RELEASE(c->windows, win, muCOSA_Win32Window_)
-										p_win->cursor_position_callback(win, p_win->cx, p_win->cy);
-										MU_HOLD((&result), win, c->windows, 0, MUCOSA_, return;, muCOSA_Win32Window_)
-									}
-								}
-							}
-
-							void muCOSA_innerWin32_window_get_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* width, uint32_m* height);
-							void muCOSA_innerWin32_window_set_cursor_style(muCOSAResult* result, muCOSA_Win32Window* p_win, muCursorStyle style);
-							// This doesn't work... :L
-							void muCOSA_innerWin32_update_cursor_style(muCOSA_Win32Window* p_win) {
-								muCOSAResult result = MUCOSA_SUCCESS;
-								return;
-
-								int32_m cx=0,cy=0;
-								muCOSA_innerWin32_window_get_cursor_position(&result, p_win, &cx, &cy);
-								if (result != MUCOSA_SUCCESS) {
+						MUCOSA_X11_CALL(
+							case MU_WINDOW_SYSTEM_X11: {
+								inner->context = mu_malloc(sizeof(muCOSA_X11_context));
+								if (!inner->context) {
+									*result = MUCOSA_ALLOCATION_FAILED;
 									return;
 								}
-								uint32_m ucx=cx, ucy=cy;
+								muCOSA_X11_context_init((muCOSA_X11_context*)inner->context);
+							} break;
+						)
+					}
+				}
 
-								uint32_m ww=0,wh=0;
-								muCOSA_innerWin32_window_get_dimensions(&result, p_win, &ww, &wh);
-								if (result != MUCOSA_SUCCESS) {
-									return;
-								}
+				void muCOSA_inner_destroy(muCOSA_inner* inner) {
+					switch (inner->system) {
+						default: return; break;
 
-								if (p_win->cursor == NULL) {
-									if (ucx < ww && ucy < wh && cx > 0 && cy > 0) {
-										muCOSA_innerWin32_window_set_cursor_style(0, p_win, p_win->cursor_style);
+						MUCOSA_WIN32_CALL(
+							case MU_WINDOW_SYSTEM_WIN32: {
+								muCOSA_Win32_context_term((muCOSA_Win32_context*)inner->context);
+							} break;
+						)
+
+						MUCOSA_X11_CALL(
+							case MU_WINDOW_SYSTEM_X11: {
+								muCOSA_X11_context_term((muCOSA_X11_context*)inner->context);
+							} break;
+						)
+					}
+				}
+
+			/* API-level functionality */
+
+				#ifdef MUCOSA_NAMES
+					#define MUCOSA_NAME_CALL(...) __VA_ARGS__
+				#else
+					#define MUCOSA_NAME_CALL(...)
+				#endif
+
+				/* Context */
+
+					MUDEF void muCOSA_context_create(muCOSAContext* context, muWindowSystem system, muBool set_context) {
+						context->inner = mu_malloc(sizeof(muCOSA_inner));
+						if (!context->inner) {
+							context->result = MUCOSA_ALLOCATION_FAILED;
+							return;
+						}
+
+						muCOSAResult res = MUCOSA_SUCCESS;
+						muCOSA_inner_create(&res, (muCOSA_inner*)context->inner, system);
+						if (res != MUCOSA_SUCCESS) {
+							context->result = res;
+							mu_free(context->inner);
+							return;
+						}
+
+						if (set_context) {
+							muCOSA_context_set(context);
+						}
+					}
+
+					MUDEF void muCOSA_context_destroy(muCOSAContext* context) {
+						if (context->inner) {
+							muCOSA_inner_destroy((muCOSA_inner*)context->inner);
+							mu_free(context->inner);
+						}
+					}
+
+					muCOSAContext* muCOSA_global_context = 0;
+
+					MUDEF void muCOSA_context_set(muCOSAContext* context) {
+						muCOSA_global_context = context;
+					}
+
+					MUDEF muWindowSystem muCOSA_context_get_window_system(muCOSAContext* context) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+						return inner->system;
+					}
+
+				/* Window */
+
+					/* Creation / Destruction */
+
+						MUDEF muWindowCreateInfo mu_window_default_create_info(void) {
+							muWindowCreateInfo ci;
+
+							ci.pixel_format.red_bits = 8;
+							ci.pixel_format.green_bits = 8;
+							ci.pixel_format.blue_bits = 8;
+							ci.pixel_format.alpha_bits = 0;
+							ci.pixel_format.depth_bits = 0;
+							ci.pixel_format.stencil_bits = 0;
+							ci.pixel_format.samples = 1;
+
+							ci.visible = MU_TRUE;
+							ci.resizable = MU_TRUE;
+							ci.minimized = MU_FALSE;
+							ci.maximized = MU_FALSE;
+							ci.x = 50;
+							ci.y = 50;
+							ci.min_width = 120;
+							ci.min_height = 1;
+							ci.max_width = 30720;
+							ci.max_height = 17280;
+							ci.cursor_style = MU_CURSOR_STYLE_DEFAULT;
+
+							ci.dimensions_callback = 0;
+							ci.position_callback = 0;
+							ci.focus_callback = 0;
+							ci.maximize_callback = 0;
+							ci.minimize_callback = 0;
+							ci.cursor_position_callback = 0;
+							ci.keyboard_key_callback = 0;
+							ci.keyboard_state_callback = 0;
+							ci.scroll_callback = 0;
+							ci.mouse_button_callback = 0;
+
+							return ci;
+						}
+
+						MUDEF muWindow muCOSA_window_create(muCOSAContext* context, muCOSAResult* result, muGraphicsAPI api, muBool (*load_functions)(void), const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return 0; break;
+
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
+									muCOSA_Win32_window* win = (muCOSA_Win32_window*)mu_malloc(sizeof(muCOSA_Win32_window));
+									if (!win) {
+										MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+										return 0;
 									}
-								} else {
-									if (ucx >= ww || ucy >= wh || cx <= 0 || cy <= 0) {
-										DestroyCursor(p_win->cursor);
-										p_win->cursor = NULL;
+
+									muCOSAResult res = MUCOSA_SUCCESS;
+									muCOSA_Win32_window_create(&res, api, load_functions, name, width, height, create_info, win);
+									if (res != MUCOSA_SUCCESS) { // ?
+										MU_SET_RESULT(result, res)
+										mu_free(win);
+										return 0;
 									}
-								}
+									return win;
+								} break; )
+
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
+									muCOSA_X11_window* win = (muCOSA_X11_window*)mu_malloc(sizeof(muCOSA_X11_window));
+									if (!win) {
+										MU_SET_RESULT(result, MUCOSA_ALLOCATION_FAILED)
+										return 0;
+									}
+
+									muCOSAResult res = MUCOSA_SUCCESS;
+									muCOSA_X11_window_create(win, &res, api, load_functions, name, width, height, create_info);
+									if (res != MUCOSA_SUCCESS) {
+										MU_SET_RESULT(result, res)
+										mu_free(win);
+										return 0;
+									}
+									return win;
+								} break; )
 							}
 
-					/* Procedure handling */
-
-						muWindow muCOSA_innerWin32_find_window_by_hwnd(HWND hwnd) {
-							muCOSA_Win32Context* c = muCOSA_Win32Context_get();
-							if (c == 0) {
-								return MU_NONE;
-							}
-							for (size_m i = 0; i < c->windows.length; i++) {
-								if (c->windows.data[i].active && c->windows.data[i].hwnd == hwnd) {
-									return i;
-								}
-							}
-							return MU_NONE;
+							return 0; if (context) {} if (result) {} if (api) {} if (load_functions) {} if (name) {} if (width) {} if (height) {} if (create_info.min_width) {}
 						}
 
-						struct muCOSA_innerWin32_msginfo {
-							UINT uMsg;
-							WPARAM wParam;
-							LPARAM lParam;
+						MUDEF muWindow muCOSA_window_destroy(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							muCOSA_Win32Window* p_win;
-							muCOSA_Win32Context* c;
-							muWindow id_window;
-						};
-						typedef struct muCOSA_innerWin32_msginfo muCOSA_innerWin32_msginfo;
+							switch (inner->system) {
+								default: return window; break;
 
-						LRESULT CALLBACK muCOSA_innerWin32_handle_quit(muCOSA_innerWin32_msginfo msg) {
-							PostQuitMessage(0);
-							msg.p_win->closed = MU_TRUE;
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_size(muCOSA_innerWin32_msginfo msg) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-
-							if (msg.p_win->dimensions_callback != 0) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->dimensions_callback(msg.id_window, (int)LOWORD(msg.lParam), (int)HIWORD(msg.lParam));
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							if (msg.wParam == SIZE_MAXIMIZED && msg.p_win->maximize_callback != 0) {
-								msg.p_win->maximized = MU_TRUE;
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->maximize_callback(msg.id_window, MU_TRUE);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							// ?
-							} else if (msg.p_win->maximized
-								&& msg.wParam != SIZE_MAXIMIZED && msg.wParam != SIZE_MAXHIDE && msg.wParam != SIZE_MAXSHOW
-								&& msg.p_win->maximize_callback != 0) {
-								msg.p_win->maximized = MU_FALSE;
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->maximize_callback(msg.id_window, MU_FALSE);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							if (msg.wParam == SIZE_MINIMIZED && msg.p_win->minimize_callback != 0) {
-								msg.p_win->minimized = MU_TRUE;
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->minimize_callback(msg.id_window, MU_TRUE);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							// ?
-							} else if (msg.p_win->minimized
-								&& msg.wParam != SIZE_MINIMIZED && msg.wParam != SIZE_MAXHIDE && msg.wParam != SIZE_MAXSHOW
-								&& msg.p_win->minimize_callback != 0) {
-								msg.p_win->minimized = MU_FALSE;
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->minimize_callback(msg.id_window, MU_FALSE);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							PostMessage(msg.p_win->hwnd, WM_PAINT, 0, 0);
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_key(muCOSA_innerWin32_msginfo msg, muButtonState state) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-
-							msg.wParam = muCOSA_innerWin32_map_left_right_keys(msg.wParam, msg.lParam);
-							muKeyboardKey key = muCOSA_Win32_key_to_keyboard_key(msg.wParam);
-							if (key == MU_KEYBOARD_KEY_UNKNOWN) {
-								return 0;
-							}
-
-							msg.p_win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST] = state;
-
-							if (msg.p_win->keyboard_key_callback != MU_NULL_PTR) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->keyboard_key_callback(msg.id_window, key, state);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_move(muCOSA_innerWin32_msginfo msg) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-
-							if (msg.p_win->position_callback != 0) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								// https://www.autohotkey.com/boards/viewtopic.php?t=27857
-								// BILL GATES... MY LOVE... YOU MAKE NO MISTAKES IN YOUR FLAWLESS,
-								// IMPECCABLE API. HOW COULD AN API GET BETTER IF THE DOCUMENTATION FOR IT
-								// IS UNIVERSALLY UNDERSTOOD AS BEING COMPLETELY WORTHLESS? I'D LET YOU
-								// FORCE UPDATE A MILLION TIMES FOR YOUR PERFECT API... Oh, Bill...
-								msg.p_win->position_callback(msg.id_window,
-									(int32_m)( msg.lParam      & 0x8000 ? - ((~msg.lParam    )&0x7FFF)+1 :  msg.lParam     &0x7FFF),
-									(int32_m)((msg.lParam>>16) & 0x8000 ? - ((~msg.lParam>>16)&0x7FFF)+1 : (msg.lParam>>16)&0x7FFF)
-								);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_focus(muCOSA_innerWin32_msginfo msg, muBool focus) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-
-							if (msg.p_win->focus_callback != 0) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->focus_callback(msg.id_window, focus);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_minmax_info(muCOSA_innerWin32_msginfo msg) {
-							LPMINMAXINFO lp = (LPMINMAXINFO)msg.lParam;
-							// No idea why 16 and 39 need to be added here. It can't be broder stuff like
-							// the titlebar, because the border width is almost never 16 whole pixels in
-							// Windows. :|
-							lp->ptMinTrackSize.x = msg.p_win->min_width + 16;
-							lp->ptMinTrackSize.y = msg.p_win->min_height + 39;
-							lp->ptMaxTrackSize.x = msg.p_win->max_width + 16;
-							lp->ptMaxTrackSize.y = msg.p_win->max_height + 39;
-
-							return 0;
-						}
-
-						// Note: button and state must be valid, this func doesn't perform checks
-						LRESULT CALLBACK muCOSA_innerWin32_handle_mouse_button(muCOSA_innerWin32_msginfo msg, muMouseButton button, muButtonState state) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-
-							msg.p_win->input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST] = state;
-
-							if (msg.p_win->mouse_button_callback != MU_NULL_PTR) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->mouse_button_callback(msg.id_window, button, state);
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_set_cursor(muCOSA_innerWin32_msginfo msg) {
-							if (LOWORD(msg.lParam) == HTCLIENT && msg.p_win->cursor_style != MU_CURSOR_STYLE_DEFAULT) {
-								DestroyCursor(msg.p_win->cursor);
-								msg.p_win->cursor = LoadCursor(0, (LPCSTR)muCOSA_innerWin32_cursor_to_win_cursor(msg.p_win->cursor_style));
-								SetCursor(msg.p_win->cursor);
-								return TRUE;
-							}
-
-							return 0;
-						}
-
-						LRESULT CALLBACK muCOSA_innerWin32_handle_mouse_wheel(muCOSA_innerWin32_msginfo msg) {
-							muCOSAResult result = MUCOSA_SUCCESS;
-							msg.p_win->scroll_level += GET_WHEEL_DELTA_WPARAM(msg.wParam);
-
-							if (msg.p_win->scroll_callback != 0) {
-								MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-								msg.p_win->scroll_callback(msg.id_window, GET_WHEEL_DELTA_WPARAM(msg.wParam));
-								MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-							}
-
-							return 0;
-						}
-
-						// This code assumes that wParam is the Unicode codepoint for the character, which
-						// I'm pretty sure it is.
-						LRESULT CALLBACK muCOSA_innerWin32_handle_wmchar(muCOSA_innerWin32_msginfo msg) {
-							if (msg.p_win->text_input_callback == 0) {
-								return DefWindowProcW(msg.p_win->hwnd, msg.uMsg, msg.wParam, msg.lParam);
-							}
-
-							musResult mus_res = MUS_SUCCESS;
-							muCOSAResult result = MUCOSA_SUCCESS;
-							muCodePoint codepoint = (muCodePoint)msg.wParam;
-
-							size_m codepoint_size = mu_UTF8_get_code_point_size(&mus_res, codepoint);
-							if (codepoint_size == 0 || mus_res != MUS_SUCCESS) {
-								// :L
-								return 0;
-							}
-							codepoint_size += 1; // For \0
-
-							muByte buf[6]; mu_memset(buf, 0, sizeof(buf));
-							size_m bufsize = sizeof(buf);
-							muByte* input = 0;
-
-							if (codepoint_size > sizeof(buf)) {
-								input = (muByte*)mu_malloc(codepoint_size);
-								bufsize = codepoint_size;
-								if (input == 0) {
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
+									muCOSA_Win32_window_destroy((muCOSA_Win32_window*)window);
+									mu_free(window);
 									return 0;
-								}
-							} else {
-								input = buf;
+								} break; )
+
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
+									muCOSA_X11_window_destroy((muCOSA_X11_window*)window);
+									mu_free(window);
+									return 0;
+								} break; )
 							}
 
-							input[codepoint_size-1] = 0;
-
-							mu_character_encoding_set_code_point(&mus_res, MU_UTF8, codepoint, buf, bufsize);
-							if (mus_res != MUS_SUCCESS) {
-								// :L
-								return 0;
-							}
-
-							MU_RELEASE(msg.c->windows, msg.id_window, muCOSA_Win32Window_)
-
-							msg.p_win->text_input_callback(msg.id_window, input);
-							if (input != buf) {
-								mu_free(input);
-							}
-
-							MU_HOLD((&result), msg.id_window, msg.c->windows, 0, MUCOSA_, return 0;, muCOSA_Win32Window_)
-
-							return 0;
+							if (result) {} if (window) {}
 						}
 
-						LRESULT CALLBACK muCOSA_innerWin32_handle_umsg(muCOSA_innerWin32_msginfo msg) {
-							switch (msg.uMsg) {
-								default: return DefWindowProcW(msg.p_win->hwnd, msg.uMsg, msg.wParam, msg.lParam); break;
-								case WM_DESTROY: return muCOSA_innerWin32_handle_quit(msg); break;
+					/* Main loop */
 
-								case WM_SIZE: return muCOSA_innerWin32_handle_size(msg); break;
+						MUDEF muBool muCOSA_window_get_closed(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-								case WM_KEYDOWN: return muCOSA_innerWin32_handle_key(msg, MU_BUTTON_STATE_HELD); break;
-								case WM_KEYUP: return muCOSA_innerWin32_handle_key(msg, MU_BUTTON_STATE_RELEASED); break;
-
-								case WM_MOVE: return muCOSA_innerWin32_handle_move(msg); break;
-
-								case WM_SETFOCUS: return muCOSA_innerWin32_handle_focus(msg, MU_TRUE); break;
-								case WM_KILLFOCUS: return muCOSA_innerWin32_handle_focus(msg, MU_FALSE); break;
-
-								case WM_GETMINMAXINFO: return muCOSA_innerWin32_handle_minmax_info(msg); break;
-
-								case WM_LBUTTONDOWN: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_LEFT, MU_BUTTON_STATE_HELD); break;
-								case WM_RBUTTONDOWN: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_RIGHT, MU_BUTTON_STATE_HELD); break;
-								case WM_LBUTTONUP: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_LEFT, MU_BUTTON_STATE_RELEASED); break;
-								case WM_RBUTTONUP: return muCOSA_innerWin32_handle_mouse_button(msg, MU_MOUSE_BUTTON_RIGHT, MU_BUTTON_STATE_RELEASED); break;
-
-								case WM_SETCURSOR: return muCOSA_innerWin32_handle_set_cursor(msg); break;
-
-								case WM_MOUSEWHEEL: return muCOSA_innerWin32_handle_mouse_wheel(msg); break;
-
-								case WM_CHAR: return muCOSA_innerWin32_handle_wmchar(msg); break;
+							switch (inner->system) {
+								default: return MU_TRUE; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_closed((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_closed((muCOSA_X11_window*)window); break;)
 							}
+
+							if (result) {} if (window) {}
 						}
 
-						LRESULT CALLBACK muCOSA_innerWin32_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-							muCOSA_Win32Context* c = muCOSA_Win32Context_get();
-							if (c == 0) {
-								return DefWindowProcW(hwnd, uMsg, wParam, lParam);
-							}
-							muWindow win = muCOSA_innerWin32_find_window_by_hwnd(hwnd);
-							if (win == MU_NONE) {
-								return DefWindowProcW(hwnd, uMsg, wParam, lParam);
-							}
-							// Hack city.
-							// Actually, don't have to do this here, should already be being held because
-							// it SHOULD (from my understanding) be triggered while we're dispatching
-							// messages within the update window func.
-							//muCOSAResult result = MUCOSA_SUCCESS;
-							//MU_HOLD((&result), win, c->windows, 0, MUCOSA_, return DefWindowProcW(hwnd, uMsg, wParam, lParam);, muCOSA_Win32Window_)
+						MUDEF void muCOSA_window_close(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							muCOSA_innerWin32_msginfo msginfo = MU_ZERO_STRUCT(muCOSA_innerWin32_msginfo);
-							msginfo.uMsg = uMsg;
-							msginfo.wParam = wParam;
-							msginfo.lParam = lParam;
-							msginfo.p_win = &c->windows.data[win];
-							msginfo.c = c;
-							msginfo.id_window = win;
-							LRESULT ret = muCOSA_innerWin32_handle_umsg(msginfo);
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_close((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_close((muCOSA_X11_window*)window); break;)
+							}
 
-							//MU_RELEASE(c->windows, win, muCOSA_Win32Window_)
-							return ret;
+							return; if (result) {} if (window) {}
 						}
 
-					/* Window */
+						MUDEF void muCOSA_window_update(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						WNDCLASSEXW muCOSA_innerWin32_window_get_class(muCOSAResult* result,
-							wchar_t* wname, wchar_t* wclass_name
-						) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							WNDCLASSEXW wclass = MU_ZERO_STRUCT(WNDCLASSEXW);
-							wclass.cbSize = sizeof(WNDCLASSEXW);
-							wclass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-							wclass.lpfnWndProc = muCOSA_innerWin32_proc;
-							wclass.hInstance = muCOSA_innerWin32_get_hinstance();
-							wclass.lpszMenuName = wname;
-							wclass.lpszClassName = wclass_name;
-
-							return wclass;
-						}
-
-						void muCOSA_innerWin32_window_get_frame_extents(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b);
-						HWND muCOSA_innerWin32_window_create(
-							uint16_m width, uint16_m height, muWindowCreateInfo ci,
-							WNDCLASSEXW wclass, muCOSA_Win32Window* p_win
-						) {
-							DWORD style = WS_OVERLAPPEDWINDOW;
-							if (!ci.resizable) {
-								style = WS_OVERLAPPED | WS_MINIMIZEBOX | WS_SYSMENU;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_update((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_update((muCOSA_X11_window*)window); break;)
 							}
 
-							RECT r = MU_ZERO_STRUCT(RECT);
-							r.left = r.top = 0;
-							r.right = (LONG)width;
-							r.bottom = (LONG)height;
-							AdjustWindowRect(&r, style, FALSE);
+							return; if (result) {} if (window) {}
+						}
 
-							uint32_m l=0, t=0;
-							muCOSA_innerWin32_window_get_frame_extents(0, p_win, &l, 0, &t, 0);
+						MUDEF void muCOSA_window_swap_buffers(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return CreateWindowExW(
-								0,
-								wclass.lpszClassName, wclass.lpszMenuName,
-								style,
-								(int)(ci.x - l),
-								(int)(ci.y - t),
-								r.right-r.left, r.bottom-r.top, // (Dimensions)
-								NULL, NULL,
-								wclass.hInstance,
-								NULL
-							);
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_swap_buffers((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_swap_buffers((muCOSA_X11_window*)window); break;)
+							}
+
+							return; if (result) {} if (window) {}
 						}
 
 					/* Get / Set */
 
-						muBool muCOSA_innerWin32_window_get_focused(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF muBool muCOSA_window_get_focused(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return GetFocus() == p_win->hwnd;
-						}
-
-						muBool muCOSA_innerWin32_window_get_minimized(muCOSAResult* result, muCOSA_Win32Window* p_win);
-						void muCOSA_innerWin32_window_set_minimized(muCOSAResult* result, muCOSA_Win32Window* p_win, muBool minimized);
-						void muCOSA_innerWin32_window_focus(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							// Attempt to restore the window if it is minimized.
-							if (muCOSA_innerWin32_window_get_minimized(0, p_win)) {
-								muCOSA_innerWin32_window_set_minimized(0, p_win, MU_FALSE);
+							switch (inner->system) {
+								default: return MU_FALSE; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_focused((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_focused((muCOSA_X11_window*)window); break;)
 							}
 
-							// https://stackoverflow.com/questions/71437203/proper-way-of-activating-a-window-using-winapi
-							// This can be made more consistent with the automation API, but I don't want
-							// to touch that with a 51!-foot pole.
-							SetForegroundWindow(p_win->hwnd);
-							if (GetForegroundWindow() != p_win->hwnd) {
-								SwitchToThisWindow(p_win->hwnd, MU_TRUE);
-								Sleep(2); // I would kiss Bill Gates on the mouth if I ever met him.
-								SetForegroundWindow(p_win->hwnd);
-							}
+							if (result) {} if (window) {}
 						}
 
-						muBool muCOSA_innerWin32_window_get_visible(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							return p_win->visible;
-						}
+						MUDEF void muCOSA_window_focus(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						void muCOSA_innerWin32_window_set_visible(muCOSAResult* result, muCOSA_Win32Window* p_win, muBool visible) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							if (!visible && p_win->visible) {
-								ShowWindow(p_win->hwnd, SW_HIDE);
-							} else if (visible && !p_win->visible) {
-								ShowWindow(p_win->hwnd, SW_NORMAL);
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_focus((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_focus(result, (muCOSA_X11_window*)window); break;)
 							}
 
-							p_win->visible = visible;
+							return; if (result) {} if (window) {}
 						}
 
-						void muCOSA_innerWin32_window_get_position(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m* x, int32_m* y) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF muBool muCOSA_window_get_visible(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							RECT rect = MU_ZERO_STRUCT(RECT);
-							if (GetWindowRect(p_win->hwnd, &rect) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
+							switch (inner->system) {
+								default: return MU_FALSE; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_visible((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_visible((muCOSA_X11_window*)window); break;)
 							}
 
-							muCOSAResult res = MUCOSA_SUCCESS;
-							uint32_m l=0, t=0;
-							muCOSA_innerWin32_window_get_frame_extents(&res, p_win, &l, 0, &t, 0);
-							MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-
-							MU_SET_RESULT(x, (int32_m)rect.left + (int32_m)l)
-							MU_SET_RESULT(y, (int32_m)rect.top + (int32_m)t)
+							if (result) {} if (window) {}
 						}
 
-						void muCOSA_innerWin32_window_set_position(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m x, int32_m y) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_set_visible(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool visible) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							uint32_m xborder=0, yborder=0;
-							muCOSA_innerWin32_window_get_frame_extents(0, p_win, &xborder, 0, &yborder, 0);
-
-							x -= (int32_m)xborder;
-							y -= (int32_m)yborder;
-
-							if (SetWindowPos(p_win->hwnd, HWND_TOP, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
-							}
-						}
-
-						void muCOSA_innerWin32_window_get_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* width, uint32_m* height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							RECT rect = MU_ZERO_STRUCT(RECT);
-							if (GetClientRect(p_win->hwnd, &rect) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_visible((muCOSA_Win32_window*)window, visible); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_visible((muCOSA_X11_window*)window, visible); break;)
 							}
 
-							MU_SET_RESULT(width, (uint32_m)(rect.right - rect.left))
-							MU_SET_RESULT(height, (uint32_m)(rect.bottom - rect.top))
+							return; if (result) {} if (window) {} if (visible) {}
 						}
 
-						void muCOSA_innerWin32_window_set_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m width, uint32_m height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_get_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m* x, int32_m* y) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							WINDOWINFO wi = MU_ZERO_STRUCT(WINDOWINFO);
-							if (GetWindowInfo(p_win->hwnd, &wi) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_position(result, (muCOSA_Win32_window*)window, x, y); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_position((muCOSA_X11_window*)window, x, y); break;)
 							}
 
-							RECT rect = MU_ZERO_STRUCT(RECT);
-							rect.right = width;
-							rect.bottom = height;
-							if (AdjustWindowRect(&rect, wi.dwStyle, FALSE) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
-								return;
+							return; if (result) {} if (window) {} if (x) {} if (y) {}
+						}
+
+						MUDEF void muCOSA_window_set_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_position(result, (muCOSA_Win32_window*)window, x, y); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_position((muCOSA_X11_window*)window, x, y); break;)
 							}
 
-							if (SetWindowPos(
-									p_win->hwnd, HWND_TOP, 0, 0, rect.right-rect.left, rect.bottom-rect.top, 
-									SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE
-								) == 0
-							) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
-							}
+							return; if (result) {} if (window) {} if (x) {} if (y) {}
 						}
 
-						muBool muCOSA_innerWin32_window_get_maximized(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_get_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* width, uint32_m* height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							WINDOWPLACEMENT wp = MU_ZERO_STRUCT(WINDOWPLACEMENT);
-							wp.length = sizeof(WINDOWPLACEMENT);
-							if (GetWindowPlacement(p_win->hwnd, &wp) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return MU_FALSE;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_dimensions(result, (muCOSA_Win32_window*)window, width, height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_dimensions((muCOSA_X11_window*)window, width, height); break;)
 							}
 
-							return wp.showCmd == SW_MAXIMIZE;
+							return; if (result) {} if (window) {} if (width) {} if (height) {}
 						}
 
-						void muCOSA_innerWin32_window_set_maximized(muCOSAResult* result, muCOSA_Win32Window* p_win, muBool maximized) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_set_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m width, uint32_m height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							muCOSAResult res = MUCOSA_SUCCESS;
-							muBool b_maximized = muCOSA_innerWin32_window_get_maximized(&res, p_win);
-							MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-
-							if (b_maximized == maximized) {
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_dimensions(result, (muCOSA_Win32_window*)window, width, height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_dimensions((muCOSA_X11_window*)window, width, height); break;)
 							}
 
-							if (maximized) {
-								ShowWindow(p_win->hwnd, SW_MAXIMIZE);
-							} else {
-								ShowWindow(p_win->hwnd, SW_NORMAL);
-							}
+							return; if (result) {} if (window) {} if (width) {} if (height) {}
 						}
 
-						muBool muCOSA_innerWin32_window_get_minimized(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF muBool muCOSA_window_get_maximized(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return IsIconic(p_win->hwnd);
-						}
-
-						void muCOSA_innerWin32_window_set_minimized(muCOSAResult* result, muCOSA_Win32Window* p_win, muBool minimized) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							muCOSAResult res = MUCOSA_SUCCESS;
-							muBool b_minimized = muCOSA_innerWin32_window_get_minimized(&res, p_win);
-							MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-
-							if (b_minimized == minimized) {
-								return;
+							switch (inner->system) {
+								default: return MU_FALSE; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_maximized(result, (muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_maximized((muCOSA_X11_window*)window); break;)
 							}
 
-							if (minimized) {
-								ShowWindow(p_win->hwnd, SW_MINIMIZE);
-							} else {
-								if (OpenIcon(p_win->hwnd) == 0) {
-									MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
-								}
-							}
+							if (result) {} if (window) {}
 						}
 
-						void muCOSA_innerWin32_window_get_minimum_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* min_width, uint32_m* min_height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_SET_RESULT(min_width, p_win->min_width)
-							MU_SET_RESULT(min_height, p_win->min_height)
-						}
+						MUDEF void muCOSA_window_set_maximized(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool maximized) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						void muCOSA_innerWin32_window_set_minimum_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m min_width, uint32_m min_height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							p_win->min_width = min_width;
-							p_win->min_height = min_height;
-						}
-
-						void muCOSA_innerWin32_window_get_maximum_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* max_width, uint32_m* max_height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_SET_RESULT(max_width, p_win->max_width)
-							MU_SET_RESULT(max_height, p_win->max_height)
-						}
-
-						void muCOSA_innerWin32_window_set_maximum_dimensions(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m max_width, uint32_m max_height) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							p_win->max_width = max_width;
-							p_win->max_height = max_height;
-						}
-
-						void muCOSA_innerWin32_window_get_cursor_position(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m* x, int32_m* y) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							POINT p = MU_ZERO_STRUCT(POINT);
-							if (GetCursorPos(&p) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_maximized((muCOSA_Win32_window*)window, maximized); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_maximized((muCOSA_X11_window*)window, maximized); break;)
 							}
 
-							int32_m wx=0, wy=0;
-							muCOSAResult res = MUCOSA_SUCCESS;
-							muCOSA_innerWin32_window_get_position(&res, p_win, &wx, &wy);
-							MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-
-							MU_SET_RESULT(x, p.x-wx)
-							MU_SET_RESULT(y, p.y-wy)
+							return; if (result) {} if (window) {} if (maximized) {}
 						}
 
-						void muCOSA_innerWin32_window_set_cursor_position(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m x, int32_m y) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF muBool muCOSA_window_get_minimized(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							int32_m wx=0, wy=0;
-							muCOSAResult res = MUCOSA_SUCCESS;
-							muCOSA_innerWin32_window_get_position(&res, p_win, &wx, &wy);
-							MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-
-							if (SetCursorPos(wx+x, wy+y) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+							switch (inner->system) {
+								default: return MU_FALSE; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_minimized((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_minimized((muCOSA_X11_window*)window); break;)
 							}
+
+							if (result) {} if (window) {}
 						}
 
-						muCursorStyle muCOSA_innerWin32_window_get_cursor_style(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_set_minimized(muCOSAContext* context, muCOSAResult* result, muWindow window, muBool minimized) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return p_win->cursor_style;
-						}
-
-						void muCOSA_innerWin32_window_set_cursor_style(muCOSAResult* result, muCOSA_Win32Window* p_win, muCursorStyle style) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							p_win->cursor_style = style;
-							if (p_win->cursor != NULL) {
-								DestroyCursor(p_win->cursor);
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_minimized(result, (muCOSA_Win32_window*)window, minimized); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_minimized((muCOSA_X11_window*)window, minimized); break;)
 							}
-							p_win->cursor = LoadCursor(0, (LPCSTR)muCOSA_innerWin32_cursor_to_win_cursor(style));
-							SetCursor(p_win->cursor);
+
+							return; if (result) {} if (window) {} if (minimized) {}
 						}
 
-						int32_m muCOSA_innerWin32_window_get_scroll_level(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							return p_win->scroll_level;
+						MUDEF void muCOSA_window_get_minimum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* min_width, uint32_m* min_height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_minimum_dimensions((muCOSA_Win32_window*)window, min_width, min_height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_minimum_dimensions((muCOSA_X11_window*)window, min_width, min_height); break;)
+							}
+
+							return; if (result) {} if (window) {} if (min_width) {} if (min_height) {}
 						}
 
-						void muCOSA_innerWin32_window_set_scroll_level(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m scroll_level) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							p_win->scroll_level = scroll_level;
+						MUDEF void muCOSA_window_set_minimum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m min_width, uint32_m min_height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_minimum_dimensions((muCOSA_Win32_window*)window, min_width, min_height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_minimum_dimensions((muCOSA_X11_window*)window, min_width, min_height); break;)
+							}
+
+							return; if (result) {} if (window) {} if (min_width) {} if (min_height) {}
+						}
+
+						MUDEF void muCOSA_window_get_maximum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* max_width, uint32_m* max_height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_maximum_dimensions((muCOSA_Win32_window*)window, max_width, max_height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_maximum_dimensions((muCOSA_X11_window*)window, max_width, max_height); break;)
+							}
+
+							return; if (result) {} if (window) {} if (max_width) {} if (max_height) {}
+						}
+
+						MUDEF void muCOSA_window_set_maximum_dimensions(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m max_width, uint32_m max_height) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_maximum_dimensions((muCOSA_Win32_window*)window, max_width, max_height); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_maximum_dimensions((muCOSA_X11_window*)window, max_width, max_height); break;)
+							}
+
+							return; if (result) {} if (window) {} if (max_width) {} if (max_height) {}
+						}
+
+						MUDEF void muCOSA_window_get_cursor_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m* x, int32_m* y) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_cursor_position(result, (muCOSA_Win32_window*)window, x, y); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_cursor_position(result, (muCOSA_X11_window*)window, x, y); break;)
+							}
+
+							return; if (result) {} if (window) {} if (x) {} if (y) {}
+						}
+
+						MUDEF void muCOSA_window_set_cursor_position(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_cursor_position(result, (muCOSA_Win32_window*)window, x, y); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_cursor_position((muCOSA_X11_window*)window, x, y); break;)
+							}
+
+							return; if (result) {} if (window) {} if (x) {} if (y) {}
+						}
+
+						MUDEF muCursorStyle muCOSA_window_get_cursor_style(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return MU_CURSOR_STYLE_UNKNOWN; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_cursor_style((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_cursor_style((muCOSA_X11_window*)window); break;)
+							}
+
+							if (result) {} if (window) {}
+						}
+
+						MUDEF void muCOSA_window_set_cursor_style(muCOSAContext* context, muCOSAResult* result, muWindow window, muCursorStyle style) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_cursor_style((muCOSA_Win32_window*)window, style); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_cursor_style((muCOSA_X11_window*)window, style); break;)
+							}
+
+							return; if (result) {} if (window) {} if (style) {}
+						}
+
+						MUDEF int32_m muCOSA_window_get_scroll_level(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return 0; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_scroll_level((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_scroll_level((muCOSA_X11_window*)window); break;)
+							}
+
+							if (result) {} if (window) {}
+						}
+
+						MUDEF void muCOSA_window_set_scroll_level(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m scroll_level) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_scroll_level((muCOSA_Win32_window*)window, scroll_level); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_scroll_level((muCOSA_X11_window*)window, scroll_level); break;)
+							}
+
+							return; if (result) {} if (window) {} if (scroll_level) {}
 						}
 
 					/* Get / Let */
 
-						// https://chromium.googlesource.com/chromium/chromium/+/8da845c82ec64ba85c8222e61c249244a492bebd/chrome/browser/ime_input.cc
-						// Chromium my beloved
+						MUDEF void muCOSA_window_get_text_input_focus(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, const char* input)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						void muCOSA_innerWin32_window_update_text_cursor(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m x, int32_m y) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							if (p_win->text_input_callback == 0) {
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_text_input_focus(result, (muCOSA_Win32_window*)window, text_cursor_x, text_cursor_y, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_text_input_focus(result, (muCOSA_X11_window*)window, text_cursor_x, text_cursor_y, callback); break;)
 							}
 
-							HIMC imm = ImmGetContext(p_win->hwnd);
-
-							COMPOSITIONFORM cf = MU_ZERO_STRUCT(COMPOSITIONFORM);
-							cf.dwStyle = CFS_FORCE_POSITION;
-
-							cf.ptCurrentPos.x = x;
-							cf.ptCurrentPos.y = y;
-							ImmSetCompositionWindow(imm, &cf);
-
-							if (ImmReleaseContext(p_win->hwnd, imm) == 0) {
-								
-							}
+							return; if (result) {} if (window) {} if (text_cursor_x) {} if (text_cursor_y) {} if (callback) {}
 						}
 
-						void muCOSA_innerWin32_window_get_text_input_focus(muCOSAResult* result, muCOSA_Win32Window* p_win, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, muByte* input)) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_update_text_cursor(muCOSAContext* context, muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							if (ImmAssociateContextEx(p_win->hwnd, NULL, IACE_DEFAULT) == FALSE) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_GET_IMM_CONTEXT)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_update_text_cursor((muCOSA_Win32_window*)window, x, y); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_update_text_cursor((muCOSA_X11_window*)window, x, y); break;)
 							}
 
-							muCOSA_innerWin32_window_update_text_cursor(0, p_win, text_cursor_x, text_cursor_y);
-
-							p_win->text_input_callback = callback;
+							return; if (result) {} if (window) {} if (x) {} if (y) {}
 						}
 
-						void muCOSA_innerWin32_window_let_text_input_focus(muCOSAResult* result, muCOSA_Win32Window* p_win) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_let_text_input_focus(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							p_win->text_input_callback = 0;
-
-							if (ImmAssociateContextEx(p_win->hwnd, NULL, 0) == FALSE) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_GET_IMM_CONTEXT)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_let_text_input_focus((muCOSA_Win32_window*)window); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_let_text_input_focus((muCOSA_X11_window*)window); break;)
 							}
+
+							return; if (result) {} if (window) {}
 						}
 
 					/* Get */
 
-						void muCOSA_innerWin32_window_get_def_frame_extents(uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b) {
-							MU_SET_RESULT(l, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
-							MU_SET_RESULT(r, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
-							MU_SET_RESULT(t, (uint32_m)(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(92)))
-							MU_SET_RESULT(b, (uint32_m)GetSystemMetrics(SM_CXSIZEFRAME))
-						}
+						MUDEF void muCOSA_window_get_frame_extents(muCOSAContext* context, muCOSAResult* result, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						// I LOVE YOU BILL GATES!!!!
-						void muCOSA_innerWin32_window_get_frame_extents(muCOSAResult* result, muCOSA_Win32Window* p_win, uint32_m* l, uint32_m* r, uint32_m* t, uint32_m* b) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							// (Fallback)
-							muCOSA_innerWin32_window_get_def_frame_extents(l, r, t, b);
-
-							RECT wrect, crect;
-							if (GetWindowRect(p_win->hwnd, &wrect) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
-							}
-							if (GetClientRect(p_win->hwnd, &crect) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
-							}
-							MapWindowPoints(p_win->hwnd, NULL, (LPPOINT)&crect, 2);
-
-							MU_SET_RESULT(l, (uint32_m)(crect.left-wrect.left))
-							MU_SET_RESULT(r, (uint32_m)(wrect.right-crect.right))
-							MU_SET_RESULT(t, (uint32_m)(crect.top-wrect.top))
-							MU_SET_RESULT(b, (uint32_m)(wrect.bottom-crect.bottom))
-
-							/*LONG styles = GetWindowLongA(p_win->hwnd, GWL_STYLE);
-							LONG exstyles = GetWindowLongA(p_win->hwnd, GWL_EXSTYLE);
-
-							RECT rect;
-							if (AdjustWindowRectEx(&rect, styles, FALSE, exstyles) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_QUERY_WINDOW_INFO)
-								return;
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_get_frame_extents(result, (muCOSA_Win32_window*)window, left, right, top, bottom); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_get_frame_extents((muCOSA_X11_window*)window, left, right, top, bottom); break;)
 							}
 
-							MU_SET_RESULT(l, rect.left)
-							MU_SET_RESULT(r, rect.right)
-							MU_SET_RESULT(t, rect.top)
-							MU_SET_RESULT(b, rect.bottom)*/
+							return; if (result) { } if (window) {} if (left) {} if (right) {} if (top) {} if (bottom) {}
 						}
 
-						muButtonState muCOSA_innerWin32_window_get_keyboard_key_state(muCOSAResult* result, muCOSA_Win32Window* p_win, muKeyboardKey key) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_ASSERT(key >= MU_KEYBOARD_KEY_FIRST && key <= MU_KEYBOARD_KEY_LAST, result, MUCOSA_UNKNOWN_KEYBOARD_KEY, return 0;)
+						MUDEF muButtonState muCOSA_window_get_keyboard_key_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muKeyboardKey key) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return p_win->input.keyboard_key_states[key-MU_KEYBOARD_KEY_FIRST];
+							switch (inner->system) {
+								default: return 0; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_keyboard_key_state((muCOSA_Win32_window*)window, key); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_keyboard_key_state((muCOSA_X11_window*)window, key); break;)
+							}
+
+							if (result) { } if (window) {} if (key) {}
 						}
 
-						muState muCOSA_innerWin32_window_get_keyboard_state_state(muCOSAResult* result, muCOSA_Win32Window* p_win, muKeyboardState state) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_ASSERT(state >= MU_KEYBOARD_STATE_FIRST && state <= MU_KEYBOARD_STATE_LAST, result, MUCOSA_UNKNOWN_KEYBOARD_STATE, return 0;)
+						MUDEF muState muCOSA_window_get_keyboard_state_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muKeyboardState state) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return (GetKeyState(muCOSA_innerWin32_keyboard_state_get_win32(state)) & 0x0001) != 0;
-							if (p_win) {}
+							switch (inner->system) {
+								default: return 0; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_keyboard_state_state((muCOSA_Win32_window*)window, state); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_keyboard_state_state((muCOSA_X11_window*)window, state); break;)
+							}
+
+							if (result) { } if (window) {} if (state) {}
 						}
 
-						muButtonState muCOSA_innerWin32_window_get_mouse_button_state(muCOSAResult* result, muCOSA_Win32Window* p_win, muMouseButton button) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_ASSERT(button >= MU_MOUSE_BUTTON_FIRST && button <= MU_MOUSE_BUTTON_LAST, result, MUCOSA_UNKNOWN_MOUSE_BUTTON, return 0;)
+						MUDEF muButtonState muCOSA_window_get_mouse_button_state(muCOSAContext* context, muCOSAResult* result, muWindow window, muMouseButton button) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							return p_win->input.mouse_button_states[button-MU_MOUSE_BUTTON_FIRST];
+							switch (inner->system) {
+								default: return 0; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_window_get_mouse_button_state((muCOSA_Win32_window*)window, button); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_window_get_mouse_button_state((muCOSA_X11_window*)window, button); break;)
+							}
+
+							if (result) { } if (window) {} if (button) {}
 						}
 
 					/* Set */
 
-						void muCOSA_innerWin32_window_set_title(muCOSAResult* result, muCOSA_Win32Window* p_win, muByte* title) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						MUDEF void muCOSA_window_set_title(muCOSAContext* context, muCOSAResult* result, muWindow window, const char* title) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							wchar_t* wtitle = muCOSA_innerWin32_utf8_to_wchar(title);
-							MU_ASSERT(wtitle != 0, result, MUCOSA_ALLOCATION_FAILED, return;)
-
-							if (SetWindowTextW(p_win->hwnd, wtitle) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_WINDOW_INFO)
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_title(result, (muCOSA_Win32_window*)window, title); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_title((muCOSA_X11_window*)window, title); break;)
 							}
 
-							mu_free(wtitle);
+							return; if (result) { } if (window) {} if (title) {}
+						}
+
+						MUDEF void muCOSA_window_set_dimensions_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_dimensions_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_dimensions_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_position_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_position_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_position_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_focus_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool focused)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_focus_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_focus_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_maximize_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool maximized)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_maximize_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_maximize_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_minimize_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool minimized)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_minimize_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_minimize_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_keyboard_key_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_keyboard_key_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_keyboard_key_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_keyboard_state_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_keyboard_state_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_keyboard_state_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_cursor_position_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_cursor_position_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_cursor_position_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_mouse_button_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_mouse_button_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_mouse_button_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
+						}
+
+						MUDEF void muCOSA_window_set_scroll_callback(muCOSAContext* context, muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m scroll_level_add)) {
+							muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+							switch (inner->system) {
+								default: return; break;
+								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_window_set_scroll_callback((muCOSA_Win32_window*)window, callback); break;)
+								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_window_set_scroll_callback((muCOSA_X11_window*)window, callback); break;)
+							}
+
+							return; if (result) { } if (window) {} if (callback) {}
 						}
 
 				/* Time */
 
-					// https://stackoverflow.com/questions/1695288/getting-the-current-time-in-milliseconds-from-the-system-clock-in-windows
-					double muCOSA_innerWin32_get_current_time(void) {
-						FILETIME file_time;
-						GetSystemTimeAsFileTime(&file_time);
-						LONGLONG ll_now = (LONGLONG)file_time.dwLowDateTime + ((LONGLONG)(file_time.dwHighDateTime) << 32LL);
-						return (double)ll_now / (double)1.0e7;
+					MUDEF double muCOSA_time_get(muCOSAContext* context, muCOSAResult* result) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+						switch (inner->system) {
+							default: return 0.f; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_time_get((muCOSA_Win32_context*)inner->context, result); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_time_get(&((muCOSA_X11_context*)inner->context)->time); break;)
+						}
+
+						if (result) {}
 					}
 
-				/* Functions */
+					MUDEF void muCOSA_time_set(muCOSAContext* context, muCOSAResult* result, double time) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-					/* Is supported */
-
-						muBool muCOSA_Win32_is_supported(void) {
-							return MU_TRUE;
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_time_set((muCOSA_Win32_context*)inner->context, result, time); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_time_set(&((muCOSA_X11_context*)inner->context)->time, time); break;)
 						}
 
-					/* Initiation / Termination */
+						return; if (result) {} if (time) {}
+					}
 
-						void muCOSA_Win32_init(muCOSAResult* result, muCOSA_Win32Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+					MUDEF void muCOSA_sleep(muCOSAContext* context, muCOSAResult* result, double time) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							MUCOSA_OPENGL_CALL(
-								c->wgl = muCOSA_Win32WGL_init();
-							)
-
-							c->time = muCOSA_Win32Time_init();
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_sleep((muCOSA_Win32_context*)inner->context, result, time); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_sleep(time); break;)
 						}
 
-						muWindow muCOSA_Win32_window_destroy(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window);
-						void muCOSA_Win32_term(muCOSAResult* result, muCOSA_Win32Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						return; if (result) {} if (time) {}
+					}
 
-							for (size_m i = 0; i < c->windows.length; i++) {
-								muCOSA_Win32_window_destroy(0, c, i);
-							}
+				/* Clipboard */
 
-							MUCOSA_OPENGL_CALL(
-								muCOSA_Win32WGL_term(c->wgl);
-							)
+					MUDEF char* muCOSA_clipboard_get(muCOSAContext* context, muCOSAResult* result) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							muCOSA_Win32Time_term(c->time);
+						switch (inner->system) {
+							default: return 0; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_clipboard_get(result); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return (char*)muCOSA_X11_clipboard_get(result); break;)
 						}
 
-					/* Window */
-
-						/* Creation / Destruction */
-
-							muWindow muCOSA_Win32_window_create(muCOSAResult* result, muCOSA_Win32Context* c,
-								muGraphicsAPI api, muBool (*load_functions)(void),
-								muByte* name, uint16_m width, uint16_m height,
-								muWindowCreateInfo create_info
-							) {
-								if (api) {} if (load_functions) {}
-
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								mumaResult muma_res = MUMA_SUCCESS;
-								muCOSAResult mu_res = MUCOSA_SUCCESS;
-
-								mu_res = muCOSA_verify_window_create_info(create_info);
-								MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res, return MU_NONE;)
-
-								size_m win = MU_NONE;
-								muCOSA_Win32Window_find_push(&muma_res, &c->windows, MU_ZERO_STRUCT(muCOSA_Win32Window), &win);
-								if (muma_res != MUMA_SUCCESS) {
-									MU_SET_RESULT(result, muma_result_to_muCOSA_result(muma_res))
-									return MU_NONE;
-								}
-								muCOSA_Win32Window_hold_element(&muma_res, &c->windows, win);
-								MU_ASSERT(muma_res == MUMA_SUCCESS, result, muma_result_to_muCOSA_result(muma_res), return MU_NONE;)
-
-								c->windows.data[win] = MU_ZERO_STRUCT(muCOSA_Win32Window);
-								c->windows.data[win].active = MU_FALSE;
-
-								/* Create */
-
-								wchar_t* wname = muCOSA_innerWin32_utf8_to_wchar(name);
-								MU_ASSERT(wname != 0, result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR, 
-									MU_RELEASE(c->windows, win, muCOSA_Win32Window_) return MU_NONE;
-								)
-
-								c->windows.data[win].hinstance = muCOSA_innerWin32_get_hinstance();
-
-								// This might be a bad idea... :)
-								c->windows.data[win].wclass_name[0] = (wchar_t)'!' + (wchar_t)win;
-								c->windows.data[win].wclass_name[1] = (wchar_t)'\0';
-
-								WNDCLASSEXW wclass = muCOSA_innerWin32_window_get_class(&mu_res, wname, c->windows.data[win].wclass_name);
-								MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res, 
-									mu_free(wname);
-									MU_RELEASE(c->windows, win, muCOSA_Win32Window_) return MU_NONE;
-								)
-
-								if (!RegisterClassExW(&wclass)) {
-									mu_free(wname);
-									MU_SET_RESULT(result, MUCOSA_FAILED_REGISTER_WINDOW_CLASS)
-									MU_RELEASE(c->windows, win, muCOSA_Win32Window_)
-									return MU_NONE;
-								}
-
-								c->windows.data[win].hwnd = muCOSA_innerWin32_window_create(
-									width, height, create_info, wclass, &c->windows.data[win]
-								);
-
-								mu_free(wname);
-
-								MU_ASSERT(c->windows.data[win].hwnd != NULL, result, MUCOSA_FAILED_CREATE_WINDOW,
-									UnregisterClassW(c->windows.data[win].wclass_name, c->windows.data[win].hinstance);
-									MU_RELEASE(c->windows, win, muCOSA_Win32Window_) return MU_NONE;
-								);
-
-								c->windows.data[win].dc = GetDC(c->windows.data[win].hwnd);
-
-								/* Handle API */
-
-								c->windows.data[win].api = api;
-
-								MUCOSA_OPENGL_CALL(
-								if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-									MU_LOCK_LOCK(c->wgl.lock, c->wgl.lock_active)
-
-									if (c->wgl.wglCreateContextAttribsARB == 0) {
-										mu_res = muCOSA_Win32_init_opengl_extensions(&c->wgl);
-										MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res,
-											ReleaseDC(c->windows.data[win].hwnd, c->windows.data[win].dc);
-											DestroyWindow(c->windows.data[win].hwnd);
-											UnregisterClassW(c->windows.data[win].wclass_name, c->windows.data[win].hinstance);
-											MU_LOCK_UNLOCK(c->wgl.lock, c->wgl.lock_active)
-											MU_RELEASE(c->windows, win, muCOSA_Win32Window_) return MU_NONE;
-										)
-									}
-
-									mu_res = muCOSA_Win32_create_opengl_context(
-										c->windows.data[win].dc, &c->wgl, create_info.pixel_format, &c->windows.data[win].glrc, api
-									);
-									MU_ASSERT(mu_res == MUCOSA_SUCCESS, result, mu_res,
-										ReleaseDC(c->windows.data[win].hwnd, c->windows.data[win].dc);
-										DestroyWindow(c->windows.data[win].hwnd);
-										UnregisterClassW(c->windows.data[win].wclass_name, c->windows.data[win].hinstance);
-										MU_LOCK_UNLOCK(c->wgl.lock, c->wgl.lock_active)
-										MU_RELEASE(c->windows, win, muCOSA_Win32Window_) return MU_NONE;
-									)
-
-									MU_LOCK_UNLOCK(c->wgl.lock, c->wgl.lock_active)
-								}
-								)
-
-								if (load_functions != MU_NULL_PTR) {
-									MU_ASSERT(load_functions() == MU_TRUE, result, MUCOSA_FAILED_LOAD_FUNCTIONS, 
-										MUCOSA_OPENGL_CALL(
-											if (api >= MUCOSA_OPENGL_FIRST && api <= MUCOSA_OPENGL_LAST) {
-												wglDeleteContext(c->windows.data[win].glrc);
-											}
-										)
-
-										ReleaseDC(c->windows.data[win].hwnd, c->windows.data[win].dc);
-										DestroyWindow(c->windows.data[win].hwnd);
-										UnregisterClassW(c->windows.data[win].wclass_name, c->windows.data[win].hinstance);
-									)
-								}
-
-								/* Cursor */
-
-								c->windows.data[win].cursor_style = create_info.cursor_style;
-								c->windows.data[win].cursor = LoadCursor(0, (LPCSTR)muCOSA_innerWin32_cursor_to_win_cursor(create_info.cursor_style));
-								SetCursor(c->windows.data[win].cursor);
-
-								/* Show window */
-
-								c->windows.data[win].visible = create_info.visible;
-
-								if (c->windows.data[win].visible) {
-									if (create_info.maximized) {
-										ShowWindow(c->windows.data[win].hwnd, SW_MAXIMIZE);
-									} else if (create_info.minimized) {
-										ShowWindow(c->windows.data[win].hwnd, SW_MINIMIZE);
-									} else {
-										ShowWindow(c->windows.data[win].hwnd, SW_NORMAL);
-									}
-								} else {
-									ShowWindow(c->windows.data[win].hwnd, SW_HIDE);
-								}
-
-								/* Auto-disable IME */
-
-								if (ImmAssociateContextEx(c->windows.data[win].hwnd, NULL, 0) == FALSE) {
-									// ？
-								}
-
-								/* R e t u r n */
-
-								c->windows.data[win].closed = MU_FALSE;
-								c->windows.data[win].maximized = create_info.maximized;
-								c->windows.data[win].minimized = create_info.minimized;
-								c->windows.data[win].dimensions_callback = create_info.dimensions_callback;
-								c->windows.data[win].position_callback = create_info.position_callback;
-								c->windows.data[win].focus_callback = create_info.focus_callback;
-								c->windows.data[win].maximize_callback = create_info.maximize_callback;
-								c->windows.data[win].minimize_callback = create_info.minimize_callback;
-								c->windows.data[win].keyboard_key_callback = create_info.keyboard_key_callback;
-								c->windows.data[win].keyboard_state_callback = create_info.keyboard_state_callback;
-								c->windows.data[win].cursor_position_callback = create_info.cursor_position_callback;
-								c->windows.data[win].mouse_button_callback = create_info.mouse_button_callback;
-								c->windows.data[win].scroll_callback = create_info.scroll_callback;
-								c->windows.data[win].min_width = create_info.min_width;
-								c->windows.data[win].min_height = create_info.min_height;
-								c->windows.data[win].max_width = create_info.max_width;
-								c->windows.data[win].max_height = create_info.max_height;
-
-								c->windows.data[win].active = MU_TRUE;
-								MU_RELEASE(c->windows, win, muCOSA_Win32Window_)
-								return win;
-							}
-
-							muWindow muCOSA_Win32_window_destroy(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return window;, muCOSA_Win32Window_)
-
-								MUCOSA_OPENGL_CALL(
-									if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-										wglDeleteContext(c->windows.data[window].glrc);
-									}
-								)
-
-								ReleaseDC(c->windows.data[window].hwnd, c->windows.data[window].dc);
-								DestroyWindow(c->windows.data[window].hwnd);
-								UnregisterClassW(c->windows.data[window].wclass_name, c->windows.data[window].hinstance);
-
-								c->windows.data[window].active = MU_FALSE;
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-								return MU_NONE;
-							}
-
-						/* Main loop */
-
-							muBool muCOSA_Win32_window_get_closed(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_TRUE;, muCOSA_Win32Window_)
-
-								muBool closed = c->windows.data[window].closed;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-								return closed;
-							}
-
-							void muCOSA_Win32_window_close(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSAResult res = MUCOSA_SUCCESS;
-								muCOSA_innerWin32_window_set_visible(&res, &c->windows.data[window], MU_FALSE);
-								MU_ASSERT(res == MUCOSA_SUCCESS, result, res, MU_RELEASE(c->windows, window, muCOSA_Win32Window_) return;)
-
-								c->windows.data[window].closed = MU_TRUE;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_update(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								MSG msg = MU_ZERO_STRUCT(MSG);
-								while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) {
-									TranslateMessage(&msg);
-									DispatchMessage(&msg);
-								}
-
-								muCOSA_innerWin32_update_state(c, window, &c->windows.data[window]);
-								muCOSA_innerWin32_possible_input_flushing(&c->windows.data[window]);
-
-								muCOSA_innerWin32_handle_cursor_position(c, window, &c->windows.data[window]);
-								muCOSA_innerWin32_update_cursor_style(&c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_swap_buffers(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								MUCOSA_OPENGL_CALL(
-									if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-										SwapBuffers(c->windows.data[window].dc);
-									}
-								)
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-						/* Get / Set */
-
-							muBool muCOSA_Win32_window_get_focused(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_Win32Window_)
-
-								muBool ret = muCOSA_innerWin32_window_get_focused(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							void muCOSA_Win32_window_focus(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_focus(result, &c->windows.data[window]);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							muBool muCOSA_Win32_window_get_visible(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_Win32Window_)
-
-								muBool ret = muCOSA_innerWin32_window_get_visible(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							void muCOSA_Win32_window_set_visible(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muBool visible) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_visible(result, &c->windows.data[window], visible);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_get_position(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m* x, int32_m* y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_position(result, &c->windows.data[window], x, y);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_position(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m x, int32_m y, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_position(result, &c->windows.data[window], x, y);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_get_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m* width, uint32_m* height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_dimensions(result, &c->windows.data[window], width, height);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m width, uint32_m height, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_dimensions(result, &c->windows.data[window], width, height);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							muBool muCOSA_Win32_window_get_maximized(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_Win32Window_)
-
-								muBool ret = muCOSA_innerWin32_window_get_maximized(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							void muCOSA_Win32_window_set_maximized(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muBool maximized, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_maximized(result, &c->windows.data[window], maximized);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							muBool muCOSA_Win32_window_get_minimized(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_FALSE;, muCOSA_Win32Window_)
-
-								muBool ret = muCOSA_innerWin32_window_get_minimized(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							void muCOSA_Win32_window_set_minimized(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muBool minimized, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_minimized(result, &c->windows.data[window], minimized);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_get_minimum_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m* min_width, uint32_m* min_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_minimum_dimensions(result, &c->windows.data[window], min_width, min_height);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_minimum_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m min_width, uint32_m min_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_minimum_dimensions(result, &c->windows.data[window], min_width, min_height);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_get_maximum_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m* max_width, uint32_m* max_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_maximum_dimensions(result, &c->windows.data[window], max_width, max_height);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_maximum_dimensions(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m max_width, uint32_m max_height) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_maximum_dimensions(result, &c->windows.data[window], max_width, max_height);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_get_cursor_position(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m* x, int32_m* y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_cursor_position(result, &c->windows.data[window], x, y);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_cursor_position(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m x, int32_m y, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_cursor_position(result, &c->windows.data[window], x, y);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							muCursorStyle muCOSA_Win32_window_get_cursor_style(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return MU_CURSOR_STYLE_UNKNOWN;, muCOSA_Win32Window_)
-
-								muCursorStyle style = muCOSA_innerWin32_window_get_cursor_style(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return style;
-							}
-
-							void muCOSA_Win32_window_set_cursor_style(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muCursorStyle style) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_cursor_style(result, &c->windows.data[window], style);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							int32_m muCOSA_Win32_window_get_scroll_level(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_Win32Window_)
-
-								int32_m level = muCOSA_innerWin32_window_get_scroll_level(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return level;
-							}
-
-							void muCOSA_Win32_window_set_scroll_level(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m scroll_level, muBool callback) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_scroll_level(result, &c->windows.data[window], scroll_level);
-								if (callback) {}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-						/* Get / Let */
-
-							void muCOSA_Win32_window_get_text_input_focus(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, muByte* input)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_text_input_focus(result, &c->windows.data[window], text_cursor_x, text_cursor_y, callback);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_update_text_cursor(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int32_m x, int32_m y) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_update_text_cursor(result, &c->windows.data[window], x, y);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_let_text_input_focus(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_let_text_input_focus(result, &c->windows.data[window]);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-						/* Get */
-
-							void muCOSA_Win32_window_get_frame_extents(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_get_frame_extents(result, &c->windows.data[window], left, right, top, bottom);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							muButtonState muCOSA_Win32_window_get_keyboard_key_state(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muKeyboardKey key) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_Win32Window_)
-
-								muButtonState ret = muCOSA_innerWin32_window_get_keyboard_key_state(result, &c->windows.data[window], key);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							muState muCOSA_Win32_window_get_keyboard_state_state(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muKeyboardState state) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_Win32Window_)
-
-								muState ret = muCOSA_innerWin32_window_get_keyboard_state_state(result, &c->windows.data[window], state);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-							muButtonState muCOSA_Win32_window_get_mouse_button_state(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muMouseButton button) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_Win32Window_)
-
-								muButtonState ret = muCOSA_innerWin32_window_get_mouse_button_state(result, &c->windows.data[window], button);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-								return ret;
-							}
-
-						/* Set */
-
-							void muCOSA_Win32_window_set_title(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muByte* title) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								muCOSA_innerWin32_window_set_title(result, &c->windows.data[window], title);
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_dimensions_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].dimensions_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_position_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].position_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_focus_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muBool focused)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].focus_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_maximize_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muBool maximized)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].maximize_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_minimize_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muBool minimized)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].minimize_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_keyboard_key_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].keyboard_key_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_keyboard_state_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].keyboard_state_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_cursor_position_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].cursor_position_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_mouse_button_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].mouse_button_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-							void muCOSA_Win32_window_set_scroll_callback(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void (*callback)(muWindow window, int32_m scroll_level_add)) {
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								c->windows.data[window].scroll_callback = callback;
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							}
-
-					/* Time */
-
-						double muCOSA_Win32_time_get(muCOSAResult* result, muCOSA_Win32Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							MU_LOCK_LOCK(c->time.lock, c->time.lock_active)
-							double time = c->time.orig_time;
-							MU_LOCK_UNLOCK(c->time.lock, c->time.lock_active)
-
-							return muCOSA_innerWin32_get_current_time() - time;
+						if (result) { }
+					}
+
+					MUDEF void muCOSA_clipboard_set(muCOSAContext* context, muCOSAResult* result, const char* text, size_m text_size) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_clipboard_set(result, text, text_size); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_clipboard_set(result, &((muCOSA_X11_context*)inner->context)->clipboard, text, text_size); break;)
 						}
 
-						void muCOSA_Win32_time_set(muCOSAResult* result, muCOSA_Win32Context* c, double time) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						return; if (result) { } if (text) {} if (text_size) {}
+					}
 
-							MU_LOCK_LOCK(c->time.lock, c->time.lock_active)
-							c->time.orig_time = muCOSA_innerWin32_get_current_time() + time;
-							MU_LOCK_UNLOCK(c->time.lock, c->time.lock_active)
+				/* OS functions */
+
+					MUDEF void* muCOSA_os_get_window_handle(muCOSAContext* context, muCOSAResult* result, muWindow window, muWindowHandle handle) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+						switch (inner->system) {
+							default: return 0; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_os_get_window_handle(result, (muCOSA_Win32_window*)window, handle); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_os_get_window_handle(result, (muCOSA_X11_window*)window, handle); break;)
 						}
 
-						void muCOSA_Win32_sleep(muCOSAResult* result, muCOSA_Win32Context* c, double time) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+						if (result) { } if (window) {} if (handle) {}
+					}
 
-							Sleep((DWORD)((double)time*(double)1000.f));
-							if (c) {}
+				/* OpenGL */
+
+					MUDEF void muCOSA_opengl_bind_window(muCOSAContext* context, muCOSAResult* result, muWindow window) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_opengl_bind_window(result, (muCOSA_Win32_window*)window); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_opengl_bind_window(result, (muCOSA_X11_window*)window); break;)
 						}
 
-					/* Clipboard */
+						return; if (result) { } if (window) {}
+					}
 
-						// https://stackoverflow.com/questions/14762456/getclipboarddatacf-text
+					MUDEF void* muCOSA_opengl_get_function_address(muCOSAContext* context, const char* name) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-						muByte* muCOSA_Win32_clipboard_get(muCOSAResult* result, muCOSA_Win32Context* c) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-							if (OpenClipboard(NULL) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_HOLD_CLIPBOARD)
-								return 0;
-							}
-
-							HANDLE data = GetClipboardData(CF_UNICODETEXT);
-							if (data == 0) {
-								// I'm pretty sure this can happen if no clipboard is available, so I'm not
-								// throwing an error here.
-								CloseClipboard();
-								return 0;
-							}
-
-							wchar_t* wdata = (wchar_t*)GlobalLock(data);
-							if (wdata == NULL) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_GLOBAL_LOCK)
-								CloseClipboard();
-								return 0;
-							}
-
-							muByte* utf8_data = muCOSA_innerWin32_wchar_to_utf8(wdata);
-							if (utf8_data == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8)
-								GlobalUnlock(data);
-								CloseClipboard();
-								return 0;
-							}
-
-							return utf8_data;
-							if (c) {}
+						switch (inner->system) {
+							default: return 0; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_opengl_get_function_address(name); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_opengl_get_function_address(name); break;)
 						}
 
-						// https://stackoverflow.com/questions/1264137/how-to-copy-string-to-clipboard-in-c
+						if (name) {}
+					}
 
-						void muCOSA_Win32_clipboard_set(muCOSAResult* result, muCOSA_Win32Context* c, muByte* text, size_m text_size) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
+					MUDEF void muCOSA_opengl_window_swap_interval(muCOSAContext* context, muCOSAResult* result, muWindow window, int interval) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							int wlen = MultiByteToWideChar(CP_UTF8, 0, (const char*)text, text_size, NULL, 0);
-							if (wlen == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR)
-								return;
-							}
-
-							HGLOBAL g_mem = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)wlen * sizeof(wchar_t));
-							MU_ASSERT(g_mem != NULL, result, MUCOSA_FAILED_GLOBAL_ALLOCATION, return;)
-
-							LPVOID p_mem = GlobalLock(g_mem);
-							if (p_mem == NULL) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_GLOBAL_LOCK)
-								GlobalFree(g_mem);
-								return;
-							}
-
-							if (MultiByteToWideChar(CP_UTF8, 0, (const char*)text, text_size, (LPWSTR)p_mem, wlen) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR)
-								GlobalUnlock(g_mem);
-								GlobalFree(g_mem);
-								return;
-							}
-
-							GlobalUnlock(g_mem);
-
-							if (OpenClipboard(NULL) == 0) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_HOLD_CLIPBOARD)
-								GlobalFree(g_mem);
-								return;
-							}
-
-							if (EmptyClipboard() == 0) {
-								// I'm going to assume that this can occur if the clipboard was already
-								// empty, so I don't wanna throw an error here. But if that's not the case,
-								// this could cause a bad memory leak. :L
-							}
-
-							// Is CF_UNICODETEXT right here? Pretty sure it is...
-							if (SetClipboardData(CF_UNICODETEXT, g_mem) == NULL) {
-								MU_SET_RESULT(result, MUCOSA_FAILED_SET_CLIPBOARD)
-								GlobalFree(g_mem);
-								CloseClipboard();
-								return;
-							}
-
-							CloseClipboard();
-
-							return;
-							if (c) {}
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_opengl_window_swap_interval(result, (muCOSA_Win32_window*)window, interval); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_opengl_window_swap_interval(result, (muCOSA_X11_window*)window, interval); break;)
 						}
 
-					/* OS functions */
+						return; if (result) { } if (window) {} if (interval) {}
+					}
 
-						void* muCOSA_Win32_os_get_window_handle(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, muWindowHandle handle) {
-							MU_SET_RESULT(result, MUCOSA_SUCCESS)
-							MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return 0;, muCOSA_Win32Window_)
+				/* Vulkan */
 
-							void* p = 0;
-							switch (handle) {
-								default: MU_SET_RESULT(result, MUCOSA_UNKNOWN_WINDOW_HANDLE) break;
-								case MU_WINDOWS_HWND: p = (void*)c->windows.data[window].hwnd; break;
-							}
+					// Note: also not necessarily UTF-8
+					MUDEF const char** muCOSA_vulkan_get_surface_instance_extensions(muCOSAContext* context, muCOSAResult* result, size_m* count) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-							MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-
-							return p;
+						switch (inner->system) {
+							default: return 0; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_vulkan_get_surface_instance_extensions(result, count); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_vulkan_get_surface_instance_extensions(result, count); break;)
 						}
 
-					/* OpenGL */
+						if (result) { } if (count) {}
+					}
 
-						void muCOSA_Win32_opengl_bind_window(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window) {
-							#ifndef MUCOSA_OPENGL
-								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								return;
-								if (c) {} if (window) {}
-							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
+					// vk_result interpreted as VkResult*, instance as VkInstance*, allocator as const VkAllocationCallbacks*, and surface as VkSurfaceKHR*
+					MUDEF void muCOSA_vulkan_create_window_surface(muCOSAContext* context, muCOSAResult* result, muWindow window, void* vk_result, void* instance, void* allocator, void* surface) {
+						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
-								if (c->windows.data[window].api >= MUCOSA_OPENGL_FIRST && c->windows.data[window].api <= MUCOSA_OPENGL_LAST) {
-									if (wglMakeCurrent(c->windows.data[window].dc, c->windows.data[window].glrc) != TRUE) {
-										MU_SET_RESULT(result, MUCOSA_FAILED_LOAD_OPENGL_CONTEXT)
-										MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-										return;
-									}
-								}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							#endif
+						switch (inner->system) {
+							default: return; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: muCOSA_Win32_vulkan_create_window_surface(result, (muCOSA_Win32_window*)window, vk_result, instance, allocator, surface); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: muCOSA_X11_vulkan_create_window_surface(result, (muCOSA_X11_window*)window, vk_result, instance, allocator, surface); break;)
 						}
 
-						// https://stackoverflow.com/questions/76638441/how-to-init-glad-without-the-glfw-loader-using-windows-headers
-						void* muCOSA_Win32_opengl_get_function_address(const muByte* name) {
-							MUCOSA_OPENGL_CALL(
-								PROC p = (PROC)wglGetProcAddress((LPCSTR)name);
-
-								if (p == 0 || (p == (PROC)0x1) || (p == (PROC)0x2) || (p == (PROC)0x3) || (p == (PROC)-1)) {
-									HMODULE module = LoadLibraryA("opengl32.dll");
-									p = (PROC)GetProcAddress(module, (LPCSTR)name);
-								}
-
-								void* vptr = 0;
-								mu_memcpy(&vptr, &p, sizeof(void*));
-								return vptr;
-							)
-							if (name) {}
-							return 0;
-						}
-
-						void muCOSA_Win32_opengl_window_swap_interval(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, int interval) {
-							#ifndef MUCOSA_OPENGL
-								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								return;
-								if (c) {} if (window) {} if (interval) {}
-							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								MU_LOCK_LOCK(c->wgl.si.lock, c->wgl.si.lock_active)
-
-								// Check if extension "wglGetExtensionsStringEXT" is present
-								if (c->wgl.si.wglSwapIntervalEXT == 0) {
-									void* vptr = muCOSA_Win32_opengl_get_function_address((muByte*)"wglGetExtensionsStringEXT");
-
-									if (vptr == 0) {
-										MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE)
-										MU_LOCK_UNLOCK(c->wgl.si.lock, c->wgl.si.lock_active)
-										MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-										return;
-									}
-
-									vptr = muCOSA_Win32_opengl_get_function_address((muByte*)"wglSwapIntervalEXT");
-									mu_memcpy(&c->wgl.si.wglSwapIntervalEXT, &vptr, sizeof(void*));
-								}
-
-								if (c->wgl.si.wglSwapIntervalEXT == 0) {
-									MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_OPENGL_FEATURE)
-									MU_LOCK_UNLOCK(c->wgl.si.lock, c->wgl.si.lock_active)
-									MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-									return;
-								}
-
-								c->wgl.si.wglSwapIntervalEXT(interval);
-
-								MU_LOCK_UNLOCK(c->wgl.si.lock, c->wgl.si.lock_active)
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							#endif
-						}
-
-					/* Vulkan */
-
-						#if defined(MUCOSA_VULKAN) && !defined(MUCOSA_NO_INCLUDE_VULKAN)
-							#include MUCOSA_VULKAN_INCLUDE_PATH
-						#endif
-
-						const char** muCOSA_Win32_vulkan_get_surface_instance_extensions(muCOSAResult* result, size_m* count) {
-							#ifndef MUCOSA_VULKAN
-								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								return 0;
-								if (count) {}
-							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								static const char* exts[] = { "VK_KHR_surface", "VK_KHR_win32_surface" };
-								MU_SET_RESULT(count, 2)
-								return (const char**)exts;
-							#endif
-						}
-
-						void muCOSA_Win32_vulkan_create_window_surface(muCOSAResult* result, muCOSA_Win32Context* c, muWindow window, void* vk_result, void* instance, void* allocator, void* surface) {
-							#ifndef MUCOSA_VULKAN
-								MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_GRAPHICS_API)
-								return;
-								if (c) {} if (window) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
-							#else
-								MU_SET_RESULT(result, MUCOSA_SUCCESS)
-								MU_HOLD(result, window, c->windows, muCOSA_global_context, MUCOSA_, return;, muCOSA_Win32Window_)
-
-								VkWin32SurfaceCreateInfoKHR ci = MU_ZERO_STRUCT(VkWin32SurfaceCreateInfoKHR);
-								ci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-								ci.hinstance = c->windows.data[window].hinstance;
-								ci.hwnd = c->windows.data[window].hwnd;
-
-								VkInstance r_instance = VK_NULL_HANDLE;
-								if (instance != 0) {
-									r_instance = *((VkInstance*)instance);
-								}
-
-								VkResult vkres = vkCreateWin32SurfaceKHR(r_instance, &ci, (const VkAllocationCallbacks*)allocator, (VkSurfaceKHR*)surface);
-								if (vk_result != 0) {
-									*((VkResult*)vk_result) = vkres;
-								}
-
-								MU_RELEASE(c->windows, window, muCOSA_Win32Window_)
-							#endif
-						}
-			#else
-				#define MUCOSA_WIN32_CALL(...)
-			#endif /* MUCOSA_WIN32 */
-
-			/* API-level functions */
+						return; if (result) { } if (window) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
+					}
 
 				/* Names */
 
@@ -39743,30 +36956,18 @@ ensure that rendered buffer sections don't get modified, or else UB.
 							switch (result) {
 								default: return "MUCOSA_UNKNOWN"; break;
 								case MUCOSA_SUCCESS: return "MUCOSA_SUCCESS"; break;
-								case MUCOSA_ALREADY_INITIALIZED: return "MUCOSA_ALREADY_INITIALIZED"; break;
-								case MUCOSA_ALREADY_TERMINATED: return "MUCOSA_ALREADY_TERMINATED"; break;
 								case MUCOSA_ALREADY_ACTIVE: return "MUCOSA_ALREADY_ACTIVE"; break;
-								case MUCOSA_ALREADY_INACTIVE: return "MUCOSA_ALREADY_INACTIVE"; break;
-								case MUCOSA_NOT_YET_INITIALIZED: return "MUCOSA_NOT_YET_INITIALIZED"; break;
 								case MUCOSA_ALLOCATION_FAILED: return "MUCOSA_ALLOCATION_FAILED"; break;
 								case MUCOSA_UNKNOWN_WINDOW_SYSTEM: return "MUCOSA_UNKNOWN_WINDOW_SYSTEM"; break;
 								case MUCOSA_UNKNOWN_GRAPHICS_API: return "MUCOSA_UNKNOWN_GRAPHICS_API"; break;
-								case MUCOSA_UNKNOWN_KEYBOARD_KEY: return "MUCOSA_UNKNOWN_KEYBOARD_KEY"; break;
-								case MUCOSA_UNKNOWN_KEYBOARD_STATE: return "MUCOSA_UNKNOWN_KEYBOARD_STATE"; break;
-								case MUCOSA_UNKNOWN_MOUSE_BUTTON: return "MUCOSA_UNKNOWN_MOUSE_BUTTON"; break;
 								case MUCOSA_UNKNOWN_WINDOW_HANDLE: return "MUCOSA_UNKNOWN_WINDOW_HANDLE"; break;
-								case MUCOSA_UNSUPPORTED_WINDOW_SYSTEM: return "MUCOSA_UNSUPPORTED_WINDOW_SYSTEM"; break;
-								case MUCOSA_UNSUPPORTED_FEATURE: return "MUCOSA_UNSUPPORTED_FEATURE"; break;
 								case MUCOSA_UNSUPPORTED_OPENGL_FEATURE: return "MUCOSA_UNSUPPORTED_OPENGL_FEATURE"; break;
 								case MUCOSA_UNSUPPORTED_GRAPHICS_API: return "MUCOSA_UNSUPPORTED_GRAPHICS_API"; break;
 								case MUCOSA_FAILED_CONNECTION_TO_SERVER: return "MUCOSA_FAILED_CONNECTION_TO_SERVER"; break;
 								case MUCOSA_FAILED_CREATE_WINDOW: return "MUCOSA_FAILED_CREATE_WINDOW"; break;
 								case MUCOSA_FAILED_LOAD_FUNCTIONS: return "MUCOSA_FAILED_LOAD_FUNCTIONS"; break;
-								case MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER: return "MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER"; break;
 								case MUCOSA_FAILED_CREATE_OPENGL_CONTEXT: return "MUCOSA_FAILED_CREATE_OPENGL_CONTEXT"; break;
 								case MUCOSA_FAILED_LOAD_OPENGL_CONTEXT: return "MUCOSA_FAILED_LOAD_OPENGL_CONTEXT"; break;
-								case MUCOSA_FAILED_USE_PIXEL_FORMAT: return "MUCOSA_FAILED_USE_PIXEL_FORMAT"; break;
-								case MUCOSA_FAILED_JOIN_THREAD: return "MUCOSA_FAILED_JOIN_THREAD"; break;
 								case MUCOSA_FAILED_CREATE_THREAD: return "MUCOSA_FAILED_CREATE_THREAD"; break;
 								case MUCOSA_FAILED_CREATE_INPUT_METHOD: return "MUCOSA_FAILED_CREATE_INPUT_METHOD"; break;
 								case MUCOSA_FAILED_GET_INPUT_STYLES: return "MUCOSA_FAILED_GET_INPUT_STYLES"; break;
@@ -39782,28 +36983,17 @@ ensure that rendered buffer sections don't get modified, or else UB.
 								case MUCOSA_FAILED_SET_PIXEL_FORMAT: return "MUCOSA_FAILED_SET_PIXEL_FORMAT"; break;
 								case MUCOSA_FAILED_QUERY_WINDOW_INFO: return "MUCOSA_FAILED_QUERY_WINDOW_INFO"; break;
 								case MUCOSA_FAILED_SET_WINDOW_INFO: return "MUCOSA_FAILED_SET_WINDOW_INFO"; break;
-								case MUCOSA_FAILED_GET_IMM_CONTEXT: return "MUCOSA_FAILED_GET_IMM_CONTEXT"; break;
-								case MUCOSA_FAILED_LET_IMM_CONTEXT: return "MUCOSA_FAILED_LET_IMM_CONTEXT"; break;
+								case MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT: return "MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT"; break;
 								case MUCOSA_FAILED_GLOBAL_ALLOCATION: return "MUCOSA_FAILED_GLOBAL_ALLOCATION"; break;
 								case MUCOSA_FAILED_GLOBAL_LOCK: return "MUCOSA_FAILED_GLOBAL_LOCK"; break;
 								case MUCOSA_FAILED_HOLD_CLIPBOARD: return "MUCOSA_FAILED_HOLD_CLIPBOARD"; break;
 								case MUCOSA_FAILED_SET_CLIPBOARD: return "MUCOSA_FAILED_SET_CLIPBOARD"; break;
 								case MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS: return "MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS"; break;
 								case MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS: return "MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS"; break;
-								case MUCOSA_INVALID_ID: return "MUCOSA_INVALID_ID"; break;
 								case MUCOSA_INVALID_SAMPLE_COUNT: return "MUCOSA_INVALID_SAMPLE_COUNT"; break;
-								case MUCOSA_INVALID_DIMENSIONS: return "MUCOSA_INVALID_DIMENSIONS"; break;
-								case MUCOSA_INVALID_POINTER: return "MUCOSA_INVALID_POINTER"; break;
 								case MUCOSA_INVALID_WINDOW_STATE: return "MUCOSA_INVALID_WINDOW_STATE"; break;
-								case MUCOSA_INVALID_TIME: return "MUCOSA_INVALID_TIME"; break;
 								case MUCOSA_NONEXISTENT_DEVICE: return "MUCOSA_NONEXISTENT_DEVICE"; break;
 								case MUCOSA_OVERSIZED_CLIPBOARD: return "MUCOSA_OVERSIZED_CLIPBOARD"; break;
-								case MUCOSA_WINDOW_NON_RESIZABLE: return "MUCOSA_WINDOW_NON_RESIZABLE"; break;
-								case MUCOSA_MUMA_SUCCESS: return "MUCOSA_MUMA_SUCCESS"; break;
-								case MUCOSA_MUMA_FAILED_TO_ALLOCATE: return "MUCOSA_MUMA_FAILED_TO_ALLOCATE"; break;
-								case MUCOSA_MUMA_INVALID_INDEX: return "MUCOSA_MUMA_INVALID_INDEX"; break;
-								case MUCOSA_MUMA_INVALID_SHIFT_AMOUNT: return "MUCOSA_MUMA_INVALID_SHIFT_AMOUNT"; break;
-								case MUCOSA_MUMA_NOT_FOUND: return "MUCOSA_MUMA_NOT_FOUND"; break;
 							}
 						}
 
@@ -40232,1214 +37422,86 @@ ensure that rendered buffer sections don't get modified, or else UB.
 						}
 					#endif
 
-				/* Initiation / Termination */
-
-					struct muCOSAContext {
-						muWindowSystem window_system;
-						#define MUCOSA_GWINSYS muCOSA_global_context->window_system
-
-						MUCOSA_X11_CALL(muCOSA_X11Context X11;)
-						#define MUCOSA_GX11 muCOSA_global_context->X11
-
-						MUCOSA_WIN32_CALL(muCOSA_Win32Context win32;)
-						#define MUCOSA_GWIN32 muCOSA_global_context->win32
-					};
-
-					muCOSAContext* muCOSA_global_context = MU_NULL_PTR;
-
-					MUCOSA_WIN32_CALL(
-						muCOSA_Win32Context* muCOSA_Win32Context_get(void) {
-							if (muCOSA_global_context == 0) {
-								return 0;
-							}
-							return &MUCOSA_GWIN32;
-						}
-					)
-
-					MUDEF void muCOSA_init(muCOSAResult* result, muWindowSystem window_system) {
-						MU_SET_RESULT(result, MUCOSA_SUCCESS)
-
-						MU_ASSERT(muCOSA_global_context == MU_NULL_PTR, result, MUCOSA_ALREADY_INITIALIZED, return;)
-
-						muCOSA_global_context = (muCOSAContext*)mu_malloc(sizeof(muCOSAContext));
-						MU_ASSERT(muCOSA_global_context != 0, result, MUCOSA_ALLOCATION_FAILED, return;)
-
-						MUCOSA_X11_CALL(MUCOSA_GX11 = muCOSA_X11Context_init();)
-						MUCOSA_WIN32_CALL(MUCOSA_GWIN32 = muCOSA_Win32Context_init();)
-
-						if (window_system == MU_WINDOW_SYSTEM_AUTO) {
-							MUCOSA_X11_CALL(
-								if (muCOSA_X11_is_supported()) {
-									window_system = MU_WINDOW_SYSTEM_X11;
-								}
-							)
-							MUCOSA_WIN32_CALL(
-								if (muCOSA_Win32_is_supported()) {
-									window_system = MU_WINDOW_SYSTEM_WIN32;
-								}
-							)
-						} else {
-							switch (window_system) {
-								default: MU_SET_RESULT(result, MUCOSA_UNKNOWN_WINDOW_SYSTEM) mu_free(muCOSA_global_context); return; break;
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: MU_ASSERT(muCOSA_X11_is_supported(), result, MUCOSA_UNSUPPORTED_WINDOW_SYSTEM, mu_free(muCOSA_global_context); return;) break;)
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: MU_ASSERT(muCOSA_Win32_is_supported(), result, MUCOSA_UNSUPPORTED_WINDOW_SYSTEM, mu_free(muCOSA_global_context); return;) break;)
-							}
-						}
-
-						switch (window_system) {
-							default: MU_SET_RESULT(result, MUCOSA_UNSUPPORTED_WINDOW_SYSTEM) mu_free(muCOSA_global_context); return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSAResult res = MUCOSA_SUCCESS;
-								muCOSA_X11_init(&res, &MUCOSA_GX11);
-								MU_ASSERT(res == MUCOSA_SUCCESS, result, res, mu_free(muCOSA_global_context); return;)
-								MUCOSA_GWINSYS = MU_WINDOW_SYSTEM_X11;
-								return;
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSAResult res = MUCOSA_SUCCESS;
-								muCOSA_Win32_init(&res, &MUCOSA_GWIN32);
-								MU_ASSERT(res == MUCOSA_SUCCESS, result, res, mu_free(muCOSA_global_context); return;)
-								MUCOSA_GWINSYS = MU_WINDOW_SYSTEM_WIN32;
-								return;
-							} break;)
-						}
-					}
-
-					MUDEF void muCOSA_term(muCOSAResult* result) {
-						MU_SET_RESULT(result, MUCOSA_SUCCESS)
-						MU_ASSERT(muCOSA_global_context != MU_NULL_PTR, result, MUCOSA_ALREADY_TERMINATED, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSAResult res = MUCOSA_SUCCESS;
-								muCOSA_X11_term(&res, &MUCOSA_GX11);
-								MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSAResult res = MUCOSA_SUCCESS;
-								muCOSA_Win32_term(&res, &MUCOSA_GWIN32);
-								MU_ASSERT(res == MUCOSA_SUCCESS, result, res, return;)
-							} break;)
-						}
-
-						mu_free(muCOSA_global_context);
-						muCOSA_global_context = MU_NULL_PTR;
-					}
-
-					MUDEF muWindowSystem muCOSA_get_current_window_system(muCOSAResult* result) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_WINDOW_SYSTEM_UNKNOWN;)
-
-						return MUCOSA_GWINSYS;
-					}
-
-				/* Window */
-
-					/* Creation / Destruction */
-
-						MUDEF muWindowCreateInfo mu_window_default_create_info(void) {
-							muWindowCreateInfo ci = MU_ZERO_STRUCT(muWindowCreateInfo);
-
-							ci.pixel_format.red_bits = 8;
-							ci.pixel_format.green_bits = 8;
-							ci.pixel_format.blue_bits = 8;
-							ci.pixel_format.alpha_bits = 0;
-							ci.pixel_format.depth_bits = 0;
-							ci.pixel_format.stencil_bits = 0;
-							ci.pixel_format.samples = 1;
-
-							ci.visible = MU_TRUE;
-							ci.resizable = MU_TRUE;
-							ci.minimized = MU_FALSE;
-							ci.maximized = MU_FALSE;
-							ci.x = 50;
-							ci.y = 50;
-							ci.min_width = 120; // ? Does it work on Windows?
-							ci.min_height = 1; // ? Does it work on Windows?
-							ci.max_width = 30720;
-							ci.max_height = 17280;
-							ci.cursor_style = MU_CURSOR_STYLE_DEFAULT;
-
-							ci.dimensions_callback = MU_NULL_PTR;
-							ci.position_callback = MU_NULL_PTR;
-							ci.focus_callback = MU_NULL_PTR;
-							ci.maximize_callback = MU_NULL_PTR;
-							ci.minimize_callback = MU_NULL_PTR;
-
-							ci.cursor_position_callback = MU_NULL_PTR;
-							ci.keyboard_key_callback = MU_NULL_PTR;
-							ci.keyboard_state_callback = MU_NULL_PTR;
-
-							return ci;
-						}
-
-						MUDEF muWindow mu_window_create(muCOSAResult* result, 
-							muGraphicsAPI api, muBool (*load_functions)(void),
-							muByte* name, uint16_m width, uint16_m height,
-							muWindowCreateInfo create_info
-						) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_NONE;)
-
-							MU_ASSERT(width >= create_info.min_width && width <= create_info.max_width &&
-								height >= create_info.min_height && height <= create_info.max_height,
-								result, MUCOSA_INVALID_DIMENSIONS, return MU_NONE;
-							)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_NONE; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_create(result, &MUCOSA_GX11, api, load_functions, name, width, height, create_info);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_create(result, &MUCOSA_GWIN32, api, load_functions, name, width, height, create_info);
-								} break;)
-							}
-
-							// To avoid unused parameter warnings
-							if (api) {} if (load_functions) {} if (name) {} if (width) {} if (height) {} if (create_info.min_width) {}
-						}
-
-						MUDEF muWindow mu_window_destroy(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return window;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return window; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_destroy(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_destroy(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-					/* Main loop */
-
-						MUDEF muBool mu_window_get_closed(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_TRUE;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return window; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_closed(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_closed(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_close(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_close(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_close(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_update(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_update(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_update(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_swap_buffers(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_swap_buffers(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_swap_buffers(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-					/* Get / Set */
-
-						MUDEF muBool mu_window_get_focused(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_FALSE;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_FALSE; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_focused(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_focused(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_focus(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_focus(result, &MUCOSA_GX11, window, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_focus(result, &MUCOSA_GWIN32, window, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF muBool mu_window_get_visible(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_FALSE;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_FALSE; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_visible(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_visible(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_set_visible(muCOSAResult* result, muWindow window, muBool visible) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_visible(result, &MUCOSA_GX11, window, visible);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_visible(result, &MUCOSA_GWIN32, window, visible);
-								} break;)
-							}
-
-							if (window) {} if (visible) {}
-						}
-
-						MUDEF void mu_window_get_position(muCOSAResult* result, muWindow window, int32_m* x, int32_m* y) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_position(result, &MUCOSA_GX11, window, x, y);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_position(result, &MUCOSA_GWIN32, window, x, y);
-								} break;)
-							}
-
-							if (window) {} if (x) {} if (y) {}
-						}
-
-						MUDEF void mu_window_set_position(muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_position(result, &MUCOSA_GX11, window, x, y, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_position(result, &MUCOSA_GWIN32, window, x, y, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (x) {} if (y) {}
-						}
-
-						MUDEF void mu_window_get_dimensions(muCOSAResult* result, muWindow window, uint32_m* width, uint32_m* height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_dimensions(result, &MUCOSA_GX11, window, width, height);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_dimensions(result, &MUCOSA_GWIN32, window, width, height);
-								} break;)
-							}
-
-							if (window) {} if (width) {} if (height) {}
-						}
-
-						MUDEF void mu_window_set_dimensions(muCOSAResult* result, muWindow window, uint32_m width, uint32_m height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_dimensions(result, &MUCOSA_GX11, window, width, height, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_dimensions(result, &MUCOSA_GWIN32, window, width, height, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (width) {} if (height) {}
-						}
-
-						MUDEF muBool mu_window_get_maximized(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_FALSE;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_FALSE; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_maximized(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_maximized(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_set_maximized(muCOSAResult* result, muWindow window, muBool maximized) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_maximized(result, &MUCOSA_GX11, window, maximized, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_maximized(result, &MUCOSA_GWIN32, window, maximized, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (maximized) {}
-						}
-
-						MUDEF muBool mu_window_get_minimized(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_FALSE;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_FALSE; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_minimized(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_minimized(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_set_minimized(muCOSAResult* result, muWindow window, muBool minimized) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_minimized(result, &MUCOSA_GX11, window, minimized, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_minimized(result, &MUCOSA_GWIN32, window, minimized, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (minimized) {}
-						}
-
-						MUDEF void mu_window_get_minimum_dimensions(muCOSAResult* result, muWindow window, uint32_m* min_width, uint32_m* min_height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_minimum_dimensions(result, &MUCOSA_GX11, window, min_width, min_height);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_minimum_dimensions(result, &MUCOSA_GWIN32, window, min_width, min_height);
-								} break;)
-							}
-
-							if (window) {} if (min_width) {} if (min_height) {}
-						}
-
-						MUDEF void mu_window_set_minimum_dimensions(muCOSAResult* result, muWindow window, uint32_m min_width, uint32_m min_height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_minimum_dimensions(result, &MUCOSA_GX11, window, min_width, min_height);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_minimum_dimensions(result, &MUCOSA_GWIN32, window, min_width, min_height);
-								} break;)
-							}
-
-							if (window) {} if (min_width) {} if (min_height) {}
-						}
-
-						MUDEF void mu_window_get_maximum_dimensions(muCOSAResult* result, muWindow window, uint32_m* max_width, uint32_m* max_height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_maximum_dimensions(result, &MUCOSA_GX11, window, max_width, max_height);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_maximum_dimensions(result, &MUCOSA_GWIN32, window, max_width, max_height);
-								} break;)
-							}
-
-							if (window) {} if (max_width) {} if (max_height) {}
-						}
-
-						MUDEF void mu_window_set_maximum_dimensions(muCOSAResult* result, muWindow window, uint32_m max_width, uint32_m max_height) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_maximum_dimensions(result, &MUCOSA_GX11, window, max_width, max_height);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_maximum_dimensions(result, &MUCOSA_GWIN32, window, max_width, max_height);
-								} break;)
-							}
-
-							if (window) {} if (max_width) {} if (max_height) {}
-						}
-
-						MUDEF void mu_window_get_cursor_position(muCOSAResult* result, muWindow window, int32_m* x, int32_m* y) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_cursor_position(result, &MUCOSA_GX11, window, x, y);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_cursor_position(result, &MUCOSA_GWIN32, window, x, y);
-								} break;)
-							}
-
-							if (window) {} if (x) {} if (y) {}
-						}
-
-						MUDEF void mu_window_set_cursor_position(muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_cursor_position(result, &MUCOSA_GX11, window, x, y, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_cursor_position(result, &MUCOSA_GWIN32, window, x, y, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (x) {} if (y) {}
-						}
-
-						MUDEF muCursorStyle mu_window_get_cursor_style(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_CURSOR_STYLE_UNKNOWN;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return MU_CURSOR_STYLE_UNKNOWN; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_cursor_style(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_cursor_style(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_set_cursor_style(muCOSAResult* result, muWindow window, muCursorStyle style) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_cursor_style(result, &MUCOSA_GX11, window, style);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_cursor_style(result, &MUCOSA_GWIN32, window, style);
-								} break;)
-							}
-
-							if (window) {} if (style) {}
-						}
-
-						MUDEF int32_m mu_window_get_scroll_level(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return 0; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_scroll_level(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_scroll_level(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-						MUDEF void mu_window_set_scroll_level(muCOSAResult* result, muWindow window, int32_m scroll_level) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_scroll_level(result, &MUCOSA_GX11, window, scroll_level, MU_TRUE);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_scroll_level(result, &MUCOSA_GWIN32, window, scroll_level, MU_TRUE);
-								} break;)
-							}
-
-							if (window) {} if (scroll_level) {}
-						}
-
-					/* Get / Let */
-
-						MUDEF void mu_window_get_text_input_focus(muCOSAResult* result, muWindow window, int32_m text_cursor_x, int32_m text_cursor_y, void (*callback)(muWindow window, muByte* input)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_text_input_focus(result, &MUCOSA_GX11, window, text_cursor_x, text_cursor_y, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_text_input_focus(result, &MUCOSA_GWIN32, window, text_cursor_x, text_cursor_y, callback);
-								} break;)
-							}
-
-							if (window) {} if (text_cursor_x) {} if (text_cursor_y) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_update_text_cursor(muCOSAResult* result, muWindow window, int32_m x, int32_m y) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_update_text_cursor(result, &MUCOSA_GX11, window, x, y);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_update_text_cursor(result, &MUCOSA_GWIN32, window, x, y);
-								} break;)
-							}
-
-							if (window) {} if (x) {} if (y) {}
-						}
-
-						MUDEF void mu_window_let_text_input_focus(muCOSAResult* result, muWindow window) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_let_text_input_focus(result, &MUCOSA_GX11, window);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_let_text_input_focus(result, &MUCOSA_GWIN32, window);
-								} break;)
-							}
-
-							if (window) {}
-						}
-
-					/* Get */
-
-						MUDEF void mu_window_get_frame_extents(muCOSAResult* result, muWindow window, uint32_m* left, uint32_m* right, uint32_m* top, uint32_m* bottom) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_get_frame_extents(result, &MUCOSA_GX11, window, left, right, top, bottom);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_get_frame_extents(result, &MUCOSA_GWIN32, window, left, right, top, bottom);
-								} break;)
-							}
-
-							if (window) {} if (left) {} if (right) {} if (top) {} if (bottom) {}
-						}
-
-						MUDEF muButtonState mu_window_get_keyboard_key_state(muCOSAResult* result, muWindow window, muKeyboardKey key) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return 0; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_keyboard_key_state(result, &MUCOSA_GX11, window, key);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_keyboard_key_state(result, &MUCOSA_GWIN32, window, key);
-								} break;)
-							}
-
-							if (window) {} if (key) {}
-						}
-
-						MUDEF muState mu_window_get_keyboard_state_state(muCOSAResult* result, muWindow window, muKeyboardState state) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return 0; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_keyboard_state_state(result, &MUCOSA_GX11, window, state);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_keyboard_state_state(result, &MUCOSA_GWIN32, window, state);
-								} break;)
-							}
-
-							if (window) {} if (state) {}
-						}
-
-						MUDEF muButtonState mu_window_get_mouse_button_state(muCOSAResult* result, muWindow window, muMouseButton button) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return 0; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									return muCOSA_X11_window_get_mouse_button_state(result, &MUCOSA_GX11, window, button);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									return muCOSA_Win32_window_get_mouse_button_state(result, &MUCOSA_GWIN32, window, button);
-								} break;)
-							}
-
-							if (window) {} if (button) {}
-						}
-
-					/* Set */
-
-						MUDEF void mu_window_set_title(muCOSAResult* result, muWindow window, muByte* title) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							MU_ASSERT(title != 0, result, MUCOSA_INVALID_POINTER, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_title(result, &MUCOSA_GX11, window, title);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_title(result, &MUCOSA_GWIN32, window, title);
-								} break;)
-							}
-
-							if (window) {} if (title) {}
-						}
-
-						MUDEF void mu_window_set_dimensions_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, uint32_m width, uint32_m height)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_dimensions_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_dimensions_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_position_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, int32_m x, int32_m y)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_position_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_position_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_focus_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool focused)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_focus_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_focus_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_maximize_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool maximized)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_maximize_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_maximize_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_minimize_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muBool minimized)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_minimize_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_minimize_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_keyboard_key_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardKey keyboard_key, muButtonState state)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_keyboard_key_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_keyboard_key_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_keyboard_state_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muKeyboardState keyboard_state, muState state)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_keyboard_state_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_keyboard_state_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-						MUDEF void mu_window_set_mouse_button_callback(muCOSAResult* result, muWindow window, void (*callback)(muWindow window, muMouseButton mouse_button, muButtonState state)) {
-							MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-							switch (MUCOSA_GWINSYS) {
-								default: return; break;
-
-								MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-									muCOSA_X11_window_set_mouse_button_callback(result, &MUCOSA_GX11, window, callback);
-								} break;)
-
-								MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-									muCOSA_Win32_window_set_mouse_button_callback(result, &MUCOSA_GWIN32, window, callback);
-								} break;)
-							}
-
-							if (window) {} if (callback) {}
-						}
-
-				/* Time */
-
-					MUDEF double mu_time_get(muCOSAResult* result) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0.f;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return 0.f; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								return muCOSA_X11_time_get(result, &MUCOSA_GX11);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								return muCOSA_Win32_time_get(result, &MUCOSA_GWIN32);
-							} break;)
-						}
-					}
-
-					MUDEF void mu_time_set(muCOSAResult* result, double time) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_time_set(result, &MUCOSA_GX11, time);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_time_set(result, &MUCOSA_GWIN32, time);
-							} break;)
-						}
-
-						if (time) {}
-					}
-
-					MUDEF void mu_sleep(muCOSAResult* result, double time) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_sleep(result, &MUCOSA_GX11, time);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_sleep(result, &MUCOSA_GWIN32, time);
-							} break;)
-						}
-
-						if (time) {}
-					}
-
-				/* Clipboard */
-
-					MUDEF muByte* mu_clipboard_get(muCOSAResult* result) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return 0;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return 0; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								return muCOSA_X11_clipboard_get(result, &MUCOSA_GX11);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								return muCOSA_Win32_clipboard_get(result, &MUCOSA_GWIN32);
-							} break;)
-						}
-					}
-
-					MUDEF void mu_clipboard_set(muCOSAResult* result, muByte* text, size_m text_size) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_clipboard_set(result, &MUCOSA_GX11, text, text_size);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_clipboard_set(result, &MUCOSA_GWIN32, text, text_size);
-							} break;)
-						}
-
-						if (text) {} if (text_size) {}
-					}
-
-				/* OS functions */
-
-					MUDEF void* mu_os_get_window_handle(muCOSAResult* result, muWindow window, muWindowHandle handle) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_NULL_PTR;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return MU_NULL_PTR; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								return muCOSA_X11_os_get_window_handle(result, &MUCOSA_GX11, window, handle);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								return muCOSA_Win32_os_get_window_handle(result, &MUCOSA_GWIN32, window, handle);
-							} break;)
-						}
-
-						if (window) {} if (handle) {}
-					}
-
-				/* OpenGL */
-
-					MUDEF void mu_opengl_bind_window(muCOSAResult* result, muWindow window) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_opengl_bind_window(result, &MUCOSA_GX11, window);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_opengl_bind_window(result, &MUCOSA_GWIN32, window);
-							} break;)
-						}
-
-						if (window) {}
-					}
-
-					MUDEF void* mu_opengl_get_function_address(const muByte* name) {
-						if (muCOSA_global_context == 0) {
-							return 0;
-						}
-
-						switch (MUCOSA_GWINSYS) {
-							default: return 0; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								return muCOSA_X11_opengl_get_function_address(name);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								return muCOSA_Win32_opengl_get_function_address(name);
-							} break;)
-						}
-
-						if (name) {}
-					}
-
-					MUDEF void mu_opengl_window_swap_interval(muCOSAResult* result, muWindow window, int interval) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_opengl_window_swap_interval(result, &MUCOSA_GX11, window, interval);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_opengl_window_swap_interval(result, &MUCOSA_GWIN32, window, interval);
-							} break;)
-						}
-
-						if (window) {} if (interval) {}
-					}
-
-				/* Vulkan */
-
-					// Note: also not necessarily UTF-8
-					MUDEF const char** mu_vulkan_get_surface_instance_extensions(muCOSAResult* result, size_m* count) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return MU_NULL_PTR;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return MU_NULL_PTR; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								return muCOSA_X11_vulkan_get_surface_instance_extensions(result, count);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								return muCOSA_Win32_vulkan_get_surface_instance_extensions(result, count);
-							} break;)
-						}
-
-						if (count) {}
-					}
-
-					MUDEF void mu_vulkan_create_window_surface(muCOSAResult* result, muWindow window, void* vk_result, void* instance, void* allocator, void* surface) {
-						MU_SAFEFUNC(result, MUCOSA_, muCOSA_global_context, return;)
-
-						switch (MUCOSA_GWINSYS) {
-							default: return; break;
-
-							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: {
-								muCOSA_X11_vulkan_create_window_surface(result, &MUCOSA_GX11, window, vk_result, instance, allocator, surface);
-							} break;)
-
-							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: {
-								muCOSA_Win32_vulkan_create_window_surface(result, &MUCOSA_GWIN32, window, vk_result, instance, allocator, surface);
-							} break;)
-						}
-
-						if (window) {} if (vk_result) {} if (instance) {} if (allocator) {} if (surface) {}
-					}
-
 			#ifdef __cplusplus
 			}
 			#endif
-
 		#endif /* MUCOSA_IMPLEMENTATION */
-
-	#endif /* MUCOSA IMP */
+	#endif
 
 	#ifdef __cplusplus
 	extern "C" { // }
 	#endif
 
-	/* Useful functions */
+	/* Name functions */
+
+		#ifdef MUG_NAMES
+			MUDEF const char* mug_result_get_name(mugResult result) {
+				switch (result) {
+					default: return "MUG_UNKNOWN"; break;
+					case MUG_SUCCESS: return "MUG_SUCCESS"; break;
+					case MUG_ALLOCATION_FAILED: return "MUG_ALLOCATION_FAILED"; break;
+					case MUG_UNKNOWN_GRAPHIC_API: return "MUG_UNKNOWN_GRAPHIC_API"; break;
+					case MUG_MUCOSA_SUCCESS: return "MUG_MUCOSA_SUCCESS"; break;
+					case MUG_MUCOSA_ALREADY_ACTIVE: return "MUG_MUCOSA_ALREADY_ACTIVE"; break;
+					case MUG_MUCOSA_ALLOCATION_FAILED: return "MUG_MUCOSA_ALLOCATION_FAILED"; break;
+					case MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM: return "MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM"; break;
+					case MUG_MUCOSA_UNKNOWN_GRAPHICS_API: return "MUG_MUCOSA_UNKNOWN_GRAPHICS_API"; break;
+					case MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE: return "MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE"; break;
+					case MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE: return "MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE"; break;
+					case MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API: return "MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API"; break;
+					case MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER: return "MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER"; break;
+					case MUG_MUCOSA_FAILED_CREATE_WINDOW: return "MUG_MUCOSA_FAILED_CREATE_WINDOW"; break;
+					case MUG_MUCOSA_FAILED_LOAD_FUNCTIONS: return "MUG_MUCOSA_FAILED_LOAD_FUNCTIONS"; break;
+					case MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT: return "MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT"; break;
+					case MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT: return "MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT"; break;
+					case MUG_MUCOSA_FAILED_CREATE_THREAD: return "MUG_MUCOSA_FAILED_CREATE_THREAD"; break;
+					case MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD: return "MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD"; break;
+					case MUG_MUCOSA_FAILED_GET_INPUT_STYLES: return "MUG_MUCOSA_FAILED_GET_INPUT_STYLES"; break;
+					case MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE: return "MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE"; break;
+					case MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT: return "MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT"; break;
+					case MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS: return "MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS"; break;
+					case MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR: return "MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR"; break;
+					case MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8: return "MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8"; break;
+					case MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS: return "MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS"; break;
+					case MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW: return "MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW"; break;
+					case MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT"; break;
+					case MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT"; break;
+					case MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT"; break;
+					case MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO: return "MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO"; break;
+					case MUG_MUCOSA_FAILED_SET_WINDOW_INFO: return "MUG_MUCOSA_FAILED_SET_WINDOW_INFO"; break;
+					case MUG_MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT: return "MUG_MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT"; break;
+					case MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION: return "MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION"; break;
+					case MUG_MUCOSA_FAILED_GLOBAL_LOCK: return "MUG_MUCOSA_FAILED_GLOBAL_LOCK"; break;
+					case MUG_MUCOSA_FAILED_HOLD_CLIPBOARD: return "MUG_MUCOSA_FAILED_HOLD_CLIPBOARD"; break;
+					case MUG_MUCOSA_FAILED_SET_CLIPBOARD: return "MUG_MUCOSA_FAILED_SET_CLIPBOARD"; break;
+					case MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS: return "MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS"; break;
+					case MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS: return "MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS"; break;
+					case MUG_MUCOSA_INVALID_SAMPLE_COUNT: return "MUG_MUCOSA_INVALID_SAMPLE_COUNT"; break;
+					case MUG_MUCOSA_INVALID_WINDOW_STATE: return "MUG_MUCOSA_INVALID_WINDOW_STATE"; break;
+					case MUG_MUCOSA_NONEXISTENT_DEVICE: return "MUG_MUCOSA_NONEXISTENT_DEVICE"; break;
+					case MUG_MUCOSA_OVERSIZED_CLIPBOARD: return "MUG_MUCOSA_OVERSIZED_CLIPBOARD"; break;
+				}
+			}
+		#endif
+
+	/* Result conversion */
 
 		mugResult muCOSA_result_to_mug_result(muCOSAResult result) {
 			switch (result) {
-				default: return MUG_MUCOSA_SUCCESS; break;
+				default: return result; break;
 				case MUCOSA_SUCCESS: return MUG_MUCOSA_SUCCESS; break;
-				case MUCOSA_ALREADY_INITIALIZED: return MUG_MUCOSA_ALREADY_INITIALIZED; break;
-				case MUCOSA_ALREADY_TERMINATED: return MUG_MUCOSA_ALREADY_TERMINATED; break;
 				case MUCOSA_ALREADY_ACTIVE: return MUG_MUCOSA_ALREADY_ACTIVE; break;
-				case MUCOSA_ALREADY_INACTIVE: return MUG_MUCOSA_ALREADY_INACTIVE; break;
-				case MUCOSA_NOT_YET_INITIALIZED: return MUG_MUCOSA_NOT_YET_INITIALIZED; break;
 				case MUCOSA_ALLOCATION_FAILED: return MUG_MUCOSA_ALLOCATION_FAILED; break;
 				case MUCOSA_UNKNOWN_WINDOW_SYSTEM: return MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM; break;
 				case MUCOSA_UNKNOWN_GRAPHICS_API: return MUG_MUCOSA_UNKNOWN_GRAPHICS_API; break;
-				case MUCOSA_UNKNOWN_KEYBOARD_KEY: return MUG_MUCOSA_UNKNOWN_KEYBOARD_KEY; break;
-				case MUCOSA_UNKNOWN_KEYBOARD_STATE: return MUG_MUCOSA_UNKNOWN_KEYBOARD_STATE; break;
-				case MUCOSA_UNKNOWN_MOUSE_BUTTON: return MUG_MUCOSA_UNKNOWN_MOUSE_BUTTON; break;
 				case MUCOSA_UNKNOWN_WINDOW_HANDLE: return MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE; break;
-				case MUCOSA_UNSUPPORTED_WINDOW_SYSTEM: return MUG_MUCOSA_UNSUPPORTED_WINDOW_SYSTEM; break;
-				case MUCOSA_UNSUPPORTED_FEATURE: return MUG_MUCOSA_UNSUPPORTED_FEATURE; break;
 				case MUCOSA_UNSUPPORTED_OPENGL_FEATURE: return MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE; break;
 				case MUCOSA_UNSUPPORTED_GRAPHICS_API: return MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API; break;
 				case MUCOSA_FAILED_CONNECTION_TO_SERVER: return MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER; break;
 				case MUCOSA_FAILED_CREATE_WINDOW: return MUG_MUCOSA_FAILED_CREATE_WINDOW; break;
 				case MUCOSA_FAILED_LOAD_FUNCTIONS: return MUG_MUCOSA_FAILED_LOAD_FUNCTIONS; break;
-				case MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER: return MUG_MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER; break;
 				case MUCOSA_FAILED_CREATE_OPENGL_CONTEXT: return MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT; break;
 				case MUCOSA_FAILED_LOAD_OPENGL_CONTEXT: return MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT; break;
-				case MUCOSA_FAILED_USE_PIXEL_FORMAT: return MUG_MUCOSA_FAILED_USE_PIXEL_FORMAT; break;
-				case MUCOSA_FAILED_JOIN_THREAD: return MUG_MUCOSA_FAILED_JOIN_THREAD; break;
 				case MUCOSA_FAILED_CREATE_THREAD: return MUG_MUCOSA_FAILED_CREATE_THREAD; break;
 				case MUCOSA_FAILED_CREATE_INPUT_METHOD: return MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD; break;
 				case MUCOSA_FAILED_GET_INPUT_STYLES: return MUG_MUCOSA_FAILED_GET_INPUT_STYLES; break;
@@ -41455,4098 +37517,260 @@ ensure that rendered buffer sections don't get modified, or else UB.
 				case MUCOSA_FAILED_SET_PIXEL_FORMAT: return MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT; break;
 				case MUCOSA_FAILED_QUERY_WINDOW_INFO: return MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO; break;
 				case MUCOSA_FAILED_SET_WINDOW_INFO: return MUG_MUCOSA_FAILED_SET_WINDOW_INFO; break;
-				case MUCOSA_FAILED_GET_IMM_CONTEXT: return MUG_MUCOSA_FAILED_GET_IMM_CONTEXT; break;
-				case MUCOSA_FAILED_LET_IMM_CONTEXT: return MUG_MUCOSA_FAILED_LET_IMM_CONTEXT; break;
+				case MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT: return MUG_MUCOSA_FAILED_ASSOCIATE_IME_CONTEXT; break;
 				case MUCOSA_FAILED_GLOBAL_ALLOCATION: return MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION; break;
 				case MUCOSA_FAILED_GLOBAL_LOCK: return MUG_MUCOSA_FAILED_GLOBAL_LOCK; break;
 				case MUCOSA_FAILED_HOLD_CLIPBOARD: return MUG_MUCOSA_FAILED_HOLD_CLIPBOARD; break;
 				case MUCOSA_FAILED_SET_CLIPBOARD: return MUG_MUCOSA_FAILED_SET_CLIPBOARD; break;
 				case MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS: return MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS; break;
 				case MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS: return MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS; break;
-				case MUCOSA_INVALID_ID: return MUG_MUCOSA_INVALID_ID; break;
 				case MUCOSA_INVALID_SAMPLE_COUNT: return MUG_MUCOSA_INVALID_SAMPLE_COUNT; break;
-				case MUCOSA_INVALID_DIMENSIONS: return MUG_MUCOSA_INVALID_DIMENSIONS; break;
-				case MUCOSA_INVALID_POINTER: return MUG_MUCOSA_INVALID_POINTER; break;
 				case MUCOSA_INVALID_WINDOW_STATE: return MUG_MUCOSA_INVALID_WINDOW_STATE; break;
-				case MUCOSA_INVALID_TIME: return MUG_MUCOSA_INVALID_TIME; break;
 				case MUCOSA_NONEXISTENT_DEVICE: return MUG_MUCOSA_NONEXISTENT_DEVICE; break;
 				case MUCOSA_OVERSIZED_CLIPBOARD: return MUG_MUCOSA_OVERSIZED_CLIPBOARD; break;
-				case MUCOSA_WINDOW_NON_RESIZABLE: return MUG_MUCOSA_WINDOW_NON_RESIZABLE; break;
-				case MUCOSA_MUMA_SUCCESS: return MUG_MUCOSA_MUMA_SUCCESS; break;
-				case MUCOSA_MUMA_FAILED_TO_ALLOCATE: return MUG_MUCOSA_MUMA_FAILED_TO_ALLOCATE; break;
-				case MUCOSA_MUMA_INVALID_INDEX: return MUG_MUCOSA_MUMA_INVALID_INDEX; break;
-				case MUCOSA_MUMA_INVALID_SHIFT_AMOUNT: return MUG_MUCOSA_MUMA_INVALID_SHIFT_AMOUNT; break;
-				case MUCOSA_MUMA_NOT_FOUND: return MUG_MUCOSA_MUMA_NOT_FOUND; break;
 			}
 		}
 
-		mugResult muma_result_to_mug_result(mumaResult result) {
-			switch (result) {
-				default: return 0; break;
-				case MUMA_SUCCESS: return MUG_MUMA_SUCCESS;
-				case MUMA_FAILED_TO_ALLOCATE: return MUG_MUMA_FAILED_TO_ALLOCATE;
-				case MUMA_INVALID_INDEX: return MUG_MUMA_INVALID_INDEX;
-				case MUMA_INVALID_SHIFT_AMOUNT: return MUG_MUMA_INVALID_SHIFT_AMOUNT;
-				case MUMA_NOT_FOUND: return MUG_MUMA_NOT_FOUND;
+	/* Context */
+
+		mugContext* mug_global_context = 0;
+
+		MUDEF void mug_context_create(mugContext* context, muWindowSystem system, muBool set_context) {
+			muCOSA_context_create(&context->cosa, system, set_context);
+			if (context->cosa.result != MUCOSA_SUCCESS) {
+				context->result = muCOSA_result_to_mug_result(context->cosa.result);
+				return;
+			}
+
+			if (set_context) {
+				mug_context_set(context);
 			}
 		}
 
-		void mug_inner_rotate_point_around_point(
-			float rpx, float rpy, float cpx, float cpy,
-			float srot, float crot,
-			float* p_px, float* p_py
-		) {
-			float ox = rpx-cpx, oy = rpy-cpy;
-			if (p_px) {
-				*p_px = (ox*crot - oy*srot) + cpx;
-			}
-			if (p_py) {
-				*p_py = (ox*srot + oy*crot) + cpy;
-			}
+		MUDEF void mug_context_destroy(mugContext* context) {
+			muCOSA_context_destroy(&context->cosa);
 		}
 
-		// p_f[24], p_i[5]
-		// i == How many rects we're in, used for indexing
-		void mug_inner_rect_single_fill(float* p_f, uint32_t* p_i,
-			muRect rect, size_m i, uint32_t prim_restart
-		) {
-			if (p_f) {
-				float srot = mu_sin(rect.rotation);
-				float crot = mu_cos(rect.rotation);
-				float halfw = rect.dim[0] / 2.f;
-				float halfh = rect.dim[1] / 2.f;
-
-				mug_inner_rotate_point_around_point( // Top left
-					rect.pos[0] - halfw, rect.pos[1] - halfh,
-					rect.pos[0], rect.pos[1], srot, crot,
-					&p_f[0], &p_f[1]
-				);
-				mug_inner_rotate_point_around_point( // Top right
-					rect.pos[0] + halfw, rect.pos[1] - halfh,
-					rect.pos[0], rect.pos[1], srot, crot,
-					&p_f[6], &p_f[7]
-				);
-				mug_inner_rotate_point_around_point( // Bottom left
-					rect.pos[0] - halfw, rect.pos[1] + halfh,
-					rect.pos[0], rect.pos[1], srot, crot,
-					&p_f[12], &p_f[13]
-				);
-				mug_inner_rotate_point_around_point( // Bottom right
-					rect.pos[0] + halfw, rect.pos[1] + halfh,
-					rect.pos[0], rect.pos[1], srot, crot,
-					&p_f[18], &p_f[19]
-				);
-
-				mu_memcpy(&p_f[2],  &rect.col[0], sizeof(float)*4);
-				mu_memcpy(&p_f[8],  &rect.col[0], sizeof(float)*4);
-				mu_memcpy(&p_f[14], &rect.col[0], sizeof(float)*4);
-				mu_memcpy(&p_f[20], &rect.col[0], sizeof(float)*4);
-			}
-			if (p_i) {
-				size_m i6 = i*4;
-				p_i[0] = i6;
-				p_i[1] = i6+1;
-				p_i[2] = i6+2;
-				p_i[3] = i6+3;
-				p_i[4] = prim_restart;
-			}
+		MUDEF void mug_context_set(mugContext* context) {
+			mug_global_context = context;
 		}
+
+	/* Pre-API graphic (things needed for the next section) */
+
+		union mug_graphic_object {
+			muWindow win;
+		}; typedef union mug_graphic_object mug_graphic_object;
+
+		MU_ENUM(mug_graphic_objtype,
+			MUG_GRAPHIC_OBJTYPE_MUWINDOW,
+		)
+
+		struct mug_graphic {
+			muGraphicAPI api;
+			mug_graphic_objtype objtype;
+			mug_graphic_object obj;
+		};
+		typedef struct mug_graphic mug_graphic;
 
 	/* OpenGL */
 
-		// Comment/Uncomment to check/not check shader compilation status.
-		#define MUG_GL_CHECK_SHADER_COMP_STATUS
+		/* Loading */
 
-		#ifndef MUG_GL_PRIMITIVE_RESTART_INDEX_32
-			#define MUG_GL_PRIMITIVE_RESTART_INDEX_32 4294967295
-		#endif
-
-		#ifndef MUG_GL_PRIMITIVE_RESTART_INDEX_16
-			#define MUG_GL_PRIMITIVE_RESTART_INDEX_16 65535
-		#endif
-
-		/* Useful functions */
-
-			GLuint mug_innergl_comp_shader_vf(const char* vss, const char* fss) {
-				#ifdef MUG_GL_CHECK_SHADER_COMP_STATUS
-					GLint success;
-					GLchar complog[512];
-				#endif
-
-				GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-				glShaderSource(vs, 1, &vss, 0);
-				glCompileShader(vs);
-				#ifdef MUG_GL_CHECK_SHADER_COMP_STATUS
-					glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
-					if (!success) {
-						glGetShaderInfoLog(vs, 512, NULL, complog);
-						//printf("vs %s\n", complog);
-						return 0;
-					}
-				#endif
-
-				GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-				glShaderSource(fs, 1, &fss, 0);
-				glCompileShader(fs);
-				#ifdef MUG_GL_CHECK_SHADER_COMP_STATUS
-					glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
-					if (!success) {
-						glGetShaderInfoLog(fs, 512, NULL, complog);
-						//printf("fs %s\n", complog);
-						glDeleteShader(vs);
-						return 0;
-					}
-				#endif
-
-				GLuint sp = glCreateProgram();
-				glAttachShader(sp, vs);
-				glAttachShader(sp, fs);
-				glLinkProgram(sp);
-				#ifdef MUG_GL_CHECK_SHADER_COMP_STATUS
-					glGetProgramiv(sp, GL_LINK_STATUS, &success);
-					if (!success) {
-						glDeleteShader(fs);
-						glDeleteShader(vs);
-						return 0;
-					}
-				#endif
-
-				glDeleteShader(fs);
-				glDeleteShader(vs);
-				return sp;
+			void* mug_innergl_load_func(const char* name) {
+				return mu_opengl_get_function_address(name);
 			}
 
-		/* Rects */
-
-			// Data buf format: { vec2 pos, vec4 col }
-			// Data structure: vertex/32-index, triangle strip, & primitive restarting.
-				/* Notes:
-				* The order of positions for rects are top-left, top-right, bottom-left, and bottom-right.
-				*/
-				/* Justification:
-				Two rectangles, in pure vertex form, would cost:
-					(sizeof(GLfloat)*6) * 6 * 2, AKA 288 bytes.
-				With indexing:
-					((sizeof(GLfloat)*6) * 4 * 2) + (sizeof(GLuint) * 6 * 2), AKA 240 bytes. (~83.3%)
-				However, with primitive restarting + triangle strip, the indices can be cut down to 5, as
-				{ 0, 1, 2, 1, 2, 3... } becomes { 0, 1, 2, 3, RESTART... }, making it:
-					((sizeof(GLfloat)*6) * 4 * 2) + (sizeof(GLuint) * 5 * 2), AKA 232 bytes. (~80.6%)
-				*/
-
-			/* Buffer */
-
-				struct mug_innergl_rect_buffer {
-					muBool active;
-					GLuint vbo;
-					GLuint ebo;
-					GLuint vao;
-					size_m rect_count;
-					muBool rendered_this_frame;
-				};
-				typedef struct mug_innergl_rect_buffer mug_innergl_rect_buffer;
-
-				muBool mug_innergl_rect_buffer_comp(mug_innergl_rect_buffer b0, mug_innergl_rect_buffer b1) {
-					return b0.active == b1.active;
-				}
-				mu_dynamic_array_declaration(mug_innergl_rect_buffers, mug_innergl_rect_buffer,
-					mug_innergl_rect_buffer_arr_, mug_innergl_rect_buffer_comp
-				)
-
-				void mug_inner2gl_rect_buffer_description(void) {
-					glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), 0);
-					glEnableVertexAttribArray(0);
-
-					glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2*sizeof(float)));
-					glEnableVertexAttribArray(1);
-				}
-
-				mugResult mug_inner2gl_rect_buffer_fill(mug_innergl_rect_buffer* p_rbuf, muRect* rects) {
-					if (p_rbuf->rendered_this_frame) {
-						return MUG_ALREADY_RENDERED_BUFFER;
-					}
-
-					glBindVertexArray(p_rbuf->vao);
-
-					/* Vertexes */
-
-						if (rects != 0) {
-							GLfloat* vertexes = (GLfloat*)mu_malloc(sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4);
-							if (vertexes == 0) {
-								glBindVertexArray(0);
-								return MUG_FAILED_ALLOCATE;
-							}
-
-							for (size_m i = 0; i < p_rbuf->rect_count; i++) {
-								mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
-							}
-
-							glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
-							glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, vertexes, GL_DYNAMIC_DRAW);
-
-							mu_free(vertexes);
-						} else {
-							glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
-							glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * p_rbuf->rect_count * 6 * 4, 0, GL_DYNAMIC_DRAW);
-						}
-
-					/* Indexes */
-
-						if (rects != 0) {
-							GLuint* indexes = (GLuint*)mu_malloc(sizeof(GLuint) * p_rbuf->rect_count * 5);
-							if (indexes == 0) {
-								glBindBuffer(GL_ARRAY_BUFFER, 0);
-								glBindVertexArray(0);
-								return MUG_FAILED_ALLOCATE;
-							}
-
-							for (size_m i = 0; i < p_rbuf->rect_count; i++) {
-								mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], i, MUG_GL_PRIMITIVE_RESTART_INDEX_32);
-							}
-
-							glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
-							glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, indexes, GL_STATIC_DRAW);
-
-							mu_free(indexes);
-						} else {
-							glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
-							glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * p_rbuf->rect_count * 5, 0, GL_STATIC_DRAW);
-						}
-
-					mug_inner2gl_rect_buffer_description();
-					glBindBuffer(GL_ARRAY_BUFFER, 0);
-					glBindVertexArray(0);
-					return MUG_SUCCESS;
-				}
-
-				size_m mug_inner2gl_rect_buffer_create(mugResult* result, mug_innergl_rect_buffers* p_rbufs, muRect* rects, size_m rect_count) {
-					mugResult res = MUG_SUCCESS;
-					mumaResult muma_res = MUMA_SUCCESS;
-					size_m id = MU_NONE;
-					mug_innergl_rect_buffer rbuf = MU_ZERO_STRUCT(mug_innergl_rect_buffer);
-					rbuf.rect_count = rect_count;
-
-					glGenBuffers(1, &rbuf.vbo);
-					if (rbuf.vbo == 0) {
-						MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
-						return MU_NONE;
-					}
-					glGenBuffers(1, &rbuf.ebo);
-					if (rbuf.ebo == 0) {
-						MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
-						glDeleteBuffers(1, &rbuf.vbo);
-						return MU_NONE;
-					}
-					glGenVertexArrays(1, &rbuf.vao);
-					if (rbuf.vao == 0) {
-						MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_VERTEX_ARRAY)
-						glDeleteBuffers(1, &rbuf.ebo);
-						glDeleteBuffers(1, &rbuf.vbo);
-						return MU_NONE;
-					}
-
-					res = mug_inner2gl_rect_buffer_fill(&rbuf, rects);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						glDeleteVertexArrays(1, &rbuf.vao);
-						glDeleteBuffers(1, &rbuf.ebo);
-						glDeleteBuffers(1, &rbuf.vbo);
-						return MU_NONE;
-					}
-					
-					*p_rbufs = mug_innergl_rect_buffer_arr_find_push(
-						&muma_res, *p_rbufs, rbuf, &id
-					);
-					if (muma_res != MUMA_SUCCESS) {
-						MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-						glDeleteVertexArrays(1, &rbuf.vao);
-						glDeleteBuffers(1, &rbuf.ebo);
-						glDeleteBuffers(1, &rbuf.vbo);
-						return MU_NONE;
-					}
-
-					p_rbufs->data[id] = rbuf;
-					p_rbufs->data[id].active = MU_TRUE;
-
-					return id;
-				}
-
-				void mug_inner2gl_rect_buffer_destroy(mug_innergl_rect_buffer* p_rbuf) {
-					if (p_rbuf->active) {
-						glDeleteVertexArrays(1, &p_rbuf->vao);
-						glDeleteBuffers(1, &p_rbuf->ebo);
-						glDeleteBuffers(1, &p_rbuf->vbo);
-						*p_rbuf = MU_ZERO_STRUCT(mug_innergl_rect_buffer);
-					}
-				}
-
-				mugResult mug_inner2gl_rect_buffer_subfill(mug_innergl_rect_buffer* p_rbuf, size_m rect_count_offset, muRect* rects, size_m rect_count) {
-					if (rect_count_offset + rect_count > p_rbuf->rect_count) {
-						return MUG_INVALID_BUFFER_RANGE;
-					}
-
-					glBindVertexArray(p_rbuf->vao);
-
-					/* Vertexes */
-
-						GLfloat* vertexes = (GLfloat*)mu_malloc(sizeof(GLfloat) * rect_count * 6 * 4);
-						if (vertexes == 0) {
-							glBindVertexArray(0);
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						for (size_m i = 0; i < rect_count; i++) {
-							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
-						}
-
-						glBindBuffer(GL_ARRAY_BUFFER, p_rbuf->vbo);
-						glBufferSubData(GL_ARRAY_BUFFER, sizeof(GLfloat) * rect_count_offset * 6 * 4, sizeof(GLfloat) * rect_count * 6 * 4, vertexes);
-
-						mu_free(vertexes);
-
-					/* Indexes */
-
-						GLuint* indexes = (GLuint*)mu_malloc(sizeof(GLuint) * rect_count * 5);
-						if (indexes == 0) {
-							glBindBuffer(GL_ARRAY_BUFFER, 0);
-							glBindVertexArray(0);
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						for (size_m i = 0; i < rect_count; i++) {
-							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], rect_count_offset+i, MUG_GL_PRIMITIVE_RESTART_INDEX_32);
-						}
-
-						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, p_rbuf->ebo);
-						glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * rect_count_offset * 5, sizeof(GLuint) * rect_count * 5, indexes);
-
-						mu_free(indexes);
-
-					mug_inner2gl_rect_buffer_description();
-					glBindBuffer(GL_ARRAY_BUFFER, 0);
-					glBindVertexArray(0);
-					return MUG_SUCCESS;
-				}
-
-				mugResult mug_inner2gl_rect_buffer_resize(mug_innergl_rect_buffer* p_rbuf, size_m rect_count, muRect* rects) {
-					p_rbuf->rect_count = rect_count;
-					return mug_inner2gl_rect_buffer_fill(p_rbuf, rects);
-				}
-
-			/* Shader */
-
-				struct mug_innergl_rect_shader {
-					GLuint program;
-					mug_innergl_rect_buffers buffers;
-				};
-				typedef struct mug_innergl_rect_shader mug_innergl_rect_shader;
-
-				const char* mug_innergl_rect_vshader_source =
-					"#version 400 core\n"
-
-					"layout(location=0)in vec2 vPos;"
-					"layout(location=1)in vec4 vCol;"
-
-					"out vec4 fCol;"
-					"uniform vec2 d;"
-
-					"void main(){"
-						"gl_Position=vec4((vPos.x-(d.x))/d.x,-(vPos.y-(d.y))/d.y,0.0,1.0);"
-						"fCol=vCol;"
-					"}"
-				;
-
-				const char* mug_innergl_rect_fshader_source =
-					"#version 400 core\n"
-
-					"in vec4 fCol;"
-					"out vec4 oCol;"
-
-					"void main(){"
-						"oCol=fCol;"
-					"}"
-				;
-
-				mugResult mug_innergl_rect_shader_comp(mug_innergl_rect_shader* p_s) {
-					if (p_s->program != 0) {
-						return MUG_SUCCESS;
-					}
-
-					p_s->program = mug_innergl_comp_shader_vf(
-						mug_innergl_rect_vshader_source, mug_innergl_rect_fshader_source
-					);
-					if (p_s->program == 0) {
-						return MUG_FAILED_COMPILE_GL_SHADERS;
-					}
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innergl_rect_shader_decomp(mug_innergl_rect_shader* p_s) {
-					if (p_s->program != 0) {
-						glDeleteProgram(p_s->program);
-						p_s->program = 0;
-					}
-				}
-
-				// Note: check if program exists before this...
-				void mug_inner2gl_rect_shader_render(mug_innergl_rect_shader* p_s, size_m buf, muWindow window) {
-					glPrimitiveRestartIndex(MUG_GL_PRIMITIVE_RESTART_INDEX_32);
-					glUseProgram(p_s->program);
-
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					uint32_m w=800,h=600;
-					mu_window_get_dimensions(&cosa_res, window, &w, &h);
-					if (cosa_res == MUCOSA_SUCCESS) {
-						glUniform2f(glGetUniformLocation(p_s->program, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
-					}
-
-					glBindVertexArray(p_s->buffers.data[buf].vao);
-					glDrawElements(GL_TRIANGLE_STRIP, p_s->buffers.data[buf].rect_count*6, GL_UNSIGNED_INT, 0);
-					glBindVertexArray(0);
-					glUseProgram(0);
-
-					p_s->buffers.data[buf].rendered_this_frame = MU_TRUE;
-				}
-
-				void mug_inner2gl_rect_shader_subrender(mug_innergl_rect_shader* p_s, size_m buf, muWindow window, size_m rect_offset, size_m rect_count) {
-					glPrimitiveRestartIndex(MUG_GL_PRIMITIVE_RESTART_INDEX_32);
-					glUseProgram(p_s->program);
-
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					uint32_m w=800,h=600;
-					mu_window_get_dimensions(&cosa_res, window, &w, &h);
-					if (cosa_res == MUCOSA_SUCCESS) {
-						glUniform2f(glGetUniformLocation(p_s->program, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
-					}
-
-					glBindVertexArray(p_s->buffers.data[buf].vao);
-					glDrawElements(GL_TRIANGLE_STRIP, rect_count*6, GL_UNSIGNED_INT, (const void*)(sizeof(uint32_t) * 5 * rect_offset));
-					glBindVertexArray(0);
-					glUseProgram(0);
-
-					p_s->buffers.data[buf].rendered_this_frame = MU_TRUE;
-				}
-
-		/* Shaders */
-
-			struct mug_innergl_shaders {
-				mug_innergl_rect_shader rect;
-			};
-			typedef struct mug_innergl_shaders mug_innergl_shaders;
-
-			#define mug_innergl_refresh_buffers(buf) \
-				for (size_m k = 0; k < buf.length; k++) { \
-					if (buf.data[k].active) { \
-						buf.data[k].rendered_this_frame = MU_FALSE; \
-					} \
-				}
-			void mug_innergl_refresh_shader_buffers(mug_innergl_shaders* p_shaders) {
-				mug_innergl_refresh_buffers(p_shaders->rect.buffers)
+			muBool mug_innergl_load_funcs(void) {
+				return gladLoadGL((GLADloadfunc)mug_innergl_load_func);
 			}
 
 		/* Graphic */
 
-			struct mug_innergl_graphic {
-				muWindow win;
-				uint32_m last_width;
-				uint32_m last_height;
-
-				mug_innergl_shaders shaders;
-			};
-			typedef struct mug_innergl_graphic mug_innergl_graphic;
-
-			/* Useful functions */
-
-				void mug_innergl_graphic_bind(mug_innergl_graphic* p_g) {
-					mu_opengl_bind_window(0, p_g->win);
+			void mug_innergl_graphic_bind(mugContext* context, mug_graphic* gfx) {
+				switch (gfx->objtype) {
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_opengl_bind_window(&context->cosa, 0, gfx->obj.win); break;
 				}
+			}
 
-				void mug_innergl_enable_features(mug_innergl_graphic* p_g) {
-					mug_innergl_graphic_bind(p_g);
+		/* Enabling features */
 
-					glEnable(GL_PRIMITIVE_RESTART);
-					glEnable(GL_BLEND);
-					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				}
+			void mug_innergl_enable_features(void) {
+				glEnable(GL_PRIMITIVE_RESTART);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			}
 
-			/* Creation / Destruction */
+		/* Window */
 
-				muBool mug_innergl_load_funcs(void) {
-					return gladLoadGL((GLADloadfunc)mu_opengl_get_function_address);
-				}
+			void mug_innergl_graphic_create_via_window(mugContext* context, mugResult* result, mug_graphic* gfx, const char* name, uint16_m w, uint16_m h, muWindowCreateInfo ci) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
-				// Indiciator of success is win != MU_NONE
-				mug_innergl_graphic mug_innergl_graphic_create_via_window(mugResult* result, 
-					muByte* name, uint16_m width, uint16_m height,
-					muWindowCreateInfo create_info) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-
-					mug_innergl_graphic graphic = MU_ZERO_STRUCT(mug_innergl_graphic);
-
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					graphic.win = mu_window_create(&cosa_res, MU_OPENGL_4_0_CORE, 
-						mug_innergl_load_funcs, name, width, height, create_info);
-
-					if (cosa_res != MUCOSA_SUCCESS) {
-						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res));
-					}
-					if (graphic.win == MU_NONE) {
-						return graphic;
-					}
-
-					graphic.last_width = width;
-					graphic.last_height = height;
-
-					mug_innergl_enable_features(&graphic);
-
-					return graphic;
-				}
-
-				void mug_innergl_graphic_destroy(mugResult* result, mug_innergl_graphic* p_g) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					mug_innergl_graphic_bind(p_g);
-
-					for (size_m i = 0; i < p_g->shaders.rect.buffers.length; i++) {
-						mug_inner2gl_rect_buffer_destroy(&p_g->shaders.rect.buffers.data[i]);
-					}
-
-					if (p_g->win != MU_NONE) {
-						p_g->win = mu_window_destroy(0, p_g->win);
-					}
-				}
-
-			/* Main loop */
-
-				void mug_innergl_graphic_clear(mugResult* result, mug_innergl_graphic* p_g, float r, float g, float b, float a) {
-					mug_innergl_graphic_bind(p_g);
-
-					glClearColor(r, g, b, a);
-					glClear(GL_COLOR_BUFFER_BIT);
-
+				gfx->obj.win = muCOSA_window_create(&context->cosa, &cosa_res, MU_OPENGL_4_0_CORE, mug_innergl_load_funcs, name, w, h, ci);
+				if (cosa_res != MUCOSA_SUCCESS) {
+					MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
 					return;
-					if (result) {}
 				}
 
-				void mug_innergl_graphic_swap_buffers(mugResult* result, mug_innergl_graphic* p_g) {
-					mug_innergl_graphic_bind(p_g);
+				mug_innergl_enable_features();
+			}
 
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					mu_window_swap_buffers(&cosa_res, p_g->win);
-					if (cosa_res != MUCOSA_SUCCESS) {
-						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res));
-					}
+		/* Main loop */
 
-					mug_innergl_refresh_shader_buffers(&p_g->shaders);
-				}
+			void mug_innergl_graphic_clear(float r, float g, float b, float a) {
+				glClearColor(r, g, b, a);
+				glClear(GL_COLOR_BUFFER_BIT);
+			}
 
-				void mug_innergl_graphic_update(mugResult* result, mug_innergl_graphic* p_g) {
-					mug_innergl_graphic_bind(p_g);
+			void mug_innergl_graphic_swap_buffers(mugContext* context, mugResult* result, mug_graphic* gfx) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					mu_window_update(&cosa_res, p_g->win);
-					if (cosa_res != MUCOSA_SUCCESS) {
-						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res));
-					}
+				switch (gfx->objtype) {
+					default: break;
 
-					uint32_m width=800, height=600;
-					mu_window_get_dimensions(&cosa_res, p_g->win, &width, &height);
-					if (cosa_res == MUCOSA_SUCCESS) {
-						if (width != p_g->last_width || height != p_g->last_height) {
-							glViewport(0, 0, width, height);
-							p_g->last_width = width;
-							p_g->last_height = height;
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muCOSA_window_swap_buffers(&context->cosa, &cosa_res, gfx->obj.win);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
+							// return;
 						}
-					}
+					} break;
 				}
-
-			/* Objects */
 
 				// ...
-
-				/* Rect */
-
-					muRectBuffer mug_innergl_rect_buffer_create(mugResult* result, mug_innergl_graphic* p_g, size_m rect_count, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return MU_NONE;
-						}
-
-						size_m id = mug_inner2gl_rect_buffer_create(result, &p_g->shaders.rect.buffers,
-							rects, rect_count
-						);
-						return id;
-					}
-
-					muRectBuffer mug_innergl_rect_buffer_destroy(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb) {
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return rb;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return rb;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						mug_inner2gl_rect_buffer_destroy(&p_g->shaders.rect.buffers.data[rb]);
-						return MU_NONE;
-					}
-
-					void mug_innergl_rect_buffer_render(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						mug_inner2gl_rect_shader_render(&p_g->shaders.rect, rb,p_g->win);
-					}
-
-					void mug_innergl_rect_buffer_subrender(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_innergl_rect_shader_comp(&p_g->shaders.rect);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						mug_inner2gl_rect_shader_subrender(&p_g->shaders.rect, rb,p_g->win, rect_count_offset, rect_count);
-					}
-
-					void mug_innergl_rect_buffer_fill(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-						
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_inner2gl_rect_buffer_fill(&p_g->shaders.rect.buffers.data[rb], rects);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innergl_rect_buffer_subfill(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
-						mugResult res = MUG_SUCCESS;
-						
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_inner2gl_rect_buffer_subfill(&p_g->shaders.rect.buffers.data[rb], rect_count_offset, rects, rect_count);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innergl_rect_buffer_resize(mugResult* result, mug_innergl_graphic* p_g, muRectBuffer rb, size_m rect_count, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						mug_innergl_graphic_bind(p_g);
-
-						res = mug_inner2gl_rect_buffer_resize(&p_g->shaders.rect.buffers.data[rb], rect_count, rects);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innergl_rect_buffer_unload_type(mugResult* result, mug_innergl_graphic* p_g) {
-						mug_innergl_rect_shader_decomp(&p_g->shaders.rect);
-
-						return;
-						if (result) {}
-					}
-
-	/* Vulkan */
-
-		#ifndef MUG_VK_LOOK_AHEAD_FRAMES
-			#define MUG_VK_LOOK_AHEAD_FRAMES 3
-		#endif
-
-		/* Useful functions */
-
-			/* Graphics pipeline */
-
-				const char* mug_innervk_shader_entry = "main";
-
-				struct mug_innervk_gpipeline_ci {
-					VkGraphicsPipelineCreateInfo pipeline_ci;
-					VkPipelineShaderStageCreateInfo shader_stages[2];
-					VkPipelineVertexInputStateCreateInfo vertex_input;
-					VkPipelineInputAssemblyStateCreateInfo input_asm;
-					VkViewport viewport;
-					VkRect2D scissor;
-					VkPipelineViewportStateCreateInfo viewport_state;
-					VkPipelineRasterizationStateCreateInfo raster;
-					VkPipelineMultisampleStateCreateInfo ms;
-					VkPipelineDepthStencilStateCreateInfo ds;
-					VkPipelineColorBlendAttachmentState blend_att;
-					VkPipelineColorBlendStateCreateInfo blend;
-					VkDynamicState dystates[2];
-					VkPipelineDynamicStateCreateInfo dystate;
-				};
-				typedef struct mug_innervk_gpipeline_ci mug_innervk_gpipeline_ci;
-
-				// Note: does zero the struct for you. :)
-				void mug_innervk_def_gpipeline_ci(mug_innervk_gpipeline_ci* p_ci, VkShaderModule* p_vert_module, VkShaderModule* p_frag_module, float width, float height, VkPipelineLayout layout, VkRenderPass render_pass, uint32_t subpass) {
-					*p_ci = MU_ZERO_STRUCT(mug_innervk_gpipeline_ci);
-					p_ci->pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-					/* Shader stages */
-
-						p_ci->pipeline_ci.pStages = p_ci->shader_stages;
-
-						if (p_vert_module) {
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].stage = VK_SHADER_STAGE_VERTEX_BIT;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].module = *p_vert_module;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].pName = mug_innervk_shader_entry;
-							p_ci->pipeline_ci.stageCount += 1;
-						}
-
-						if (p_frag_module) {
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].module = *p_frag_module;
-							p_ci->shader_stages[p_ci->pipeline_ci.stageCount].pName = mug_innervk_shader_entry;
-							p_ci->pipeline_ci.stageCount += 1;
-						}
-
-					/* Vertex input */
-
-						p_ci->vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-						p_ci->pipeline_ci.pVertexInputState = &p_ci->vertex_input;
-
-					/* Input assembly */
-
-						p_ci->input_asm.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-						p_ci->input_asm.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-						p_ci->input_asm.primitiveRestartEnable = VK_FALSE;
-						p_ci->pipeline_ci.pInputAssemblyState = &p_ci->input_asm;
-
-					/* Tessellation state */
-
-						// ...
-
-					/* Viewport state */
-
-						p_ci->viewport.x = 0.f;
-						p_ci->viewport.y = 0.f;
-						p_ci->viewport.width = width;
-						p_ci->viewport.height = height;
-						p_ci->viewport.minDepth = 0.f;
-						p_ci->viewport.maxDepth = 1.f;
-
-						p_ci->scissor.extent.width = width;
-						p_ci->scissor.extent.height = height;
-
-						p_ci->viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-						p_ci->viewport_state.viewportCount = 1;
-						p_ci->viewport_state.pViewports = &p_ci->viewport;
-						p_ci->viewport_state.scissorCount = 1;
-						p_ci->viewport_state.pScissors = &p_ci->scissor;
-						p_ci->pipeline_ci.pViewportState = &p_ci->viewport_state;
-
-					/* Rasterization state */
-
-						p_ci->raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-						p_ci->raster.depthClampEnable = VK_FALSE;
-						p_ci->raster.rasterizerDiscardEnable = VK_FALSE;
-						p_ci->raster.polygonMode = VK_POLYGON_MODE_FILL;
-						p_ci->raster.cullMode = VK_CULL_MODE_NONE;
-						p_ci->raster.depthBiasEnable = VK_FALSE;
-						p_ci->raster.lineWidth = 1.f;
-						p_ci->pipeline_ci.pRasterizationState = &p_ci->raster;
-
-					/* Multisample state */
-
-						p_ci->ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-						p_ci->ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-						p_ci->ms.sampleShadingEnable = VK_FALSE;
-						p_ci->ms.alphaToCoverageEnable = VK_FALSE;
-						p_ci->ms.alphaToOneEnable = VK_FALSE;
-						p_ci->pipeline_ci.pMultisampleState = &p_ci->ms;
-
-					/* Depth/Stencil state */
-
-						p_ci->ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-						p_ci->ds.depthTestEnable = VK_FALSE;
-						p_ci->ds.depthBoundsTestEnable = VK_FALSE;
-						p_ci->ds.stencilTestEnable = VK_FALSE;
-						p_ci->pipeline_ci.pDepthStencilState = &p_ci->ds;
-
-					/* Color blend state */
-
-						p_ci->blend_att.blendEnable = VK_TRUE;
-						p_ci->blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-						p_ci->blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-						p_ci->blend_att.colorBlendOp = VK_BLEND_OP_ADD;
-						p_ci->blend_att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-						p_ci->blend_att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-						p_ci->blend_att.alphaBlendOp = VK_BLEND_OP_ADD;
-						p_ci->blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-						VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-						p_ci->blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-						p_ci->blend.logicOpEnable = VK_FALSE;
-						p_ci->blend.attachmentCount = 1;
-						p_ci->blend.pAttachments = &p_ci->blend_att;
-						p_ci->pipeline_ci.pColorBlendState = &p_ci->blend;
-
-					/* Dynamic state */
-
-						p_ci->dystates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-						p_ci->dystates[1] = VK_DYNAMIC_STATE_SCISSOR;
-
-						p_ci->dystate.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-						p_ci->dystate.dynamicStateCount = 2;
-						p_ci->dystate.pDynamicStates = p_ci->dystates;
-
-						p_ci->pipeline_ci.pDynamicState = &p_ci->dystate;
-
-					/* Other given stuff */
-
-						p_ci->pipeline_ci.layout = layout;
-						p_ci->pipeline_ci.renderPass = render_pass;
-						p_ci->pipeline_ci.subpass = subpass;
-				}
-
-		/* Loaded */
-
-			struct mug_innervk_loaded {
-				MU_LOCK
-				muBool loaded;
-			};
-			typedef struct mug_innervk_loaded mug_innervk_loaded;
-
-			VkResult mug_innervk_load(mug_innervk_loaded* loaded) {
-				MU_LOCK_LOCK(loaded->lock, loaded->lock_active)
-
-				if (!loaded->loaded) {
-					VkResult res = vkbInit(NULL);
-
-					if (res == VK_SUCCESS) {
-						loaded->loaded = MU_TRUE;
-						MU_LOCK_UNLOCK(loaded->lock, loaded->lock_active)
-						return VK_SUCCESS;
-					} else {
-						MU_LOCK_UNLOCK(loaded->lock, loaded->lock_active)
-						return res;
-					}
-				}
-
-				MU_LOCK_UNLOCK(loaded->lock, loaded->lock_active)
-				return VK_SUCCESS;
 			}
 
-			void mug_innervk_unload(mug_innervk_loaded* loaded) {
-				MU_LOCK_LOCK(loaded->lock, loaded->lock_active)
+			void mug_innergl_graphic_update(mugContext* context, mugResult* result, mug_graphic* gfx) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
-				if (loaded->loaded) {
-					vkbUninit();
-					loaded->loaded = MU_FALSE;
+				switch (gfx->objtype) {
+					default: break;
+
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muCOSA_window_update(&context->cosa, &cosa_res, gfx->obj.win);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
+							// return;
+						}
+					} break;
 				}
 
-				MU_LOCK_UNLOCK(loaded->lock, loaded->lock_active)
+				// ...
 			}
 
-		/* Inner */
+	/* Graphic */
 
-			/* Structs */
+		MUDEF void mug_graphic_destroy(mugContext* context, mugResult* result, muGraphic* graphic) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+			switch (gfx->objtype) {
+				default: break;
+				case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_window_destroy(&context->cosa, 0, gfx->obj.win); break;
+			}
 
-				struct mug_innervk_initiation {
-					VkInstance instance;
-					muBool use_validation_layers;
-					VkDebugUtilsMessengerEXT debug_messenger;
-					unsigned int (*debug_messenger_callback)(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data);
-					VkSurfaceKHR surface;
+			mu_free(gfx);
+			return; if (result) {}
+		}
 
-					VkPhysicalDevice physical_device;
-					VkDevice device;
-					uint32_t graphics_family;
-					VkQueue graphics_queue;
-					uint32_t present_family;
-					VkQueue present_queue;
-				};
-				typedef struct mug_innervk_initiation mug_innervk_initiation;
+		/* Window */
 
-				mug_innervk_initiation mug_innervk_initiation_init(void) {
-					mug_innervk_initiation init = MU_ZERO_STRUCT(mug_innervk_initiation);
-					init.instance = VK_NULL_HANDLE;
-					init.use_validation_layers = MU_TRUE;
-					init.debug_messenger = VK_NULL_HANDLE;
-					init.surface = VK_NULL_HANDLE;
-					init.physical_device = VK_NULL_HANDLE;
-					init.device = VK_NULL_HANDLE;
-					return init;
+			MUDEF muGraphic mug_graphic_create_via_window(mugContext* context, mugResult* result, muGraphicAPI api, const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info) {
+				mug_graphic* gfx = (mug_graphic*)mu_malloc(sizeof(mug_graphic));
+				if (gfx == 0) {
+					MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+					return 0;
 				}
 
-				struct mug_innervk_swapchain {
-					VkSwapchainKHR handle;
-					VkFormat format;
-					VkExtent2D extent;
-					VkViewport viewport;
-					VkRect2D scissor;
+				gfx->api = api;
+				gfx->objtype = MUG_GRAPHIC_OBJTYPE_MUWINDOW;
+				mugResult res = MUG_SUCCESS;
 
-					uint32_t image_count;
-					VkImage* images;
-					VkImageView* image_views;
-					uint32_t image_index;
-				};
-				typedef struct mug_innervk_swapchain mug_innervk_swapchain;
+				switch (gfx->api) {
+					default: MU_SET_RESULT(result, MUG_UNKNOWN_GRAPHIC_API) mu_free(gfx); return 0; break;
 
-				struct mug_innervk_command {
-					VkCommandPool pool;
-					VkCommandBuffer buffer;
-					muBool on;
-
-					VkSemaphore queue_wait_semaphore;
-					VkSemaphore queue_signal_semaphore;
-					VkFence queue_wait_fence;
-				};
-				typedef struct mug_innervk_command mug_innervk_command;
-
-				struct mug_innervk_renderer {
-					VkRenderPass render_pass;
-					VkFramebuffer* framebuffers; // count = sc.image_count
-				};
-				typedef struct mug_innervk_renderer mug_innervk_renderer;
-
-				struct mug_innervk_renderers {
-					// Unknown layout -> color attachment, used for clearing the contents with a color.
-					mug_innervk_renderer unknown_to_ca;
-					// Color attachment layout -> present, used for presentation.
-					mug_innervk_renderer ca_to_present;
-					// Color attachment layout -> color attachment layout, used for pipeline rendering.
-					mug_innervk_renderer ca_to_ca_pip;
-				};
-				typedef struct mug_innervk_renderers mug_innervk_renderers;
-
-				struct mug_innervk_buffer {
-					VkBuffer buf;
-					VkDeviceMemory mem;
-					void* mapped_mem;
-				};
-				typedef struct mug_innervk_buffer mug_innervk_buffer;
-
-				struct mug_innervk_vbuffer {
-					muBool active;
-					size_m render_count; // The count given to the draw function. If it's indexed, this is
-					// the amount of indexes to draw.
-					size_m obj_count; // The count of whatever object is represnted by this.
-					muBool rendered_this_frame;
-					mug_innervk_buffer vbuf;
-					mug_innervk_buffer ibuf;
-				};
-				typedef struct mug_innervk_vbuffer mug_innervk_vbuffer;
-
-				muBool mug_innervk_vbuffer_comp(mug_innervk_vbuffer b0, mug_innervk_vbuffer b1) {
-					return b0.active == b1.active;
+					case MUG_OPENGL: {
+						mug_innergl_graphic_create_via_window(context, &res, gfx, name, width, height, create_info);
+					} break;
 				}
 
-				mu_dynamic_array_declaration(mug_innervk_vbuffers, mug_innervk_vbuffer,
-					mug_innervk_vbuffers_, mug_innervk_vbuffer_comp
-				)
+				if (res != MUG_SUCCESS) {
+					MU_SET_RESULT(result, res)
+					mu_free(gfx);
+					return 0;
+				}
+				return gfx;
+			}
 
-				struct mug_innervk_uniform_buffer {
-					mug_innervk_buffer bufs[MUG_VK_LOOK_AHEAD_FRAMES];
-				};
-				typedef struct mug_innervk_uniform_buffer mug_innervk_uniform_buffer;
+			MUDEF muWindow mug_graphic_get_window(mugContext* context, mugResult* result, muGraphic graphic) {
+				mug_graphic* gfx = (mug_graphic*)graphic;
+				return gfx->obj.win; if (result) {} if (context) {}
+			}
 
-				#define MUG_VK_UNIFORM_BUFFER_BUFLEN 1
+		/* Main loop */
 
-				struct mug_innervk_shader_uniforms {
-					mug_innervk_uniform_buffer bufs[MUG_VK_UNIFORM_BUFFER_BUFLEN];
-					size_m buflen;
+			MUDEF muBool mug_graphic_exists(mugContext* context, mugResult* result, muGraphic graphic) {
+				mug_graphic* gfx = (mug_graphic*)graphic;
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
-					VkDescriptorSetLayout dsl[MUG_VK_LOOK_AHEAD_FRAMES];
-					VkDescriptorPool dp;
-					VkDescriptorSet ds[MUG_VK_LOOK_AHEAD_FRAMES];
-				};
-				typedef struct mug_innervk_shader_uniforms mug_innervk_shader_uniforms;
+				switch (gfx->objtype) {
+					default: return 0; break;
 
-				struct mug_innervk_shader {
-					VkShaderModule vert; // <== vert equaling VK_NULL_HANDLE determines whether or not all
-					// other Vulkan objects are valid.
-					VkShaderModule frag;
-
-					VkPipelineLayout pipeline_layout;
-					VkPipeline pipeline;
-
-					muBool use_buffers;
-					muBool use_index;
-					mug_innervk_vbuffers buffers;
-
-					VkIndexType index_type;
-					mug_innervk_shader_uniforms uniforms;
-				};
-				typedef struct mug_innervk_shader mug_innervk_shader;
-
-				struct mug_innervk_shaders {
-					mug_innervk_shader rect;
-				};
-				typedef struct mug_innervk_shaders mug_innervk_shaders;
-
-				struct mug_innervk_inner {
-					muWindow win;
-					mug_innervk_initiation init;
-					mug_innervk_swapchain sc;
-					mug_innervk_renderers rs;
-
-					mug_innervk_command cmds[MUG_VK_LOOK_AHEAD_FRAMES];
-					size_m now_cmd;
-
-					mug_innervk_shaders shaders;
-				};
-				typedef struct mug_innervk_inner mug_innervk_inner;
-
-			/* Initiation */
-
-				#define MUG_VK_VALIDATION_LAYER_COUNT 1
-				const char* mug_innervk_validation_layers[MUG_VK_VALIDATION_LAYER_COUNT] = {
-					"VK_LAYER_KHRONOS_validation"
-				};
-
-				muBool mug_innervk_are_validation_layers_available(mug_innervk_initiation* p_init) {
-					if (!p_init->use_validation_layers) {
-						return MU_FALSE;
-					}
-
-					uint32_t prop_count = 0;
-					if (vkEnumerateInstanceLayerProperties(&prop_count, 0) != VK_SUCCESS) {
-						return MU_FALSE;
-					}
-					if (prop_count == 0) {
-						return MU_FALSE;
-					}
-
-					VkLayerProperties* props = (VkLayerProperties*)mu_malloc(sizeof(VkLayerProperties)*prop_count);
-					if (props == 0) {
-						return MU_FALSE;
-					}
-					if (vkEnumerateInstanceLayerProperties(&prop_count, props) != VK_SUCCESS) {
-						mu_free(props);
-						return MU_FALSE;
-					}
-
-					for (uint32_t i = 0; i < MUG_VK_VALIDATION_LAYER_COUNT; i++) {
-						muBool found = MU_FALSE;
-						for (uint32_t j = 0; j < prop_count; j++) {
-							if (mu_strcmp(props[j].layerName, mug_innervk_validation_layers[i]) == 0) {
-								found = MU_TRUE;
-								break;
-							}
-						}
-
-						if (!found) {
-							mu_free(props);
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muBool ret = muCOSA_window_get_closed(&context->cosa, &cosa_res, gfx->obj.win);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
 							return MU_FALSE;
 						}
-					}
 
-					mu_free(props);
-					return MU_TRUE;
+						return ret;
+					} break;
 				}
-
-				#define MUG_VK_EXTENSION_COUNT 1
-				const char* mug_innervk_extensions[MUG_VK_EXTENSION_COUNT] = {
-					VK_KHR_SWAPCHAIN_EXTENSION_NAME
-				};
-
-				int32_m mug_innervk_rate_physical_device(VkPhysicalDevice physical_device,
-					VkExtensionProperties* ext_props, size_m ext_prop_count
-				) {
-					int32_m score = 0;
-
-					VkPhysicalDeviceProperties props;
-					vkGetPhysicalDeviceProperties(physical_device, &props);
-					VkPhysicalDeviceFeatures features;
-					vkGetPhysicalDeviceFeatures(physical_device, &features);
-
-					for (size_m i = 0; i < MUG_VK_EXTENSION_COUNT; i++) {
-						muBool found = MU_FALSE;
-						for (size_m j = 0; j < ext_prop_count; j++) {
-							if (mu_strcmp(ext_props[j].extensionName, mug_innervk_extensions[i]) == 0) {
-								found = MU_TRUE;
-								break;
-							}
-						}
-
-						if (!found) {
-							return 0;
-						}
-					}
-
-					switch (props.deviceType) {
-						default: break;
-						case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   score += 500; break;
-						case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: score += 400; break;
-						case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    score += 300; break;
-						case VK_PHYSICAL_DEVICE_TYPE_CPU:            score += 200; break;
-					}
-
-					if (features.fullDrawIndexUint32) score += 20;
-					if (features.imageCubeArray) score += 30;
-					if (features.geometryShader) score += 50;
-					if (features.tessellationShader) score += 100;
-					if (features.sampleRateShading) score += 80;
-					if (features.multiViewport) score += 50;
-					if (features.samplerAnisotropy) score += 60;
-					if (features.shaderStorageImageMultisample) score += 50;
-
-					return score;
-				}
-
-				mugResult mug_innervk_initiation_create(mug_innervk_inner* p_inner) {
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					VkResult vk_res = VK_SUCCESS;
-
-					p_inner->init.instance = VK_NULL_HANDLE;
-					p_inner->init.debug_messenger = VK_NULL_HANDLE;
-					p_inner->init.surface = VK_NULL_HANDLE;
-					p_inner->init.physical_device = VK_NULL_HANDLE;
-					p_inner->init.device = VK_NULL_HANDLE;
-
-					/* Instance */
-
-						VkInstanceCreateInfo inst_cinfo = MU_ZERO_STRUCT(VkInstanceCreateInfo);
-						inst_cinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-
-						// Surface extensions
-
-						size_m surface_extension_count = 0;
-						const char** surface_extensions = mu_vulkan_get_surface_instance_extensions(
-							&cosa_res, &surface_extension_count
-						);
-						if (cosa_res != MUG_SUCCESS) {
-							return muCOSA_result_to_mug_result(cosa_res);
-						}
-
-						const char** actual_surface_extensions = surface_extensions;
-						if (p_inner->init.use_validation_layers && mug_innervk_are_validation_layers_available(&p_inner->init)) {
-							inst_cinfo.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
-							inst_cinfo.ppEnabledLayerNames = (const char* const*)mug_innervk_validation_layers;
-
-							size_m surface_extension_size = 0;
-							for (size_m i = 0; i < surface_extension_count; i++) {
-								surface_extension_size += mu_strlen(surface_extensions[i]) + 1;
-							}
-
-							size_m validation_layer_size = mu_strlen(VK_EXT_DEBUG_UTILS_EXTENSION_NAME) + 1;
-							actual_surface_extensions = (const char**)mu_malloc(surface_extension_size+validation_layer_size);
-
-							if (actual_surface_extensions != 0) {
-								mu_memcpy(actual_surface_extensions, surface_extensions, surface_extension_size);
-								actual_surface_extensions[surface_extension_count] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-								surface_extension_count += 1;
-							} else {
-								actual_surface_extensions = surface_extensions;
-							}
-						} else {
-							p_inner->init.use_validation_layers = MU_FALSE;
-						}
-
-						inst_cinfo.enabledExtensionCount = (uint32_t)surface_extension_count;
-						inst_cinfo.ppEnabledExtensionNames = (const char* const*)actual_surface_extensions;
-
-						if (vkCreateInstance(&inst_cinfo, 0, &p_inner->init.instance) != VK_SUCCESS) {
-							if (actual_surface_extensions != 0 && actual_surface_extensions != surface_extensions) {
-								mu_free(actual_surface_extensions);
-							}
-							return MUG_FAILED_CREATE_VK_INSTANCE;
-						}
-
-						if (actual_surface_extensions != 0 && actual_surface_extensions != surface_extensions) {
-							mu_free(actual_surface_extensions);
-						}
-
-					/* Validation layers */
-
-						if (p_inner->init.use_validation_layers) {
-							VkDebugUtilsMessengerCreateInfoEXT dum_cinfo = MU_ZERO_STRUCT(VkDebugUtilsMessengerCreateInfoEXT);
-							dum_cinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-							dum_cinfo.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | */
-							VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-							VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-							dum_cinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-							VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-							dum_cinfo.pfnUserCallback = p_inner->init.debug_messenger_callback;
-
-							PFN_vkCreateDebugUtilsMessengerEXT fun = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(p_inner->init.instance, "vkCreateDebugUtilsMessengerEXT");
-							if (fun != 0) {
-								if (fun(p_inner->init.instance, &dum_cinfo, 0, &p_inner->init.debug_messenger) != VK_SUCCESS) {
-									// :L
-								}
-							}
-						}
-
-					/* Surface */
-
-						mu_vulkan_create_window_surface(&cosa_res, p_inner->win,
-							&vk_res, &p_inner->init.instance, 0, &p_inner->init.surface
-						);
-						if (cosa_res != MUCOSA_SUCCESS) {
-							return muCOSA_result_to_mug_result(cosa_res);
-						}
-						if (vk_res != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_SURFACE;
-						}
-
-					/* Physical device */
-
-						uint32_t physical_device_count = 0;
-						if (vkEnumeratePhysicalDevices(p_inner->init.instance, &physical_device_count, NULL) != VK_SUCCESS) {
-							return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
-						}
-						if (physical_device_count == 0) {
-							return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
-						}
-
-						VkPhysicalDevice* physical_devices = (VkPhysicalDevice*)mu_malloc(sizeof(VkPhysicalDevice) * physical_device_count);
-						if (physical_devices == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-						if (vkEnumeratePhysicalDevices(p_inner->init.instance, &physical_device_count, physical_devices) != VK_SUCCESS) {
-							mu_free(physical_devices);
-							return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
-						}
-
-						int32_m best_score = 0;
-						for (uint32_t i = 0; i < physical_device_count; i++) {
-							uint32_t extension_count = 0;
-							vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extension_count, 0);
-							VkExtensionProperties* ext_props = 0;
-							if (extension_count != 0) {
-								ext_props = (VkExtensionProperties*)mu_malloc(sizeof(VkExtensionProperties) * extension_count);
-								if (ext_props == 0) {
-									// :L
-									extension_count = 0;
-								} else {
-									vkEnumerateDeviceExtensionProperties(physical_devices[i], 0, &extension_count, ext_props);
-								}
-							}
-
-							int32_m score = mug_innervk_rate_physical_device(physical_devices[i], ext_props, extension_count);
-							if (score > best_score) {
-								best_score = score;
-								p_inner->init.physical_device = physical_devices[i];
-							}
-
-							if (ext_props != 0) {
-								mu_free(ext_props);
-							}
-						}
-						mu_free(physical_devices);
-
-						if (best_score == 0) {
-							return MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE;
-						}
-
-					/* Device */
-
-						// Queue families
-
-						uint32_t queue_family_property_count = 0;
-						vkGetPhysicalDeviceQueueFamilyProperties(p_inner->init.physical_device, 
-						&queue_family_property_count, 0);
-						if (queue_family_property_count == 0) {
-							return MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES;
-						}
-
-						VkQueueFamilyProperties* queue_family_properties = (VkQueueFamilyProperties*)
-						mu_malloc(sizeof(VkQueueFamilyProperties) * queue_family_property_count);
-						if (queue_family_properties == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-						vkGetPhysicalDeviceQueueFamilyProperties(p_inner->init.physical_device,
-						&queue_family_property_count, queue_family_properties);
-
-						muBool found_graphics = MU_FALSE, found_present = MU_FALSE;
-
-						for (uint32_t i = 0; i < queue_family_property_count; i++) {
-							if (!found_graphics && queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-								found_graphics = MU_TRUE;
-								p_inner->init.graphics_family = i;
-							}
-
-							if (!found_present) {
-								VkBool32 present_support = VK_FALSE;
-								vkGetPhysicalDeviceSurfaceSupportKHR(p_inner->init.physical_device,
-								i, p_inner->init.surface, &present_support);
-								if (present_support) {
-									found_present = MU_TRUE;
-									p_inner->init.present_family = i;
-								}
-							}
-
-							if (found_graphics && found_present) {
-								break;
-							}
-						}
-						mu_free(queue_family_properties);
-
-						if (!found_graphics || !found_present) {
-							return MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES;
-						}
-
-						// Queues
-						// This process is gross, but it does indeed work for 2 families. This will need
-						// to be overhauled if otherwise.
-
-						float priority = 1.f;
-
-						VkDeviceQueueCreateInfo graphics_dq_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
-						graphics_dq_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-						graphics_dq_ci.queueFamilyIndex = p_inner->init.graphics_family;
-						graphics_dq_ci.queueCount = 1;
-						graphics_dq_ci.pQueuePriorities = &priority;
-
-						VkDeviceQueueCreateInfo present_dq_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
-						present_dq_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-						present_dq_ci.queueFamilyIndex = p_inner->init.present_family;
-						present_dq_ci.queueCount = 1;
-						present_dq_ci.pQueuePriorities = &priority;
-
-						VkDeviceQueueCreateInfo dq_cis[] = { graphics_dq_ci, present_dq_ci };
-						uint32_t dq_ci_count = 2;
-						if (p_inner->init.graphics_family == p_inner->init.present_family) {
-							dq_ci_count = 1;
-						}
-
-						// Device
-
-						VkDeviceCreateInfo device_ci = MU_ZERO_STRUCT(VkDeviceCreateInfo);
-						device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-						device_ci.queueCreateInfoCount = dq_ci_count;
-						device_ci.pQueueCreateInfos = dq_cis;
-						device_ci.enabledExtensionCount = MUG_VK_EXTENSION_COUNT;
-						device_ci.ppEnabledExtensionNames = mug_innervk_extensions;
-
-						if (p_inner->init.use_validation_layers) {
-							device_ci.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
-							device_ci.ppEnabledLayerNames = mug_innervk_validation_layers;
-						}
-
-						VkPhysicalDeviceFeatures features = MU_ZERO_STRUCT(VkPhysicalDeviceFeatures);
-						device_ci.pEnabledFeatures = &features;
-
-						if (vkCreateDevice(p_inner->init.physical_device, &device_ci, 0, &p_inner->init.device) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_DEVICE;
-						}
-
-						// Queues, part II: joke that I'm not going to make
-
-						vkGetDeviceQueue(p_inner->init.device, p_inner->init.graphics_family, 0, &p_inner->init.graphics_queue);
-						vkGetDeviceQueue(p_inner->init.device, p_inner->init.present_family, 0, &p_inner->init.present_queue);
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innervk_initiation_destroy(mug_innervk_inner* p_inner) {
-					if (p_inner->init.device != VK_NULL_HANDLE) {
-						vkDeviceWaitIdle(p_inner->init.device);
-						vkDestroyDevice(p_inner->init.device, 0);
-					}
-
-					if (p_inner->init.surface != VK_NULL_HANDLE) {
-						vkDestroySurfaceKHR(p_inner->init.instance, p_inner->init.surface, 0);
-					}
-					if (p_inner->init.debug_messenger != VK_NULL_HANDLE) {
-						PFN_vkDestroyDebugUtilsMessengerEXT fun = (PFN_vkDestroyDebugUtilsMessengerEXT)
-						vkGetInstanceProcAddr(p_inner->init.instance, "vkDestroyDebugUtilsMessengerEXT");
-						if (fun != 0) {
-							fun(p_inner->init.instance, p_inner->init.debug_messenger, 0);
-						}
-					}
-					if (p_inner->init.instance != VK_NULL_HANDLE) {
-						vkDestroyInstance(p_inner->init.instance, 0);
-					}
-				}
-
-			/* Swapchain */
-
-				mugResult mug_innervk_swapchain_create(mug_innervk_inner* p_inner) {
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-
-					p_inner->sc.handle = VK_NULL_HANDLE;
-					p_inner->sc.images = 0;
-					p_inner->sc.image_views = 0;
-
-					/* Start create info */
-
-						VkSwapchainCreateInfoKHR sc_ci = MU_ZERO_STRUCT(VkSwapchainCreateInfoKHR);
-						sc_ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-						sc_ci.surface = p_inner->init.surface;
-						sc_ci.imageArrayLayers = 1;
-						sc_ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-						sc_ci.clipped = VK_TRUE;
-						sc_ci.oldSwapchain = VK_NULL_HANDLE;
-
-						uint32_t families[2] = { p_inner->init.graphics_family, p_inner->init.present_family };
-						if (p_inner->init.graphics_family != p_inner->init.present_family) {
-							sc_ci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-							sc_ci.queueFamilyIndexCount = 2;
-							sc_ci.pQueueFamilyIndices = families;
-						}
-
-					/* Capabilities */
-
-						VkSurfaceCapabilitiesKHR cap;
-						if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-							p_inner->init.physical_device, p_inner->init.surface, &cap
-							) != VK_SUCCESS) {
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						sc_ci.minImageCount = cap.minImageCount + 1;
-						if (cap.maxImageCount > 0 && sc_ci.minImageCount > cap.maxImageCount) {
-							sc_ci.minImageCount = cap.maxImageCount;
-						}
-
-						sc_ci.preTransform = cap.currentTransform;
-						sc_ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-
-					/* Format (based on surface) */
-
-						uint32_t format_count = 0;
-						if (vkGetPhysicalDeviceSurfaceFormatsKHR(
-							p_inner->init.physical_device, p_inner->init.surface, &format_count, 0
-							) != VK_SUCCESS) {
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						if (format_count == 0) {
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						VkSurfaceFormatKHR* formats = (VkSurfaceFormatKHR*)mu_malloc(sizeof(VkSurfaceFormatKHR)*format_count);
-						if (formats == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						if (vkGetPhysicalDeviceSurfaceFormatsKHR(
-							p_inner->init.physical_device, p_inner->init.surface, &format_count, formats)
-							!= VK_SUCCESS) {
-							mu_free(formats);
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						VkSurfaceFormatKHR chosen_format = formats[0];
-						for (uint32_t i = 0; i < format_count; i++) {
-							if (formats[i].format == VK_FORMAT_R8G8B8A8_UNORM && 
-								formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-								chosen_format = formats[i];
-								break;
-							}
-						}
-
-						mu_free(formats);
-
-						sc_ci.imageFormat = chosen_format.format;
-						p_inner->sc.format = sc_ci.imageFormat;
-						sc_ci.imageColorSpace = chosen_format.colorSpace;
-
-					/* Extent */
-
-						if (cap.currentExtent.width != MU_UINT32_MAX) {
-							sc_ci.imageExtent = cap.currentExtent;
-						} else {
-							uint32_m width=0, height=0;
-							mu_window_get_dimensions(&cosa_res, p_inner->win, &width, &height);
-							if (cosa_res != MUCOSA_SUCCESS) {
-								return muCOSA_result_to_mug_result(cosa_res);
-							}
-
-							sc_ci.imageExtent.width = (uint32_t)width;
-							if (sc_ci.imageExtent.width < cap.minImageExtent.width) {
-								sc_ci.imageExtent.width = cap.minImageExtent.width;
-							} else if (sc_ci.imageExtent.width > cap.maxImageExtent.width) {
-								sc_ci.imageExtent.width = cap.maxImageExtent.width;
-							}
-
-							sc_ci.imageExtent.height = (uint32_t)height;
-							if (sc_ci.imageExtent.height < cap.minImageExtent.height) {
-								sc_ci.imageExtent.height = cap.minImageExtent.height;
-							} else if (sc_ci.imageExtent.height > cap.maxImageExtent.height) {
-								sc_ci.imageExtent.height = cap.maxImageExtent.height;
-							}
-						}
-
-						p_inner->sc.extent = sc_ci.imageExtent;
-
-						p_inner->sc.viewport = MU_ZERO_STRUCT(VkViewport);
-						p_inner->sc.viewport.width = p_inner->sc.extent.width;
-						p_inner->sc.viewport.height = p_inner->sc.extent.height;
-						p_inner->sc.viewport.minDepth = 0.f;
-						p_inner->sc.viewport.maxDepth = 1.f;
-
-						p_inner->sc.scissor = MU_ZERO_STRUCT(VkRect2D);
-						p_inner->sc.scissor.extent = p_inner->sc.extent;
-
-					/* Present modes */
-					// (see https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html)
-
-						uint32_t present_mode_count = 0;
-						if (vkGetPhysicalDeviceSurfacePresentModesKHR(
-							p_inner->init.physical_device, p_inner->init.surface, &present_mode_count, 0)
-						!= VK_SUCCESS) {
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						if (present_mode_count == 0) {
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						VkPresentModeKHR* present_modes = (VkPresentModeKHR*)mu_malloc(sizeof(VkPresentModeKHR)*present_mode_count);
-						if (present_modes == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						if (vkGetPhysicalDeviceSurfacePresentModesKHR(
-							p_inner->init.physical_device, p_inner->init.surface, &present_mode_count, present_modes)
-						!= VK_SUCCESS) {
-							mu_free(present_modes);
-							return MUG_FAILED_GET_VK_SURFACE_INFO;
-						}
-
-						sc_ci.presentMode = present_modes[0];
-						for (uint32_t i = 0; i < present_mode_count; i++) {
-							if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
-								sc_ci.presentMode = present_modes[i];
-								break;
-							}
-						}
-
-						mu_free(present_modes);
-
-					/* Creation */
-
-						if (vkCreateSwapchainKHR(p_inner->init.device, &sc_ci, 0, &p_inner->sc.handle) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_SWAPCHAIN;
-						}
-
-					/* Images */
-
-						if (vkGetSwapchainImagesKHR(
-							p_inner->init.device, p_inner->sc.handle, &p_inner->sc.image_count, 0) != VK_SUCCESS) {
-							return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
-						}
-
-						p_inner->sc.images = (VkImage*)mu_malloc(sizeof(VkImage) * p_inner->sc.image_count);
-						if (p_inner->sc.images == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						if (vkGetSwapchainImagesKHR(
-							p_inner->init.device, p_inner->sc.handle, &p_inner->sc.image_count, p_inner->sc.images) != VK_SUCCESS) {
-							// Don't need to free here since it's handled later ...
-							return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
-						}
-
-					/* Image views */
-
-						p_inner->sc.image_views = (VkImageView*)mu_malloc(sizeof(VkImageView)*p_inner->sc.image_count);
-						if (p_inner->sc.image_views == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
-							p_inner->sc.image_views[i] = VK_NULL_HANDLE;
-						}
-
-						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
-							VkImageViewCreateInfo iv_ci = MU_ZERO_STRUCT(VkImageViewCreateInfo);
-							iv_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-							iv_ci.image = p_inner->sc.images[i];
-							iv_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-							iv_ci.format = p_inner->sc.format;
-							iv_ci.components.r = iv_ci.components.g = iv_ci.components.b = iv_ci.components.a =
-							VK_COMPONENT_SWIZZLE_IDENTITY;
-							iv_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-							iv_ci.subresourceRange.baseMipLevel = 0;
-							iv_ci.subresourceRange.levelCount = 1;
-							iv_ci.subresourceRange.baseArrayLayer = 0;
-							iv_ci.subresourceRange.layerCount = 1;
-
-							if (vkCreateImageView(p_inner->init.device, &iv_ci, 0, &p_inner->sc.image_views[i]) != VK_SUCCESS) {
-								return MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS;
-							}
-						}
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innervk_swapchain_destroy(mug_innervk_inner* p_inner) {
-					if (p_inner->sc.image_views != 0) {
-						for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
-							if (p_inner->sc.image_views[i] != VK_NULL_HANDLE) {
-								vkDestroyImageView(p_inner->init.device, p_inner->sc.image_views[i], 0);
-							}
-						}
-						mu_free(p_inner->sc.image_views);
-					}
-
-					if (p_inner->sc.images != 0) {
-						mu_free(p_inner->sc.images);
-					}
-
-					if (p_inner->sc.handle != VK_NULL_HANDLE) {
-						vkDestroySwapchainKHR(p_inner->init.device, p_inner->sc.handle, 0);
-					}
-				}
-
-			/* Command */
-
-				mugResult mug_innervk_command_create(mug_innervk_inner* p_inner, mug_innervk_command* p_cmd) {
-					p_cmd->pool = VK_NULL_HANDLE;
-					p_cmd->buffer = VK_NULL_HANDLE;
-					p_cmd->queue_wait_semaphore = VK_NULL_HANDLE;
-					p_cmd->queue_signal_semaphore = VK_NULL_HANDLE;
-					p_cmd->queue_wait_fence = VK_NULL_HANDLE;
-
-					p_cmd->on = MU_FALSE;
-
-					/* Pool */
-
-						VkCommandPoolCreateInfo cp_ci = MU_ZERO_STRUCT(VkCommandPoolCreateInfo);
-						cp_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-						cp_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-						cp_ci.queueFamilyIndex = p_inner->init.graphics_family;
-
-						if (vkCreateCommandPool(p_inner->init.device, &cp_ci, 0, &p_cmd->pool) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_COMMAND_POOL;
-						}
-
-					/* Buffer */
-
-						VkCommandBufferAllocateInfo alloc_info = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
-						alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-						alloc_info.commandPool = p_cmd->pool;
-						alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-						alloc_info.commandBufferCount = 1;
-
-						if (vkAllocateCommandBuffers(p_inner->init.device, &alloc_info, &p_cmd->buffer) != VK_SUCCESS) {
-							return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
-						}
-
-					/* Semaphores */
-
-						VkSemaphoreCreateInfo s_ci = MU_ZERO_STRUCT(VkSemaphoreCreateInfo);
-						s_ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-						if (vkCreateSemaphore(p_inner->init.device, &s_ci, 0, &p_cmd->queue_wait_semaphore) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_SEMAPHORE;
-						}
-						if (vkCreateSemaphore(p_inner->init.device, &s_ci, 0, &p_cmd->queue_signal_semaphore) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_SEMAPHORE;
-						}
-
-					/* Fence */
-
-						VkFenceCreateInfo f_ci = MU_ZERO_STRUCT(VkFenceCreateInfo);
-						f_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-						f_ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-						if (vkCreateFence(p_inner->init.device, &f_ci, 0, &p_cmd->queue_wait_fence) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_FENCE;
-						}
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innervk_command_destroy(mug_innervk_inner* p_inner, mug_innervk_command* p_cmd) {
-					if (p_cmd->queue_wait_fence != VK_NULL_HANDLE) {
-						vkDestroyFence(p_inner->init.device, p_cmd->queue_wait_fence, 0);
-					}
-
-					if (p_cmd->queue_signal_semaphore != VK_NULL_HANDLE) {
-						vkDestroySemaphore(p_inner->init.device, p_cmd->queue_signal_semaphore, 0);
-					}
-					if (p_cmd->queue_wait_semaphore != VK_NULL_HANDLE) {
-						vkDestroySemaphore(p_inner->init.device, p_cmd->queue_wait_semaphore, 0);
-					}
-
-					if (p_cmd->buffer != VK_NULL_HANDLE) {
-						vkFreeCommandBuffers(p_inner->init.device, p_cmd->pool, 1, &p_cmd->buffer);
-					}
-
-					if (p_cmd->pool != VK_NULL_HANDLE) {
-						vkDestroyCommandPool(p_inner->init.device, p_cmd->pool, 0);
-					}
-				}
-
-				void mug_innervk_inner_swapchain_resize(mugResult* result, mug_innervk_inner* p_inner);
-				// Note: can (and should) be called even if the command has already begun.
-				mugResult mug_innervk_command_begin(mug_innervk_inner* p_inner) {
-					mugResult res = MUG_SUCCESS;
-					VkResult vk_res = VK_SUCCESS;
-
-					if (p_inner->cmds[p_inner->now_cmd].on) {
-						return MUG_SUCCESS;
-					}
-
-					if (vkWaitForFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
-						return MUG_FAILED_WAIT_FOR_VK_FENCE;
-					}
-
-					/* Start getting next swapchain image */
-
-						vk_res = vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
-							p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
-						);
-
-						while (vk_res == VK_ERROR_OUT_OF_DATE_KHR) {
-							mug_innervk_inner_swapchain_resize(&res, p_inner);
-							vk_res = vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
-								p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
-							);
-						}
-						if (vk_res != VK_SUCCESS && vk_res != VK_SUBOPTIMAL_KHR) {
-							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
-						}
-
-					if (vkResetFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
-						return MUG_FAILED_RESET_VK_FENCE;
-					}
-
-					/* Begin command buffer */
-
-						if (vkResetCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer, 0) != VK_SUCCESS) {
-							return MUG_FAILED_RESET_VK_COMMAND_BUFFER;
-						}
-
-						VkCommandBufferBeginInfo cb_ci = MU_ZERO_STRUCT(VkCommandBufferBeginInfo);
-						cb_ci.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-
-						if (vkBeginCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer, &cb_ci) != VK_SUCCESS) {
-							return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
-						}
-
-						p_inner->cmds[p_inner->now_cmd].on = MU_TRUE;
-
-					return MUG_SUCCESS;
-				}
-
-				// Make sure to check if commands have even started before calling this!!
-				mugResult mug_innervk_command_end_and_submit(mug_innervk_inner* p_inner) {
-					if (!p_inner->cmds[p_inner->now_cmd].on) {
-						return MUG_SUCCESS;
-					}
-
-					/* End command buffer, storing all render passes */
-
-						if (vkEndCommandBuffer(p_inner->cmds[p_inner->now_cmd].buffer) != VK_SUCCESS) {
-							return MUG_FAILED_END_VK_COMMAND_BUFFER;
-						}
-						p_inner->cmds[p_inner->now_cmd].on = MU_FALSE;
-
-					/* Submit commands to the graphics queue, which will start the rendering */
-
-						// (For wait semaphore, wait until all commands relevant to the swapchain image being
-						// acquired have finished, ensuring that the image is fully available before the queued
-						// commands start executing.)
-						VkPipelineStageFlags wait_dst = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-						VkSubmitInfo submit_info = MU_ZERO_STRUCT(VkSubmitInfo);
-						submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-						submit_info.waitSemaphoreCount = 1;
-						submit_info.pWaitSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore;
-						submit_info.pWaitDstStageMask = &wait_dst;
-						submit_info.commandBufferCount = 1;
-						submit_info.pCommandBuffers = &p_inner->cmds[p_inner->now_cmd].buffer;
-						submit_info.signalSemaphoreCount = 1;
-						submit_info.pSignalSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_signal_semaphore;
-						// ^ This sets up queue_signal_semaphore to be signaled when all of the commands are
-						// submitted to the graphics queue, which is waited for in the present function.
-
-						if (vkQueueSubmit(p_inner->init.graphics_queue, 1, &submit_info, p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
-							return MUG_FAILED_SUBMIT_VK_QUEUE;
-						}
-
-					return MUG_SUCCESS;
-				}
-
-				// Warning: this is an expensive function.
-				mugResult mug_innervk_command_present(mug_innervk_inner* p_inner) {
-					mugResult res = MUG_SUCCESS;
-					VkResult vk_res = VK_SUCCESS;
-
-					if (p_inner->cmds[p_inner->now_cmd].on) {
-						return MUG_SUCCESS;
-					}
-
-					/* Present swapchain when commands are finished, signaled by the queue signal. */
-
-						VkPresentInfoKHR pres_i = MU_ZERO_STRUCT(VkPresentInfoKHR);
-						pres_i.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-						pres_i.waitSemaphoreCount = 1;
-						pres_i.pWaitSemaphores = &p_inner->cmds[p_inner->now_cmd].queue_signal_semaphore;
-						pres_i.swapchainCount = 1;
-						pres_i.pSwapchains = &p_inner->sc.handle;
-						pres_i.pImageIndices = &p_inner->sc.image_index;
-
-						vk_res = vkQueuePresentKHR(p_inner->init.present_queue, &pres_i);
-						if (vk_res == VK_ERROR_OUT_OF_DATE_KHR || vk_res == VK_SUBOPTIMAL_KHR) {
-							mug_innervk_inner_swapchain_resize(&res, p_inner);
-						} else if (vk_res != VK_SUCCESS) {
-							return MUG_FAILED_PRESENT_VK_QUEUE;
-						}
-
-					return MUG_SUCCESS;
-				}
-
-				mugResult mug_innervk_command_get_next_swapchain(mug_innervk_inner* p_inner) {
-					if (p_inner->cmds[p_inner->now_cmd].on) {
-						return MUG_SUCCESS;
-					}
-
-					if (vkWaitForFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
-						return MUG_FAILED_WAIT_FOR_VK_FENCE;
-					}
-
-					/* Start getting next swapchain image */
-
-						if (vkAcquireNextImageKHR(p_inner->init.device, p_inner->sc.handle, UINT64_MAX,
-							p_inner->cmds[p_inner->now_cmd].queue_wait_semaphore, VK_NULL_HANDLE, &p_inner->sc.image_index
-						) != VK_SUCCESS) {
-							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
-						}
-
-					if (vkResetFences(p_inner->init.device, 1, &p_inner->cmds[p_inner->now_cmd].queue_wait_fence) != VK_SUCCESS) {
-						return MUG_FAILED_RESET_VK_FENCE;
-					}
-
-					return MUG_SUCCESS;
-				}
-
-			/* Renderers */
-
-				VkAttachmentDescription mug_innervk_renderer_def_attachment_desc(mug_innervk_swapchain* p_sc) {
-					VkAttachmentDescription attr = MU_ZERO_STRUCT(VkAttachmentDescription);
-					attr.format = p_sc->format;
-					attr.samples = VK_SAMPLE_COUNT_1_BIT;
-					attr.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-					attr.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-					return attr;
-				}
-
-				VkRenderPassCreateInfo mug_innervk_renderer_def_rp_ci(void) {
-					VkRenderPassCreateInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassCreateInfo);
-					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-					return rp_ci;
-				}
-
-				mugResult mug_innervk_renderers_create_render_passes(mug_innervk_inner* p_inner) {
-					p_inner->rs.unknown_to_ca.render_pass = VK_NULL_HANDLE;
-					p_inner->rs.ca_to_present.render_pass = VK_NULL_HANDLE;
-					p_inner->rs.ca_to_ca_pip.render_pass = VK_NULL_HANDLE;
-
-					VkAttachmentDescription attr;
-					VkRenderPassCreateInfo rp_ci;
-					VkAttachmentReference ref;
-					VkSubpassDescription subpass;
-
-					/* unknown_to_ca */
-
-						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
-						attr.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-						attr.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-						attr.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-						ref = MU_ZERO_STRUCT(VkAttachmentReference);
-						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
-						subpass.colorAttachmentCount = 1;
-						subpass.pColorAttachments = &ref;
-
-						rp_ci = mug_innervk_renderer_def_rp_ci();
-						rp_ci.attachmentCount = 1;
-						rp_ci.pAttachments = &attr;
-						rp_ci.subpassCount = 1;
-						rp_ci.pSubpasses = &subpass;
-
-						if (vkCreateRenderPass(
-							p_inner->init.device, &rp_ci, 0, &p_inner->rs.unknown_to_ca.render_pass
-						) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_RENDER_PASS;
-						}
-
-					/* ca_to_present */
-
-						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
-						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-						attr.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-						rp_ci = mug_innervk_renderer_def_rp_ci();
-						rp_ci.attachmentCount = 1;
-						rp_ci.pAttachments = &attr;
-
-						ref = MU_ZERO_STRUCT(VkAttachmentReference);
-						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
-						subpass.colorAttachmentCount = 1;
-						subpass.pColorAttachments = &ref;
-
-						rp_ci = mug_innervk_renderer_def_rp_ci();
-						rp_ci.attachmentCount = 1;
-						rp_ci.pAttachments = &attr;
-						rp_ci.subpassCount = 1;
-						rp_ci.pSubpasses = &subpass;
-
-						if (vkCreateRenderPass(
-							p_inner->init.device, &rp_ci, 0, &p_inner->rs.ca_to_present.render_pass
-						) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_RENDER_PASS;
-						}
-
-					/* ca_to_ca_pip */
-
-						attr = mug_innervk_renderer_def_attachment_desc(&p_inner->sc);
-						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-						attr.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-						ref = MU_ZERO_STRUCT(VkAttachmentReference);
-						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
-						subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-						subpass.colorAttachmentCount = 1;
-						subpass.pColorAttachments = &ref;
-
-						rp_ci = mug_innervk_renderer_def_rp_ci();
-						rp_ci.attachmentCount = 1;
-						rp_ci.pAttachments = &attr;
-						rp_ci.subpassCount = 1;
-						rp_ci.pSubpasses = &subpass;
-
-						if (vkCreateRenderPass(
-							p_inner->init.device, &rp_ci, 0, &p_inner->rs.ca_to_ca_pip.render_pass
-						) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_RENDER_PASS;
-						}
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innervk_renderers_destroy_render_passes(mug_innervk_inner* p_inner) {
-					if (p_inner->rs.unknown_to_ca.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.unknown_to_ca.render_pass, 0);
-					}
-					if (p_inner->rs.ca_to_present.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.ca_to_present.render_pass, 0);
-					}
-					if (p_inner->rs.ca_to_ca_pip.render_pass != VK_NULL_HANDLE) {
-						vkDestroyRenderPass(p_inner->init.device, p_inner->rs.ca_to_ca_pip.render_pass, 0);
-					}
-				}
-
-				VkFramebuffer* mug_innervk_def_framebuffers_create(VkResult* vk_result, mug_innervk_inner* p_inner, VkRenderPass rp) {
-					MU_SET_RESULT(vk_result, VK_SUCCESS)
-					VkResult vkres = VK_SUCCESS;
-
-					VkFramebuffer* fbs = (VkFramebuffer*)mu_malloc(sizeof(VkFramebuffer) * p_inner->sc.image_count);
-					if (fbs == 0) {
-						return 0;
-					}
-
-					for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
-						fbs[i] = VK_NULL_HANDLE;
-					}
-
-					for (uint32_t i = 0; i < p_inner->sc.image_count; i++) {
-						VkFramebufferCreateInfo ci = MU_ZERO_STRUCT(VkFramebufferCreateInfo);
-						ci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-						ci.renderPass = rp;
-						ci.attachmentCount = 1;
-						ci.pAttachments = &p_inner->sc.image_views[i];
-						ci.width = p_inner->sc.extent.width;
-						ci.height = p_inner->sc.extent.height;
-						ci.layers = 1;
-
-						vkres = vkCreateFramebuffer(p_inner->init.device, &ci, 0, &fbs[i]);
-						if (vkres != VK_SUCCESS) {
-							MU_SET_RESULT(vk_result, vkres)
-							return fbs;
-						}
-					}
-
-					return fbs;
-				}
-
-				mugResult mug_innervk_renderers_create_framebuffers(mug_innervk_inner* p_inner) {
-					VkResult vkres = VK_SUCCESS;
-
-					p_inner->rs.unknown_to_ca.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.unknown_to_ca.render_pass);
-					if (p_inner->rs.unknown_to_ca.framebuffers == 0) {
-						return MUG_FAILED_ALLOCATE;
-					}
-					if (vkres != VK_SUCCESS) {
-						return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
-					}
-
-					p_inner->rs.ca_to_present.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.ca_to_present.render_pass);
-					if (p_inner->rs.ca_to_present.framebuffers == 0) {
-						return MUG_FAILED_ALLOCATE;
-					}
-					if (vkres != VK_SUCCESS) {
-						return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
-					}
-
-					p_inner->rs.ca_to_ca_pip.framebuffers = mug_innervk_def_framebuffers_create(&vkres, p_inner, p_inner->rs.ca_to_ca_pip.render_pass);
-					if (p_inner->rs.ca_to_ca_pip.framebuffers == 0) {
-						return MUG_FAILED_ALLOCATE;
-					}
-					if (vkres != VK_SUCCESS) {
-						return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
-					}
-
-					return MUG_SUCCESS;
-				}
-
-				void mug_innervk_renderer_destroy_framebuffers(mug_innervk_inner* p_inner, mug_innervk_renderer* p_r) {
-					if (p_r->framebuffers != 0) {
-						for (size_m i = 0; i < p_inner->sc.image_count; i++) {
-							if (p_r->framebuffers[i] == VK_NULL_HANDLE) {
-								return;
-							}
-							vkDestroyFramebuffer(p_inner->init.device, p_r->framebuffers[i], 0);
-						}
-					}
-				}
-
-				void mug_innervk_renderers_destroy_framebuffers(mug_innervk_inner* p_inner) {
-					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.unknown_to_ca);
-					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.ca_to_present);
-					mug_innervk_renderer_destroy_framebuffers(p_inner, &p_inner->rs.ca_to_ca_pip);
-				}
-
-				mugResult mug_innervk_renderers_clear(mug_innervk_inner* p_inner, float r, float g, float b, float a) {
-					mugResult res = MUG_SUCCESS;
-
-					/* Turn on commands if they haven't been already */
-
-					if (!p_inner->cmds[p_inner->now_cmd].on) {
-						res = mug_innervk_command_begin(p_inner);
-						if (res != MUG_SUCCESS) {
-							return res;
-						}
-					}
-
-					/* Start unknown_to_ca render pass to clear contents */
-
-					VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
-					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					rp_ci.renderPass = p_inner->rs.unknown_to_ca.render_pass;
-					rp_ci.framebuffer = p_inner->rs.unknown_to_ca.framebuffers[p_inner->sc.image_index];
-					rp_ci.renderArea.offset.x = 0;
-					rp_ci.renderArea.offset.y = 0;
-					rp_ci.renderArea.extent = p_inner->sc.extent;
-
-					VkClearValue clear_value = MU_ZERO_STRUCT(VkClearValue);
-					clear_value.color.float32[0] = r;
-					clear_value.color.float32[1] = g;
-					clear_value.color.float32[2] = b;
-					clear_value.color.float32[3] = a;
-
-					rp_ci.clearValueCount = 1;
-					rp_ci.pClearValues = &clear_value;
-
-					vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
-
-					/* End the render pass */
-
-					vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
-
-					return MUG_SUCCESS;
-				}
-
-				mugResult mug_innervk_renderers_make_presentable(mug_innervk_inner* p_inner) {
-					mugResult res = MUG_SUCCESS;
-
-					/* Turn on commands if they haven't been already */
-
-					if (!p_inner->cmds[p_inner->now_cmd].on) {
-						res = mug_innervk_command_begin(p_inner);
-						if (res != MUG_SUCCESS) {
-							return res;
-						}
-					}
-
-					/* Start ca_to_present render pass to make layout presentable */
-
-					VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
-					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-					rp_ci.renderPass = p_inner->rs.ca_to_present.render_pass;
-					rp_ci.framebuffer = p_inner->rs.ca_to_present.framebuffers[p_inner->sc.image_index];
-					rp_ci.renderArea.offset.x = 0;
-					rp_ci.renderArea.offset.y = 0;
-					rp_ci.renderArea.extent = p_inner->sc.extent;
-
-					vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
-
-					/* End the render pass */
-
-					vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
-
-					return MUG_SUCCESS;
-				}
-
-				// Note: load shader before this
-				// Note: render_count is discarded if p_shader->use_buffers; overridable by use_count
-				// Note: if indexed, render_count is in index count
-				// Note: if indexed, render_offset is in bytes
-				mugResult mug_innervk_renderers_render_shader(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf, size_m render_count, size_m render_offset, muBool use_count) {
-					mugResult res = MUG_SUCCESS;
-
-					/* Turn on commands if they haven't been already */
-
-						if (!p_inner->cmds[p_inner->now_cmd].on) {
-							res = mug_innervk_command_begin(p_inner);
-							if (res != MUG_SUCCESS) {
-								return res;
-							}
-						}
-
-					/* Start render pass with pipeline render pass */
-
-						VkRenderPassBeginInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
-						rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-						rp_ci.renderPass = p_inner->rs.ca_to_ca_pip.render_pass;
-						rp_ci.framebuffer = p_inner->rs.ca_to_ca_pip.framebuffers[p_inner->sc.image_index];
-						rp_ci.renderArea.extent = p_inner->sc.extent;
-
-						vkCmdBeginRenderPass(p_inner->cmds[p_inner->now_cmd].buffer, &rp_ci, VK_SUBPASS_CONTENTS_INLINE);
-
-					/* Bind and draw pipeline */
-
-						vkCmdBindPipeline(p_inner->cmds[p_inner->now_cmd].buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, p_shader->pipeline);
-
-						// (Set dynamic state)
-
-						vkCmdSetScissor(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_inner->sc.scissor);
-						vkCmdSetViewport(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_inner->sc.viewport);
-
-						// (Bind revelant buffers)
-
-						if (p_shader->use_buffers) {
-							VkDeviceSize ds_offset = 0;
-							if (!p_shader->use_index) {
-								// @TODO This is def incorrect lmao
-								ds_offset = render_offset;
-							}
-							vkCmdBindVertexBuffers(p_inner->cmds[p_inner->now_cmd].buffer, 0, 1, &p_shader->buffers.data[buf].vbuf.buf, &ds_offset);
-
-							if (p_shader->use_index) {
-								vkCmdBindIndexBuffer(p_inner->cmds[p_inner->now_cmd].buffer, p_shader->buffers.data[buf].ibuf.buf, render_offset, p_shader->index_type);
-							}
-						}
-
-						if (p_shader->uniforms.ds[0] != VK_NULL_HANDLE) {
-							vkCmdBindDescriptorSets(p_inner->cmds[p_inner->now_cmd].buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, 
-								p_shader->pipeline_layout, 0, 1, &p_shader->uniforms.ds[p_inner->now_cmd], 0, 0
-							);
-						}
-
-						uint32_t count = (uint32_t)render_count;
-						if (p_shader->use_buffers && !use_count) {
-							count = (uint32_t)p_shader->buffers.data[buf].render_count;
-						}
-
-						if (p_shader->use_index) {
-							vkCmdDrawIndexed(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0, 0);
-						} else if (p_shader->use_buffers) {
-							vkCmdDraw(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0);
-						} else {
-							vkCmdDraw(p_inner->cmds[p_inner->now_cmd].buffer, count, 1, 0, 0);
-						}
-
-					/* End render pass */
-
-						vkCmdEndRenderPass(p_inner->cmds[p_inner->now_cmd].buffer);
-
-					if (p_shader->use_buffers) {
-						p_shader->buffers.data[buf].rendered_this_frame = MU_TRUE;
-					}
-
-					return MUG_SUCCESS;
-				}
-
-			/* Buffers */
-
-				mugResult mug_innervk_buffer_create_manual(mug_innervk_inner* p_inner, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props, VkBuffer* p_buffer, VkDeviceMemory* p_memory
-				) {
-					/* Buffer */
-
-						VkBufferCreateInfo ci = MU_ZERO_STRUCT(VkBufferCreateInfo);
-						ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-						ci.size = size;
-						ci.usage = usage;
-						ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-						if (vkCreateBuffer(p_inner->init.device, &ci, 0, p_buffer) != VK_SUCCESS) {
-							return MUG_FAILED_CREATE_VK_BUFFER;
-						}
-
-					/* Memory */
-
-						VkMemoryRequirements mem_req;
-						vkGetBufferMemoryRequirements(p_inner->init.device, *p_buffer, &mem_req);
-						VkPhysicalDeviceMemoryProperties mem_prop;
-						vkGetPhysicalDeviceMemoryProperties(p_inner->init.physical_device, &mem_prop);
-
-						muBool found = MU_FALSE;
-						uint32_t mem_index = 0;
-						for (uint32_t i = 0; i < mem_prop.memoryTypeCount; i++) {
-							if ((mem_req.memoryTypeBits & (1 << i)) &&
-								(mem_prop.memoryTypes[i].propertyFlags & props) == props
-							) {
-								mem_index = i;
-								found = MU_TRUE;
-								break;
-							}
-						}
-						if (!found) {
-							vkDestroyBuffer(p_inner->init.device, *p_buffer, 0);
-							return MUG_FAILED_FIND_VALID_VK_MEMORY_TYPE;
-						}
-
-						VkMemoryAllocateInfo alloc_i = MU_ZERO_STRUCT(VkMemoryAllocateInfo);
-						alloc_i.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-						alloc_i.allocationSize = mem_req.size;
-						alloc_i.memoryTypeIndex = mem_index;
-
-						if (vkAllocateMemory(p_inner->init.device, &alloc_i, 0, p_memory) != VK_SUCCESS) {
-							vkDestroyBuffer(p_inner->init.device, *p_buffer, 0);
-							return MUG_FAILED_ALLOCATE_VK_MEMORY;
-						}
-
-						vkBindBufferMemory(p_inner->init.device, *p_buffer, *p_memory, 0);
-
-					return MUG_SUCCESS;
-				}
-
-				// Note: this whole process can most likely be optimized.
-				mugResult mug_innervk_buffer_raw_copy(mug_innervk_inner* p_inner, VkBuffer dst, VkDeviceSize dst_offset, VkBuffer src, VkDeviceSize src_offset, VkDeviceSize size) {
-					/* Allocation */
-
-						VkCommandBufferAllocateInfo alloc_i = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
-						alloc_i.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-						alloc_i.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-						alloc_i.commandPool = p_inner->cmds[p_inner->now_cmd].pool;
-						alloc_i.commandBufferCount = 1;
-
-						VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
-						if (vkAllocateCommandBuffers(p_inner->init.device, &alloc_i, &cmd_buf) != VK_SUCCESS) {
-							return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
-						}
-
-					/* Commands */
-
-						VkCommandBufferBeginInfo begin_i = MU_ZERO_STRUCT(VkCommandBufferBeginInfo);
-						begin_i.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-						begin_i.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-						if (vkBeginCommandBuffer(cmd_buf, &begin_i) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
-							return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
-						}
-
-						VkBufferCopy region = MU_ZERO_STRUCT(VkBufferCopy);
-						region.srcOffset = src_offset;
-						region.dstOffset = dst_offset;
-						region.size = size;
-						vkCmdCopyBuffer(cmd_buf, src, dst, 1, &region);
-
-						if (vkEndCommandBuffer(cmd_buf) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
-							return MUG_FAILED_END_VK_COMMAND_BUFFER;
-						}
-
-					/* Submit */
-
-						VkSubmitInfo submit_i = MU_ZERO_STRUCT(VkSubmitInfo);
-						submit_i.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-						submit_i.commandBufferCount = 1;
-						submit_i.pCommandBuffers = &cmd_buf;
-
-						if (vkQueueSubmit(p_inner->init.graphics_queue, 1, &submit_i, VK_NULL_HANDLE) != VK_SUCCESS) {
-							vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
-							return MUG_FAILED_SUBMIT_VK_QUEUE;
-						}
-
-					vkQueueWaitIdle(p_inner->init.graphics_queue);
-					vkFreeCommandBuffers(p_inner->init.device, p_inner->cmds[p_inner->now_cmd].pool, 1, &cmd_buf);
-					return MUG_SUCCESS;
-				}
-
-				// This function's kinda dumb now, eh
-				mug_innervk_buffer mug_innervk_buffer_create(mugResult* result, mug_innervk_inner* p_inner, VkDeviceSize data_size, VkBufferUsageFlagBits usage, muBool local) {
-					mugResult res = MUG_SUCCESS;
-					mug_innervk_buffer buffer = MU_ZERO_STRUCT(mug_innervk_buffer);
-					buffer.buf = VK_NULL_HANDLE;
-					buffer.mem = VK_NULL_HANDLE;
-
-					VkMemoryPropertyFlags props = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-					if (!local) {
-						props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-					}
-					res = mug_innervk_buffer_create_manual(p_inner, data_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | usage, props, &buffer.buf, &buffer.mem);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return buffer;
-					}
-
-					return buffer;
-				}
-
-				void mug_innervk_buffer_destroy(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer) {
-					if (p_buffer->buf != VK_NULL_HANDLE) {
-						vkDestroyBuffer(p_inner->init.device, p_buffer->buf, 0);
-						p_buffer->buf = VK_NULL_HANDLE;
-					}
-					if (p_buffer->mem != VK_NULL_HANDLE) {
-						vkFreeMemory(p_inner->init.device, p_buffer->mem, 0);
-						p_buffer->mem = VK_NULL_HANDLE;
-					}
-				}
-
-				mugResult mug_innervk_buffer_transfer(mug_innervk_inner* p_inner, mug_innervk_buffer* p_buffer, VkDeviceSize offset, void* data, VkDeviceSize data_size) {
-					mugResult res = MUG_SUCCESS;
-
-					// Stage buffer creation
-
-					VkBuffer stage_buf = VK_NULL_HANDLE;
-					VkDeviceMemory stage_mem = VK_NULL_HANDLE;
-					res = mug_innervk_buffer_create_manual(
-						p_inner, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-						VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-						&stage_buf, &stage_mem
-					);
-					if (res != MUG_SUCCESS) {
-						return res;
-					}
-
-					// Stage buffer data copying
-
-					void* gpu_memory = 0;
-					if (vkMapMemory(p_inner->init.device, stage_mem, 0, data_size, 0, &gpu_memory) != VK_SUCCESS) {
-						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
-						vkFreeMemory(p_inner->init.device, stage_mem, 0);
-						return MUG_FAILED_MAP_VK_MEMORY;
-					}
-
-					mu_memcpy(gpu_memory, data, (size_t)data_size);
-					vkUnmapMemory(p_inner->init.device, stage_mem);
-
-					// Copying stage buffer data into buffer
-
-					res = mug_innervk_buffer_raw_copy(p_inner, p_buffer->buf, offset, stage_buf, 0, data_size);
-					if (res != MUG_SUCCESS) {
-						vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
-						vkFreeMemory(p_inner->init.device, stage_mem, 0);
-						return res;
-					}
-
-					vkDestroyBuffer(p_inner->init.device, stage_buf, 0);
-					vkFreeMemory(p_inner->init.device, stage_mem, 0);
-					return MUG_SUCCESS;
-				}
-
-			/* Shaders */
-
-				/* Buffer prep */
-
-					// isize is ignored if !p_shader->use_index
-					// Doesn't perform checks on p_shader->use_buffers, so don't use if the case is such.
-					size_m mug_innervk_shader_create_vbuffer(mugResult* result, mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m vsize, size_m isize, size_m render_count, size_m obj_count, size_m* p_targeted_index) {
-						mugResult res = MUG_SUCCESS;
-						mumaResult muma_res = MUMA_SUCCESS;
-						mug_innervk_vbuffer s_vbuf = MU_ZERO_STRUCT(mug_innervk_vbuffer);
-						s_vbuf.render_count = render_count;
-						s_vbuf.obj_count = obj_count;
-						size_m i_vbuf = MU_NONE;
-
-						s_vbuf.vbuf = mug_innervk_buffer_create(
-							&res, p_inner, (VkDeviceSize)vsize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, MU_TRUE
-						);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return i_vbuf;
-						}
-
-						if (p_shader->use_index) {
-							s_vbuf.ibuf = mug_innervk_buffer_create(
-								&res, p_inner, (VkDeviceSize)isize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, MU_TRUE
-							);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-								mug_innervk_buffer_destroy(p_inner, &s_vbuf.vbuf);
-								return i_vbuf;
-							}
-						}
-
-						if (!p_targeted_index) {
-							p_shader->buffers = mug_innervk_vbuffers_find_push(
-								&muma_res, p_shader->buffers, s_vbuf, &i_vbuf
-							);
-							if (muma_res != MUMA_SUCCESS) {
-								MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-								mug_innervk_buffer_destroy(p_inner, &s_vbuf.ibuf);
-								mug_innervk_buffer_destroy(p_inner, &s_vbuf.vbuf);
-								return i_vbuf;
-							}
-						} else {
-							size_m targeted_index = *p_targeted_index;
-							if (targeted_index >= p_shader->buffers.length) {
-								p_shader->buffers = mug_innervk_vbuffers_resize(&muma_res, p_shader->buffers, targeted_index+1);
-								if (muma_res != MUMA_SUCCESS) {
-									MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-									mug_innervk_buffer_destroy(p_inner, &s_vbuf.ibuf);
-									mug_innervk_buffer_destroy(p_inner, &s_vbuf.vbuf);
-									return i_vbuf;
-								}
-							}
-							i_vbuf = targeted_index;
-						}
-
-						s_vbuf.active = MU_TRUE;
-						p_shader->buffers.data[i_vbuf] = s_vbuf;
-						return i_vbuf;
-					}
-
-					void mug_innervk_shader_destroy_vbuffer(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader, size_m buf) {
-						if (buf >= p_shader->buffers.length) {
-							return;
-						}
-						if (p_shader->buffers.data[buf].active) {
-							vkDeviceWaitIdle(p_inner->init.device);
-							if (p_shader->use_buffers) {
-								mug_innervk_buffer_destroy(p_inner, &p_shader->buffers.data[buf].vbuf);
-							}
-							if (p_shader->use_index) {
-								mug_innervk_buffer_destroy(p_inner, &p_shader->buffers.data[buf].ibuf);
-							}
-							p_shader->buffers.data[buf] = MU_ZERO_STRUCT(mug_innervk_vbuffer);
-						}
-					}
-
-				/* Shader uniforms */
-
-					VkBufferUsageFlagBits mug_innervk_descriptor_to_usage(VkDescriptorType type) {
-						switch (type) {
-							default: return (VkBufferUsageFlagBits)0; break;
-							case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER: return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT; break;
-						}
-					}
-
-					void mug_innervk_shader_uniform_empty(mug_innervk_shader_uniforms* p_su) {
-						*p_su = MU_ZERO_STRUCT(mug_innervk_shader_uniforms);
-
-						p_su->dp = VK_NULL_HANDLE;
-
-						for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-							p_su->dsl[i] = VK_NULL_HANDLE;
-							p_su->ds[i] = VK_NULL_HANDLE;
-
-							for (size_m j = 0; j < MUG_VK_UNIFORM_BUFFER_BUFLEN; j++) {
-								p_su->bufs[j].bufs[i].buf = VK_NULL_HANDLE;
-								p_su->bufs[j].bufs[i].mem = VK_NULL_HANDLE;
-							}
-						}
-					}
-
-					void mug_innervk_shader_uniform_destroy(mug_innervk_inner* p_inner, mug_innervk_shader_uniforms* p_su) {
-						if (p_su->dp != VK_NULL_HANDLE) {
-							// (DSs are implicity free'd by this call btw)
-							vkDestroyDescriptorPool(p_inner->init.device, p_su->dp, 0);
-						}
-
-						for (size_m f = 0; f < MUG_VK_LOOK_AHEAD_FRAMES; f++) {
-							if (p_su->dsl[f] != VK_NULL_HANDLE) {
-								vkDestroyDescriptorSetLayout(p_inner->init.device, p_su->dsl[f], 0);
-							}
-						}
-
-						for (size_m i = 0; i < p_su->buflen; i++) {
-							for (size_m j = 0; j < MUG_VK_LOOK_AHEAD_FRAMES; j++) {
-								mug_innervk_buffer_destroy(p_inner, &p_su->bufs[i].bufs[j]);
-							}
-						}
-						mug_innervk_shader_uniform_empty(p_su);
-					}
-
-					mugResult mug_innervk_shader_uniform_create(mug_innervk_inner* p_inner, mug_innervk_shader_uniforms* p_su, uint32_t uniform_count, VkDescriptorType* p_descriptors, VkDeviceSize* p_sizes, uint32_t* p_bindings, VkShaderStageFlags* p_stages) {
-						mug_innervk_shader_uniform_empty(p_su);
-						mugResult res = MUG_SUCCESS;
-
-						p_su->buflen = (size_m)uniform_count;
-
-						/* Uniform buffers */
-
-							for (uint32_t u = 0; u < uniform_count; u++) {
-								for (size_m b = 0; b < MUG_VK_LOOK_AHEAD_FRAMES; b++) {
-
-									p_su->bufs[u].bufs[b] = mug_innervk_buffer_create(&res, p_inner, p_sizes[u], mug_innervk_descriptor_to_usage(p_descriptors[u]), MU_FALSE);
-									if (res != MUG_SUCCESS) {
-										mug_innervk_shader_uniform_destroy(p_inner, p_su);
-										return res;
-									}
-
-									if (vkMapMemory(p_inner->init.device, p_su->bufs[u].bufs[b].mem, 0, p_sizes[u], 0, &p_su->bufs[u].bufs[b].mapped_mem ) != VK_SUCCESS) {
-										mug_innervk_shader_uniform_destroy(p_inner, p_su);
-										return MUG_FAILED_MAP_VK_MEMORY;
-									}
-								}
-							}
-
-						/* Descriptor set layouts */
-
-							VkDescriptorSetLayoutBinding dsl_bindings[MUG_VK_UNIFORM_BUFFER_BUFLEN] = { MU_ZERO_STRUCT(VkDescriptorSetLayoutBinding) };
-
-							for (uint32_t i = 0; i < uniform_count; i++) {
-								dsl_bindings[i].binding = p_bindings[i];
-								dsl_bindings[i].descriptorType = p_descriptors[i];
-								dsl_bindings[i].descriptorCount = 1;
-								dsl_bindings[i].stageFlags = p_stages[i];
-							}
-
-							VkDescriptorSetLayoutCreateInfo dsl_ci = MU_ZERO_STRUCT(VkDescriptorSetLayoutCreateInfo);
-							dsl_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-							dsl_ci.bindingCount = uniform_count;
-							dsl_ci.pBindings = dsl_bindings;
-
-							for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-								if (vkCreateDescriptorSetLayout(p_inner->init.device, &dsl_ci, 0, &p_su->dsl[i]) != VK_SUCCESS) {
-									mug_innervk_shader_uniform_destroy(p_inner, p_su);
-									return MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT;
-								}
-							}
-
-						/* Descriptor pool */
-
-							VkDescriptorPoolSize pool_sizes[MUG_VK_UNIFORM_BUFFER_BUFLEN] = { MU_ZERO_STRUCT(VkDescriptorPoolSize) };
-
-							for (uint32_t i = 0; i < uniform_count; i++) {
-								pool_sizes[i].type = p_descriptors[i];
-								pool_sizes[i].descriptorCount = MUG_VK_LOOK_AHEAD_FRAMES;
-							}
-
-							VkDescriptorPoolCreateInfo dp_ci = MU_ZERO_STRUCT(VkDescriptorPoolCreateInfo);
-							dp_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-							dp_ci.maxSets = MUG_VK_LOOK_AHEAD_FRAMES;
-							dp_ci.poolSizeCount = uniform_count;
-							dp_ci.pPoolSizes = pool_sizes;
-
-							if (vkCreateDescriptorPool(p_inner->init.device, &dp_ci, 0, &p_su->dp) != VK_SUCCESS) {
-								mug_innervk_shader_uniform_destroy(p_inner, p_su);
-								return MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL;
-							}
-
-						/* Descriptor sets */
-
-							VkDescriptorSetAllocateInfo ds_ai = MU_ZERO_STRUCT(VkDescriptorSetAllocateInfo);
-							ds_ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-							ds_ai.descriptorPool = p_su->dp;
-							ds_ai.descriptorSetCount = MUG_VK_LOOK_AHEAD_FRAMES;
-							ds_ai.pSetLayouts = p_su->dsl;
-
-							if (vkAllocateDescriptorSets(p_inner->init.device, &ds_ai, p_su->ds) != VK_SUCCESS) {
-								mug_innervk_shader_uniform_destroy(p_inner, p_su);
-								return MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS;
-							}
-
-							for (size_m f = 0; f < MUG_VK_LOOK_AHEAD_FRAMES; f++) {
-								for (uint32_t u = 0; u < uniform_count; u++) {
-									VkDescriptorBufferInfo buf_info = MU_ZERO_STRUCT(VkDescriptorBufferInfo);
-									buf_info.buffer = p_su->bufs[u].bufs[f].buf;
-									buf_info.range = p_sizes[u];
-
-									VkWriteDescriptorSet wds = MU_ZERO_STRUCT(VkWriteDescriptorSet);
-									wds.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-									wds.dstSet = p_su->ds[f];
-									wds.dstBinding = p_bindings[u];
-									wds.dstArrayElement = 0;
-									wds.descriptorCount = 1;
-									wds.descriptorType = p_descriptors[u];
-									wds.pBufferInfo = &buf_info;
-
-									vkUpdateDescriptorSets(p_inner->init.device, 1, &wds, 0, 0);
-								}
-							}
-
-						return MUG_SUCCESS;
-					}
-
-				/* Rect */
-
-					// ^ All same as OpenGL
-					size_m mug_innervk_rect_count_to_tricount(size_m rect_count) {
-						return rect_count * 2;
-					}
-					size_m mug_innervk_rect_count_to_vertex_size(size_m rect_count) {
-						return rect_count * 4 * 6 * 4;
-					}
-					size_m mug_innervk_rect_count_to_indcount(size_m rect_count) {
-						return rect_count * 5;
-					}
-					size_m mug_innervk_rect_count_to_index_size(size_m rect_count) {
-						return rect_count * 4 * 5;
-					}
-
-					/* Compiled code */
-
-						/* glslc shader.vert -o vert.spv
-						#version 450
-
-						layout(location=0)in vec2 vPos;
-						layout(location=1)in vec4 vCol;
-
-						layout(location=0)out vec4 fCol;
-
-						layout(binding=0)uniform Dim {
-							vec2 dim;	
-						};
-
-						void main() {
-							gl_Position=vec4((vPos.x-(dim.x))/dim.x,(vPos.y-(dim.y))/dim.y,0.0,1.0);
-							fCol = vCol;
-						}
-						*/
-						
-						const muByte mug_innervk_vrect_spirv[] = {
-							0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x00, 0x0D, 0x00, 0x32, 0x00, 0x00, 0x00, 
-							0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x06, 0x00, 
-							0x01, 0x00, 0x00, 0x00, 0x47, 0x4C, 0x53, 0x4C, 0x2E, 0x73, 0x74, 0x64, 0x2E, 0x34, 0x35, 0x30, 
-							0x00, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-							0x0F, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x6D, 0x61, 0x69, 0x6E, 
-							0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00, 
-							0x30, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00, 0xC2, 0x01, 0x00, 0x00, 
-							0x04, 0x00, 0x0A, 0x00, 0x47, 0x4C, 0x5F, 0x47, 0x4F, 0x4F, 0x47, 0x4C, 0x45, 0x5F, 0x63, 0x70, 
-							0x70, 0x5F, 0x73, 0x74, 0x79, 0x6C, 0x65, 0x5F, 0x6C, 0x69, 0x6E, 0x65, 0x5F, 0x64, 0x69, 0x72, 
-							0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x00, 0x04, 0x00, 0x08, 0x00, 0x47, 0x4C, 0x5F, 0x47, 
-							0x4F, 0x4F, 0x47, 0x4C, 0x45, 0x5F, 0x69, 0x6E, 0x63, 0x6C, 0x75, 0x64, 0x65, 0x5F, 0x64, 0x69, 
-							0x72, 0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x05, 0x00, 0x04, 0x00, 0x04, 0x00, 0x00, 0x00, 
-							0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x06, 0x00, 0x0B, 0x00, 0x00, 0x00, 
-							0x67, 0x6C, 0x5F, 0x50, 0x65, 0x72, 0x56, 0x65, 0x72, 0x74, 0x65, 0x78, 0x00, 0x00, 0x00, 0x00, 
-							0x06, 0x00, 0x06, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x50, 
-							0x6F, 0x73, 0x69, 0x74, 0x69, 0x6F, 0x6E, 0x00, 0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 
-							0x01, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x50, 0x6F, 0x69, 0x6E, 0x74, 0x53, 0x69, 0x7A, 0x65, 
-							0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
-							0x67, 0x6C, 0x5F, 0x43, 0x6C, 0x69, 0x70, 0x44, 0x69, 0x73, 0x74, 0x61, 0x6E, 0x63, 0x65, 0x00, 
-							0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x43, 
-							0x75, 0x6C, 0x6C, 0x44, 0x69, 0x73, 0x74, 0x61, 0x6E, 0x63, 0x65, 0x00, 0x05, 0x00, 0x03, 0x00, 
-							0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x00, 0x00, 0x00, 
-							0x76, 0x50, 0x6F, 0x73, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 
-							0x44, 0x69, 0x6D, 0x00, 0x06, 0x00, 0x04, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-							0x64, 0x69, 0x6D, 0x00, 0x05, 0x00, 0x03, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-							0x05, 0x00, 0x04, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x66, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 
-							0x05, 0x00, 0x04, 0x00, 0x30, 0x00, 0x00, 0x00, 0x76, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 
-							0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 
-							0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-							0x0B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 
-							0x02, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 
-							0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 
-							0x47, 0x00, 0x03, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
-							0x12, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 
-							0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-							0x47, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
-							0x19, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
-							0x19, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
-							0x2E, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
-							0x30, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, 0x00, 0x02, 0x00, 
-							0x02, 0x00, 0x00, 0x00, 0x21, 0x00, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
-							0x16, 0x00, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x17, 0x00, 0x04, 0x00, 
-							0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x15, 0x00, 0x04, 0x00, 
-							0x08, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 
-							0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x04, 0x00, 
-							0x0A, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x06, 0x00, 
-							0x0B, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 
-							0x0A, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
-							0x0B, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 
-							0x03, 0x00, 0x00, 0x00, 0x15, 0x00, 0x04, 0x00, 0x0E, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 
-							0x01, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 0x0E, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
-							0x00, 0x00, 0x00, 0x00, 0x17, 0x00, 0x04, 0x00, 0x10, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 
-							0x02, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x11, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-							0x10, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 0x11, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 
-							0x01, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 
-							0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-							0x06, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 
-							0x20, 0x00, 0x04, 0x00, 0x18, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 
-							0x3B, 0x00, 0x04, 0x00, 0x18, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
-							0x20, 0x00, 0x04, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 
-							0x2B, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-							0x2B, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F, 
-							0x20, 0x00, 0x04, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 
-							0x3B, 0x00, 0x04, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
-							0x20, 0x00, 0x04, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 
-							0x3B, 0x00, 0x04, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
-							0x36, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-							0x03, 0x00, 0x00, 0x00, 0xF8, 0x00, 0x02, 0x00, 0x05, 0x00, 0x00, 0x00, 0x41, 0x00, 0x05, 0x00, 
-							0x14, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 
-							0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 
-							0x41, 0x00, 0x06, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x1B, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 
-							0x0F, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 
-							0x1C, 0x00, 0x00, 0x00, 0x1B, 0x00, 0x00, 0x00, 0x83, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 
-							0x1D, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 
-							0x1A, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
-							0x13, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 
-							0x1E, 0x00, 0x00, 0x00, 0x88, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 
-							0x1D, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x41, 0x00, 0x05, 0x00, 0x14, 0x00, 0x00, 0x00, 
-							0x21, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 
-							0x06, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 
-							0x1A, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
-							0x09, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 
-							0x23, 0x00, 0x00, 0x00, 0x83, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 
-							0x22, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 0x1A, 0x00, 0x00, 0x00, 
-							0x26, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 
-							0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 
-							0x88, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 
-							0x27, 0x00, 0x00, 0x00, 0x50, 0x00, 0x07, 0x00, 0x07, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x00, 0x00, 
-							0x20, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00, 
-							0x41, 0x00, 0x05, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x2D, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 
-							0x0F, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x03, 0x00, 0x2D, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x00, 0x00, 
-							0x3D, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x31, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 
-							0x3E, 0x00, 0x03, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x31, 0x00, 0x00, 0x00, 0xFD, 0x00, 0x01, 0x00, 
-							0x38, 0x00, 0x01, 0x00
-						};
-
-						/* glslc shader.frag -o frag.spv
-						#version 450
-
-						layout (location=0) in vec4 fCol;
-						layout (location=0) out vec4 oCol;
-
-						void main() {
-							oCol = fCol;
-						}
-						*/
-						const muByte mug_innervk_frect_spirv[] = {
-							0x03,0x02,0x23,0x07,0x00,0x00,0x01,0x00,0x0b,0x00,0x0d,0x00,0x0d,0x00,0x00,0x00
-							,0x00,0x00,0x00,0x00,0x11,0x00,0x02,0x00,0x01,0x00,0x00,0x00,0x0b,0x00,0x06,0x00
-							,0x01,0x00,0x00,0x00,0x47,0x4c,0x53,0x4c,0x2e,0x73,0x74,0x64,0x2e,0x34,0x35,0x30
-							,0x00,0x00,0x00,0x00,0x0e,0x00,0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00
-							,0x0f,0x00,0x07,0x00,0x04,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x6d,0x61,0x69,0x6e
-							,0x00,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x10,0x00,0x03,0x00
-							,0x04,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x03,0x00,0x03,0x00,0x02,0x00,0x00,0x00
-							,0xc2,0x01,0x00,0x00,0x04,0x00,0x0a,0x00,0x47,0x4c,0x5f,0x47,0x4f,0x4f,0x47,0x4c
-							,0x45,0x5f,0x63,0x70,0x70,0x5f,0x73,0x74,0x79,0x6c,0x65,0x5f,0x6c,0x69,0x6e,0x65
-							,0x5f,0x64,0x69,0x72,0x65,0x63,0x74,0x69,0x76,0x65,0x00,0x00,0x04,0x00,0x08,0x00
-							,0x47,0x4c,0x5f,0x47,0x4f,0x4f,0x47,0x4c,0x45,0x5f,0x69,0x6e,0x63,0x6c,0x75,0x64
-							,0x65,0x5f,0x64,0x69,0x72,0x65,0x63,0x74,0x69,0x76,0x65,0x00,0x05,0x00,0x04,0x00
-							,0x04,0x00,0x00,0x00,0x6d,0x61,0x69,0x6e,0x00,0x00,0x00,0x00,0x05,0x00,0x04,0x00
-							,0x09,0x00,0x00,0x00,0x6f,0x43,0x6f,0x6c,0x00,0x00,0x00,0x00,0x05,0x00,0x04,0x00
-							,0x0b,0x00,0x00,0x00,0x66,0x43,0x6f,0x6c,0x00,0x00,0x00,0x00,0x47,0x00,0x04,0x00
-							,0x09,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x47,0x00,0x04,0x00
-							,0x0b,0x00,0x00,0x00,0x1e,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x13,0x00,0x02,0x00
-							,0x02,0x00,0x00,0x00,0x21,0x00,0x03,0x00,0x03,0x00,0x00,0x00,0x02,0x00,0x00,0x00
-							,0x16,0x00,0x03,0x00,0x06,0x00,0x00,0x00,0x20,0x00,0x00,0x00,0x17,0x00,0x04,0x00
-							,0x07,0x00,0x00,0x00,0x06,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x20,0x00,0x04,0x00
-							,0x08,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x3b,0x00,0x04,0x00
-							,0x08,0x00,0x00,0x00,0x09,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x20,0x00,0x04,0x00
-							,0x0a,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x07,0x00,0x00,0x00,0x3b,0x00,0x04,0x00
-							,0x0a,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x36,0x00,0x05,0x00
-							,0x02,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x03,0x00,0x00,0x00
-							,0xf8,0x00,0x02,0x00,0x05,0x00,0x00,0x00,0x3d,0x00,0x04,0x00,0x07,0x00,0x00,0x00
-							,0x0c,0x00,0x00,0x00,0x0b,0x00,0x00,0x00,0x3e,0x00,0x03,0x00,0x09,0x00,0x00,0x00
-							,0x0c,0x00,0x00,0x00,0xfd,0x00,0x01,0x00,0x38,0x00,0x01,0x00
-						};
-
-					void mug_innervk_shader_deload(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader) {
-						mug_innervk_shader_uniform_destroy(p_inner, &p_shader->uniforms);
-
-						if (p_shader->pipeline_layout != VK_NULL_HANDLE) {
-							vkDestroyPipelineLayout(p_inner->init.device, p_shader->pipeline_layout, 0);
-						}
-						if (p_shader->pipeline != VK_NULL_HANDLE) {
-							vkDestroyPipeline(p_inner->init.device, p_shader->pipeline, 0);
-						}
-
-						if (p_shader->vert != VK_NULL_HANDLE) {
-							vkDestroyShaderModule(p_inner->init.device, p_shader->vert, 0);
-						}
-						if (p_shader->frag != VK_NULL_HANDLE) {
-							vkDestroyShaderModule(p_inner->init.device, p_shader->frag, 0);
-						}
-					}
-
-					void mug_innervk_shaders_deload(mug_innervk_inner* p_inner) {
-						mug_innervk_shader_deload(p_inner, &p_inner->shaders.rect);
-					}
-
-					void mug_innervk_shader_destroy_buffers(mug_innervk_inner* p_inner, mug_innervk_shader* p_shader) {
-						for (size_m i = 0; i < p_shader->buffers.length; i++) {
-							mug_innervk_shader_destroy_vbuffer(p_inner, p_shader, i);
-						}
-					}
-
-					void mug_innervk_shaders_destroy_buffers(mug_innervk_inner* p_inner) {
-						mug_innervk_shader_destroy_buffers(p_inner, &p_inner->shaders.rect);
-					}
-
-					// Note: can and should be called even if already created
-					// Note: also creates the pipeline
-					mugResult mug_innervk_rect_shaders_load(mug_innervk_inner* p_inner, mug_innervk_shader* p_srect) {
-						mugResult res = MUG_SUCCESS;
-
-						if (p_srect->vert != VK_NULL_HANDLE) {
-							return MUG_SUCCESS;
-						}
-
-						// ^
-						// p_srect->vert = VK_NULL_HANDLE;
-						p_srect->frag = VK_NULL_HANDLE;
-						p_srect->pipeline_layout = VK_NULL_HANDLE;
-						p_srect->pipeline = VK_NULL_HANDLE;
-
-						p_srect->use_buffers = MU_TRUE;
-						p_srect->use_index = MU_TRUE;
-						p_srect->index_type = VK_INDEX_TYPE_UINT32;
-
-						mug_innervk_shader_uniform_empty(&p_srect->uniforms);
-
-						/* Shader */
-
-							VkShaderModuleCreateInfo sci = MU_ZERO_STRUCT(VkShaderModuleCreateInfo);
-							sci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-
-							sci.codeSize = sizeof(mug_innervk_vrect_spirv);
-							sci.pCode = (const uint32_t*)mug_innervk_vrect_spirv;
-							if (vkCreateShaderModule(p_inner->init.device, &sci, 0, &p_srect->vert) != VK_SUCCESS) {
-								mug_innervk_shader_deload(p_inner, p_srect);
-								return MUG_FAILED_CREATE_VK_SHADER_MODULE;
-							}
-
-							sci.codeSize = sizeof(mug_innervk_frect_spirv);
-							sci.pCode = (const uint32_t*)mug_innervk_frect_spirv;
-							if (vkCreateShaderModule(p_inner->init.device, &sci, 0, &p_srect->frag) != VK_SUCCESS) {
-								mug_innervk_shader_deload(p_inner, p_srect);
-								return MUG_FAILED_CREATE_VK_SHADER_MODULE;
-							}
-
-						/* Uniforms */
-
-							VkDescriptorType descriptor = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-							VkDeviceSize size = 4*2;
-							uint32_t binding = 0;
-							VkShaderStageFlags stage = VK_SHADER_STAGE_VERTEX_BIT;
-
-							res = mug_innervk_shader_uniform_create(p_inner, &p_srect->uniforms, 1, &descriptor, &size, &binding, &stage);
-							if (res != MUG_SUCCESS) {
-								mug_innervk_shader_deload(p_inner, p_srect);
-								return res;
-							}
-
-						/* Pipeline layout */
-
-							// (To be possibly made more complicated with the dimensions uniform)
-
-							VkPipelineLayoutCreateInfo playout_ci = MU_ZERO_STRUCT(VkPipelineLayoutCreateInfo);
-							playout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-							playout_ci.setLayoutCount = MUG_VK_LOOK_AHEAD_FRAMES;
-							playout_ci.pSetLayouts = p_srect->uniforms.dsl;
-
-							if (vkCreatePipelineLayout(
-								p_inner->init.device, &playout_ci, 0, &p_srect->pipeline_layout
-							) != VK_SUCCESS) {
-								mug_innervk_shader_deload(p_inner, p_srect);
-								return MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT;
-							}
-
-						/* Pipeline */
-
-							uint32_m uw=800, uh=600;
-							mu_window_get_dimensions(0, p_inner->win, &uw, &uh);
-							float fw = (float)uw, fh = (float)uh;
-
-							mug_innervk_gpipeline_ci pipeline_creator = MU_ZERO_STRUCT(mug_innervk_gpipeline_ci);
-							mug_innervk_def_gpipeline_ci(&pipeline_creator,
-								&p_srect->vert, &p_srect->frag, fw, fh, p_srect->pipeline_layout,
-								p_inner->rs.ca_to_ca_pip.render_pass, 0
-							);
-
-							pipeline_creator.input_asm.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-							pipeline_creator.input_asm.primitiveRestartEnable = VK_TRUE;
-
-							/* Vertex input attributes */
-
-								VkVertexInputAttributeDescription inp_att[2] = {
-									MU_ZERO_STRUCT(VkVertexInputAttributeDescription)
-								};
-
-								uint32_t offset = 0;
-
-								inp_att[0].format = VK_FORMAT_R32G32_SFLOAT;
-								offset += 4*2;
-
-								inp_att[1].location = 1;
-								inp_att[1].binding = 0;
-								inp_att[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-								inp_att[1].offset = offset;
-								offset += 4*4;
-
-								pipeline_creator.vertex_input.vertexAttributeDescriptionCount = 
-								sizeof(inp_att) / sizeof(VkVertexInputAttributeDescription);
-								pipeline_creator.vertex_input.pVertexAttributeDescriptions = inp_att;
-
-							/* Vertex binding */
-
-								VkVertexInputBindingDescription v_binding = MU_ZERO_STRUCT(VkVertexInputBindingDescription);
-								v_binding.stride = offset;
-								v_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-								pipeline_creator.vertex_input.vertexBindingDescriptionCount = 1;
-								pipeline_creator.vertex_input.pVertexBindingDescriptions = &v_binding;
-
-							if (vkCreateGraphicsPipelines(
-								p_inner->init.device, VK_NULL_HANDLE,
-								1, &pipeline_creator.pipeline_ci, 0, &p_srect->pipeline
-							) != VK_SUCCESS) {
-								mug_innervk_shader_deload(p_inner, p_srect);
-								return MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT;
-							}
-
-						return MUG_SUCCESS;
-					}
-
-					mugResult mug_inner2vk_rect_buffer_fill(mug_innervk_inner* p_inner, mug_innervk_vbuffer* p_buf, size_m rect_count_offset, muRect* rects, size_m rect_count) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rect_count_offset == 0 && rect_count == p_buf->obj_count && p_buf->rendered_this_frame) {
-							return MUG_ALREADY_RENDERED_BUFFER;
-						}
-
-						if (rect_count_offset + rect_count > p_buf->obj_count) {
-							return MUG_INVALID_BUFFER_RANGE;
-						}
-
-						float* vertexes = (float*)mu_malloc(sizeof(float) * rect_count * 6 * 4);
-						if (vertexes == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						for (size_m i = 0; i < rect_count; i++) {
-							mug_inner_rect_single_fill(&vertexes[i*6*4], 0, rects[i], i, 0);
-						}
-
-						res = mug_innervk_buffer_transfer(p_inner, &p_buf->vbuf, sizeof(float) * rect_count_offset * 6 * 4, (void*)vertexes, sizeof(float) * rect_count * 6 * 4);
-						mu_free(vertexes);
-						if (res != MUG_SUCCESS) {
-							return res;
-						}
-
-						uint32_t* indexes = (uint32_t*)mu_malloc(sizeof(uint32_t) * rect_count * 5);
-						if (indexes == 0) {
-							return MUG_FAILED_ALLOCATE;
-						}
-
-						for (size_m i = 0; i < rect_count; i++) {
-							// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPipelineInputAssemblyStateCreateInfo.html
-							mug_inner_rect_single_fill(0, &indexes[i*5], rects[i], rect_count_offset+i, 0xFFFFFFFF);
-						}
-
-						res = mug_innervk_buffer_transfer(p_inner, &p_buf->ibuf, sizeof(uint32_t) * rect_count_offset * 5, (void*)indexes, sizeof(uint32_t) * rect_count * 5);
-						mu_free(indexes);
-						if (res != MUG_SUCCESS) {
-							return res;
-						}
-
-						return MUG_SUCCESS;
-					}
-
-					void mug_innervk_rect_buffer_update_uniforms(mug_innervk_inner* p_inner) {
-						mugResult res = MUG_SUCCESS;
-						uint32_m w=800, h=600;
-						mu_window_get_dimensions(&res, p_inner->win, &w, &h);
-
-						float* p_f = (float*)p_inner->shaders.rect.uniforms.bufs[0].bufs[p_inner->now_cmd].mapped_mem;
-						if (p_f) {
-							p_f[0] = ((float)w) / 2.f;
-							p_f[1] = ((float)h) / 2.f;
-						}
-					}
-
-				/* All shader functions */
-
-					void mug_innervk_refresh_shader_buffers(mug_innervk_shader* p_shader) {
-						for (size_m b = 0; b < p_shader->buffers.length; b++) {
-							if (p_shader->buffers.data[b].active) {
-								p_shader->buffers.data[b].rendered_this_frame = MU_FALSE;
-							}
-						}
-					}
-
-					void mug_innervk_refresh_shaders_buffers(mug_innervk_inner* p_inner) {
-						mug_innervk_refresh_shader_buffers(&p_inner->shaders.rect);
-					}
-
-			/* Inner */
-
-				unsigned int mug_innervk_DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-				VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data) {
-					if (user_data) {}
-
-					printf("[DEBUG] (Vulkan debug message) ");
-					
-					printf("(severity: ");
-					if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
-						printf("verbose ");
-					}
-					if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-						printf("info ");
-					}
-					if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-						printf("warning ");
-					}
-					if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-						printf("error ");
-					}
-					printf(") ");
-
-					printf("(types: ");
-					if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
-						printf("general ");
-					}
-					if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
-						printf("validation ");
-					}
-					if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
-						printf("performance ");
-					}
-					printf(") ");
-
-					printf("message: \n%s\n", data->pMessage);
-					return VK_TRUE;
-				}
-
-				mug_innervk_inner mug_innervk_inner_create(mugResult* result, muWindow window) {
-					mug_innervk_inner inner = MU_ZERO_STRUCT(mug_innervk_inner);
-					mugResult res = MUG_SUCCESS;
-
-					inner.win = window;
-					inner.init.use_validation_layers = MU_TRUE;
-					inner.init.debug_messenger_callback = mug_innervk_DebugUtilsMessengerCallback;
-					res = mug_innervk_initiation_create(&inner);
-					if (res != MUG_SUCCESS) {
-						mug_innervk_initiation_destroy(&inner);
-						MU_SET_RESULT(result, res)
-						return inner;
-					}
-
-					res = mug_innervk_swapchain_create(&inner);
-					if (res != MUG_SUCCESS) {
-						mug_innervk_swapchain_destroy(&inner);
-						mug_innervk_initiation_destroy(&inner);
-						MU_SET_RESULT(result, res)
-						return inner;
-					}
-
-					for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-						res = mug_innervk_command_create(&inner, &inner.cmds[i]);
-
-						if (res != MUG_SUCCESS) {
-							for (size_m j = 0; j <= i; j++) {
-								mug_innervk_command_destroy(&inner, &inner.cmds[j]);
-							}
-
-							mug_innervk_swapchain_destroy(&inner);
-							mug_innervk_initiation_destroy(&inner);
-							MU_SET_RESULT(result, res)
-							return inner;
-						}
-					}
-					inner.now_cmd = 0;
-
-					res = mug_innervk_renderers_create_render_passes(&inner);
-					if (res != MUG_SUCCESS) {
-						mug_innervk_renderers_destroy_render_passes(&inner);
-						for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-							mug_innervk_command_destroy(&inner, &inner.cmds[i]);
-						}
-						mug_innervk_swapchain_destroy(&inner);
-						mug_innervk_initiation_destroy(&inner);
-						MU_SET_RESULT(result, res)
-						return inner;
-					}
-
-					res = mug_innervk_renderers_create_framebuffers(&inner);
-					if (res != MUG_SUCCESS) {
-						mug_innervk_renderers_destroy_framebuffers(&inner);
-						mug_innervk_renderers_destroy_render_passes(&inner);
-						for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-							mug_innervk_command_destroy(&inner, &inner.cmds[i]);
-						}
-						mug_innervk_swapchain_destroy(&inner);
-						mug_innervk_initiation_destroy(&inner);
-					}
-
-					return inner;
-				}
-
-				void mug_innervk_inner_destroy(mugResult* result, mug_innervk_inner* p_inner) {
-					mug_innervk_shaders_deload(p_inner);
-					mug_innervk_shaders_destroy_buffers(p_inner);
-
-					mug_innervk_renderers_destroy_framebuffers(p_inner);
-					mug_innervk_renderers_destroy_render_passes(p_inner);
-
-					for (size_m i = 0; i < MUG_VK_LOOK_AHEAD_FRAMES; i++) {
-						mug_innervk_command_destroy(p_inner, &p_inner->cmds[i]);
-					}
-
-					mug_innervk_swapchain_destroy(p_inner);
-					mug_innervk_initiation_destroy(p_inner);
-
-					return;
-					if (result) {}
-				}
-
-				void mug_innervk_inner_swapchain_resize(mugResult* result, mug_innervk_inner* p_inner) {
-					mugResult res = MUG_SUCCESS;
-					vkDeviceWaitIdle(p_inner->init.device);
-
-					mug_innervk_renderers_destroy_framebuffers(p_inner);
-					mug_innervk_swapchain_destroy(p_inner);
-
-					res = mug_innervk_swapchain_create(p_inner);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return;
-					}
-
-					res = mug_innervk_renderers_create_framebuffers(p_inner);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return;
-					}
-				}
-
-		/* Graphic */
-
-			struct mug_innervk_graphic {
-				muWindow win;
-				uint32_m prev_width;
-				uint32_m prev_height;
-
-				mug_innervk_inner inner;
-			};
-			typedef struct mug_innervk_graphic mug_innervk_graphic;
-
-			/* Creation / Destruction */
-
-				mug_innervk_graphic mug_innervk_graphic_create_via_window(mugResult* result, muByte* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-
-					mug_innervk_graphic graphic = MU_ZERO_STRUCT(mug_innervk_graphic);
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					mugResult mug_res = MUG_SUCCESS;
-
-					graphic.win = mu_window_create(&cosa_res, MU_NO_GRAPHICS_API, 0,
-					name, width, height, create_info);
-
-					if (cosa_res != MUCOSA_SUCCESS) {
-						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
-					}
-					if (graphic.win == MU_NONE) {
-						return graphic;
-					}
-
-					graphic.inner = mug_innervk_inner_create(&mug_res, graphic.win);
-					if (mug_res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, mug_res)
-						mu_window_destroy(0, graphic.win);
-						return graphic;
-					}
-
-					graphic.prev_width = (uint32_m)width;
-					graphic.prev_height = (uint32_m)height;
-
-					return graphic;
-				}
-
-				void mug_innervk_graphic_destroy(mugResult* result, mug_innervk_graphic* p_g) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-
-					if (p_g->inner.init.device != VK_NULL_HANDLE) {
-						vkDeviceWaitIdle(p_g->inner.init.device);
-					}
-
-					// Due to X11/Vulkan being weird, X11 requires us to destroy Vulkan stuff AFTER its given
-					// window is fully destroyed.
-					// https://github.com/KhronosGroup/Vulkan-LoaderAndValidationLayers/issues/1894
-
-					muWindowSystem window_system = muCOSA_get_current_window_system(0);
-					if (window_system != MU_WINDOW_SYSTEM_X11) {
-						mug_innervk_inner_destroy(0, &p_g->inner);
-					} else if (p_g->inner.sc.handle != VK_NULL_HANDLE) {
-						// X11 *does* want the swapchain to be destroyed here, though
-						vkDestroySwapchainKHR(p_g->inner.init.device, p_g->inner.sc.handle, 0);
-						p_g->inner.sc.handle = VK_NULL_HANDLE;
-					}
-
-					mu_window_destroy(0, p_g->win);
-
-					if (window_system == MU_WINDOW_SYSTEM_X11) {
-						mug_innervk_inner_destroy(0, &p_g->inner);
-					}
-				}
-
-			/* Main loop */
-
-				void mug_innervk_graphic_clear(mugResult* result, mug_innervk_graphic* p_g, float r, float g, float b, float a) {
-					mugResult res = MUG_SUCCESS;
-
-					res = mug_innervk_renderers_clear(&p_g->inner, r, g, b, a);
-					MU_SET_RESULT(result, res)
-				}
-
-				void mug_innervk_graphic_swap_buffers(mugResult* result, mug_innervk_graphic* p_g) {
-					mugResult res = MUG_SUCCESS;
-
-					if (!p_g->inner.cmds[p_g->inner.now_cmd].on) {
-						MU_SET_RESULT(result, MUG_NO_RENDER_CALLS_YET)
-						return;
-					}
-
-					res = mug_innervk_renderers_make_presentable(&p_g->inner);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return;
-					}
-
-					res = mug_innervk_command_end_and_submit(&p_g->inner);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return;
-					}
-
-					// Warning: the function 'vkQueuePresentKHR' is perhaps the meatiest in Vulkan; I'm
-					// considering moving this to the beginning of mug_innervk_command_begin, but I'm not
-					// sure if that would be wise or even work, and I only wanna try it when mug is in a
-					// developed-enough state to do performance tests for this sort of stuff. @TODO 
-					res = mug_innervk_command_present(&p_g->inner);
-					if (res != MUG_SUCCESS) {
-						MU_SET_RESULT(result, res)
-						return;
-					}
-
-					// I'm pretty sure this is where you would do this...
-					p_g->inner.now_cmd = (p_g->inner.now_cmd + 1) % MUG_VK_LOOK_AHEAD_FRAMES;
-
-					mug_innervk_refresh_shaders_buffers(&p_g->inner);
-				}
-
-				void mug_innervk_graphic_update(mugResult* result, mug_innervk_graphic* p_g) {
-					muCOSAResult cosa_res = MUCOSA_SUCCESS;
-					mugResult res = MUG_SUCCESS;
-
-					mu_window_update(&cosa_res, p_g->win);
-					if (cosa_res != MUCOSA_SUCCESS) {
-						MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res));
-						return;
-					}
-
-					uint32_m width=800,height=600;
-					mu_window_get_dimensions(&cosa_res, p_g->win, &width, &height);
-					
-					if (cosa_res == MUCOSA_SUCCESS && (width != p_g->prev_width || height != p_g->prev_height)) {
-
-						mug_innervk_inner_swapchain_resize(&res, &p_g->inner);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						p_g->prev_width = width;
-						p_g->prev_height = height;
-					}
-				}
-
-			/* Objects */
-
-				// ...
-
-				/* Rect */
-
-					muRectBuffer mug_innervk_rect_buffer_create(mugResult* result, mug_innervk_graphic* p_g, size_m rect_count, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-
-						res = mug_innervk_rect_shaders_load(&p_g->inner, &p_g->inner.shaders.rect);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return MU_NONE;
-						}
-
-						size_m rb = mug_innervk_shader_create_vbuffer(&res, &p_g->inner, &p_g->inner.shaders.rect, mug_innervk_rect_count_to_vertex_size(rect_count), mug_innervk_rect_count_to_index_size(rect_count), mug_innervk_rect_count_to_indcount(rect_count), rect_count, 0);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return rb;
-						}
-
-						if (rects != 0) {
-							res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], 0, rects, p_g->inner.shaders.rect.buffers.data[rb].obj_count);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-								return rb;
-							}
-						}
-
-						return rb;
-					}
-
-					muRectBuffer mug_innervk_rect_buffer_destroy(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb) {
-						if (rb >= p_g->inner.shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return rb;
-						}
-						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return rb;
-						}
-
-						mug_innervk_shader_destroy_vbuffer(
-							&p_g->inner, &p_g->inner.shaders.rect, rb
-						);
-						return MU_NONE;
-					}
-
-					void mug_innervk_rect_buffer_render(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->inner.shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-
-						mug_innervk_rect_buffer_update_uniforms(&p_g->inner);
-
-						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 0, 0, MU_FALSE);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innervk_rect_buffer_subrender(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->inner.shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-
-						mug_innervk_rect_buffer_update_uniforms(&p_g->inner);
-
-						res = mug_innervk_renderers_render_shader(&p_g->inner, &p_g->inner.shaders.rect, rb, 5*rect_count, sizeof(uint32_t)*5*rect_count_offset, MU_TRUE);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innervk_rect_buffer_fill(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->inner.shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-
-						res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], 0, rects, p_g->inner.shaders.rect.buffers.data[rb].obj_count);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innervk_rect_buffer_subfill(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
-						mugResult res = MUG_SUCCESS;
-
-						if (rb >= p_g->inner.shaders.rect.buffers.length) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-						if (!p_g->inner.shaders.rect.buffers.data[rb].active) {
-							MU_SET_RESULT(result, MUG_INVALID_BUFFER_ID)
-							return;
-						}
-
-						res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], rect_count_offset, rects, rect_count);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-					}
-
-					void mug_innervk_rect_buffer_resize(mugResult* result, mug_innervk_graphic* p_g, muRectBuffer rb, size_m rect_count, muRect* rects) {
-						mugResult res = MUG_SUCCESS;
-
-						// ?
-						if (p_g->inner.init.device != VK_NULL_HANDLE) {
-							vkDeviceWaitIdle(p_g->inner.init.device);
-						}
-
-						mug_innervk_rect_buffer_destroy(&res, p_g, rb);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						mug_innervk_shader_create_vbuffer(&res, &p_g->inner, &p_g->inner.shaders.rect, mug_innervk_rect_count_to_vertex_size(rect_count), mug_innervk_rect_count_to_index_size(rect_count), mug_innervk_rect_count_to_indcount(rect_count), rect_count, &rb);
-						if (res != MUG_SUCCESS) {
-							MU_SET_RESULT(result, res)
-							return;
-						}
-
-						if (rects != 0) {
-							res = mug_inner2vk_rect_buffer_fill(&p_g->inner, &p_g->inner.shaders.rect.buffers.data[rb], 0, rects, p_g->inner.shaders.rect.buffers.data[rb].obj_count);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-								return;
-							}
-						}
-					}
-
-					void mug_innervk_rect_buffer_unload_type(mugResult* result, mug_innervk_graphic* p_g) {
-						mug_innervk_shader_deload(&p_g->inner, &p_g->inner.shaders.rect);
-
-						return;
-						if (result) {}
-					}
-
-	/* Cross graphics-API */
-
-		/* Graphic */
-
-			union mug_innergapi_graphic {
-				mug_innergl_graphic gl;
-				mug_innervk_graphic vk;
-			};
-			typedef union mug_innergapi_graphic mug_innergapi_graphic;
-
-			struct mug_inner_graphic {
-				MU_LOCK
-				muBool active;
-				muGraphicAPI api;
-				mug_innergapi_graphic gapi;
-			};
-			typedef struct mug_inner_graphic mug_inner_graphic;
-
-			MU_HRARRAY_DEFAULT_FUNC(mug_inner_graphic)
-
-	/* API-level functions */
-
-		/* Names */
-
-			#ifdef MUG_NAMES
-				MUDEF const char* mug_result_get_name(mugResult result) {
-					switch (result) {
-						default: return "MUG_UNKNOWN"; break;
-						case MUG_SUCCESS: return "MUG_SUCCESS"; break;
-						case MUG_ALREADY_INITIATED: return "MUG_ALREADY_INITIATED"; break;
-						case MUG_ALREADY_TERMINATED: return "MUG_ALREADY_TERMINATED"; break;
-						case MUG_ALREADY_RENDERED_BUFFER: return "MUG_ALREADY_RENDERED_BUFFER"; break;
-						case MUG_NOT_YET_INITIALIZED: return "MUG_NOT_YET_INITIALIZED"; break;
-						case MUG_FAILED_ALLOCATE: return "MUG_FAILED_ALLOCATE"; break;
-						case MUG_FAILED_LOAD_GRAPHICS_API: return "MUG_FAILED_LOAD_GRAPHICS_API"; break;
-						case MUG_FAILED_CREATE_VK_INSTANCE: return "MUG_FAILED_CREATE_VK_INSTANCE"; break;
-						case MUG_FAILED_CREATE_VK_SURFACE: return "MUG_FAILED_CREATE_VK_SURFACE"; break;
-						case MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE: return "MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE"; break;
-						case MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE: return "MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE"; break;
-						case MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES: return "MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES"; break;
-						case MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES: return "MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES"; break;
-						case MUG_FAILED_CREATE_VK_DEVICE: return "MUG_FAILED_CREATE_VK_DEVICE"; break;
-						case MUG_FAILED_GET_VK_SURFACE_INFO: return "MUG_FAILED_GET_VK_SURFACE_INFO"; break;
-						case MUG_FAILED_CREATE_VK_SWAPCHAIN: return "MUG_FAILED_CREATE_VK_SWAPCHAIN"; break;
-						case MUG_FAILED_GET_VK_SWAPCHAIN_INFO: return "MUG_FAILED_GET_VK_SWAPCHAIN_INFO"; break;
-						case MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS: return "MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS"; break;
-						case MUG_FAILED_CREATE_VK_COMMAND_POOL: return "MUG_FAILED_CREATE_VK_COMMAND_POOL"; break;
-						case MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS: return "MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS"; break;
-						case MUG_FAILED_CREATE_VK_SEMAPHORE: return "MUG_FAILED_CREATE_VK_SEMAPHORE"; break;
-						case MUG_FAILED_CREATE_VK_FENCE: return "MUG_FAILED_CREATE_VK_FENCE"; break;
-						case MUG_FAILED_CREATE_VK_RENDER_PASS: return "MUG_FAILED_CREATE_VK_RENDER_PASS"; break;
-						case MUG_FAILED_CREATE_VK_FRAMEBUFFERS: return "MUG_FAILED_CREATE_VK_FRAMEBUFFERS"; break;
-						case MUG_FAILED_WAIT_FOR_VK_FENCE: return "MUG_FAILED_WAIT_FOR_VK_FENCE"; break;
-						case MUG_FAILED_RESET_VK_FENCE: return "MUG_FAILED_RESET_VK_FENCE"; break;
-						case MUG_FAILED_RESET_VK_COMMAND_BUFFER: return "MUG_FAILED_RESET_VK_COMMAND_BUFFER"; break;
-						case MUG_FAILED_BEGIN_VK_COMMAND_BUFFER: return "MUG_FAILED_BEGIN_VK_COMMAND_BUFFER"; break;
-						case MUG_FAILED_END_VK_COMMAND_BUFFER: return "MUG_FAILED_END_VK_COMMAND_BUFFER"; break;
-						case MUG_FAILED_SUBMIT_VK_QUEUE: return "MUG_FAILED_SUBMIT_VK_QUEUE"; break;
-						case MUG_FAILED_PRESENT_VK_QUEUE: return "MUG_FAILED_PRESENT_VK_QUEUE"; break;
-						case MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE: return "MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE"; break;
-						case MUG_FAILED_CREATE_VK_BUFFER: return "MUG_FAILED_CREATE_VK_BUFFER"; break;
-						case MUG_FAILED_FIND_VALID_VK_MEMORY_TYPE: return "MUG_FAILED_FIND_VALID_VK_MEMORY_TYPE"; break;
-						case MUG_FAILED_ALLOCATE_VK_MEMORY: return "MUG_FAILED_ALLOCATE_VK_MEMORY"; break;
-						case MUG_FAILED_MAP_VK_MEMORY: return "MUG_FAILED_MAP_VK_MEMORY"; break;
-						case MUG_FAILED_CREATE_VK_SHADER_MODULE: return "MUG_FAILED_CREATE_VK_SHADER_MODULE"; break;
-						case MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT: return "MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT"; break;
-						case MUG_FAILED_CREATE_VK_PIPELINE: return "MUG_FAILED_CREATE_VK_PIPELINE"; break;
-						case MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT: return "MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT"; break;
-						case MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL: return "MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL"; break;
-						case MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS: return "MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS"; break;
-						case MUG_FAILED_CREATE_GL_VERTEX_ARRAY: return "MUG_FAILED_CREATE_GL_VERTEX_ARRAY"; break;
-						case MUG_FAILED_CREATE_GL_BUFFER: return "MUG_FAILED_CREATE_GL_BUFFER"; break;
-						case MUG_FAILED_COMPILE_GL_SHADERS: return "MUG_FAILED_COMPILE_GL_SHADERS"; break;
-						case MUG_NO_RENDER_CALLS_YET: return "MUG_NO_RENDER_CALLS_YET"; break;
-						case MUG_UNKNOWN_GRAPHIC_API: return "MUG_UNKNOWN_GRAPHIC_API"; break;
-						case MUG_INVALID_ID: return "MUG_INVALID_ID"; break;
-						case MUG_INVALID_BUFFER_ID: return "MUG_INVALID_BUFFER_ID"; break;
-						case MUG_INVALID_BUFFER_RANGE: return "MUG_INVALID_BUFFER_RANGE"; break;
-						case MUG_MUCOSA_SUCCESS: return "MUG_MUCOSA_SUCCESS"; break;
-						case MUG_MUCOSA_ALREADY_INITIALIZED: return "MUG_MUCOSA_ALREADY_INITIALIZED"; break;
-						case MUG_MUCOSA_ALREADY_TERMINATED: return "MUG_MUCOSA_ALREADY_TERMINATED"; break;
-						case MUG_MUCOSA_ALREADY_ACTIVE: return "MUG_MUCOSA_ALREADY_ACTIVE"; break;
-						case MUG_MUCOSA_ALREADY_INACTIVE: return "MUG_MUCOSA_ALREADY_INACTIVE"; break;
-						case MUG_MUCOSA_NOT_YET_INITIALIZED: return "MUG_MUCOSA_NOT_YET_INITIALIZED"; break;
-						case MUG_MUCOSA_ALLOCATION_FAILED: return "MUG_MUCOSA_ALLOCATION_FAILED"; break;
-						case MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM: return "MUG_MUCOSA_UNKNOWN_WINDOW_SYSTEM"; break;
-						case MUG_MUCOSA_UNKNOWN_GRAPHICS_API: return "MUG_MUCOSA_UNKNOWN_GRAPHICS_API"; break;
-						case MUG_MUCOSA_UNKNOWN_KEYBOARD_KEY: return "MUG_MUCOSA_UNKNOWN_KEYBOARD_KEY"; break;
-						case MUG_MUCOSA_UNKNOWN_KEYBOARD_STATE: return "MUG_MUCOSA_UNKNOWN_KEYBOARD_STATE"; break;
-						case MUG_MUCOSA_UNKNOWN_MOUSE_BUTTON: return "MUG_MUCOSA_UNKNOWN_MOUSE_BUTTON"; break;
-						case MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE: return "MUG_MUCOSA_UNKNOWN_WINDOW_HANDLE"; break;
-						case MUG_MUCOSA_UNSUPPORTED_WINDOW_SYSTEM: return "MUG_MUCOSA_UNSUPPORTED_WINDOW_SYSTEM"; break;
-						case MUG_MUCOSA_UNSUPPORTED_FEATURE: return "MUG_MUCOSA_UNSUPPORTED_FEATURE"; break;
-						case MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE: return "MUG_MUCOSA_UNSUPPORTED_OPENGL_FEATURE"; break;
-						case MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API: return "MUG_MUCOSA_UNSUPPORTED_GRAPHICS_API"; break;
-						case MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER: return "MUG_MUCOSA_FAILED_CONNECTION_TO_SERVER"; break;
-						case MUG_MUCOSA_FAILED_CREATE_WINDOW: return "MUG_MUCOSA_FAILED_CREATE_WINDOW"; break;
-						case MUG_MUCOSA_FAILED_LOAD_FUNCTIONS: return "MUG_MUCOSA_FAILED_LOAD_FUNCTIONS"; break;
-						case MUG_MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER: return "MUG_MUCOSA_FAILED_FIND_COMPATIBLE_FRAMEBUFFER"; break;
-						case MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT: return "MUG_MUCOSA_FAILED_CREATE_OPENGL_CONTEXT"; break;
-						case MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT: return "MUG_MUCOSA_FAILED_LOAD_OPENGL_CONTEXT"; break;
-						case MUG_MUCOSA_FAILED_USE_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_USE_PIXEL_FORMAT"; break;
-						case MUG_MUCOSA_FAILED_JOIN_THREAD: return "MUG_MUCOSA_FAILED_JOIN_THREAD"; break;
-						case MUG_MUCOSA_FAILED_CREATE_THREAD: return "MUG_MUCOSA_FAILED_CREATE_THREAD"; break;
-						case MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD: return "MUG_MUCOSA_FAILED_CREATE_INPUT_METHOD"; break;
-						case MUG_MUCOSA_FAILED_GET_INPUT_STYLES: return "MUG_MUCOSA_FAILED_GET_INPUT_STYLES"; break;
-						case MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE: return "MUG_MUCOSA_FAILED_FIND_COMPATIBLE_INPUT_STYLE"; break;
-						case MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT: return "MUG_MUCOSA_FAILED_CREATE_INPUT_CONTEXT"; break;
-						case MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS: return "MUG_MUCOSA_FAILED_REGISTER_WINDOW_CLASS"; break;
-						case MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR: return "MUG_MUCOSA_FAILED_CONVERT_UTF8_TO_WCHAR"; break;
-						case MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8: return "MUG_MUCOSA_FAILED_CONVERT_WCHAR_TO_UTF8"; break;
-						case MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS: return "MUG_MUCOSA_FAILED_REGISTER_DUMMY_WGL_WINDOW_CLASS"; break;
-						case MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW: return "MUG_MUCOSA_FAILED_CREATE_DUMMY_WGL_WINDOW"; break;
-						case MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_FIND_COMPATIBLE_PIXEL_FORMAT"; break;
-						case MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_DESCRIBE_PIXEL_FORMAT"; break;
-						case MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT: return "MUG_MUCOSA_FAILED_SET_PIXEL_FORMAT"; break;
-						case MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO: return "MUG_MUCOSA_FAILED_QUERY_WINDOW_INFO"; break;
-						case MUG_MUCOSA_FAILED_SET_WINDOW_INFO: return "MUG_MUCOSA_FAILED_SET_WINDOW_INFO"; break;
-						case MUG_MUCOSA_FAILED_GET_IMM_CONTEXT: return "MUG_MUCOSA_FAILED_GET_IMM_CONTEXT"; break;
-						case MUG_MUCOSA_FAILED_LET_IMM_CONTEXT: return "MUG_MUCOSA_FAILED_LET_IMM_CONTEXT"; break;
-						case MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION: return "MUG_MUCOSA_FAILED_GLOBAL_ALLOCATION"; break;
-						case MUG_MUCOSA_FAILED_GLOBAL_LOCK: return "MUG_MUCOSA_FAILED_GLOBAL_LOCK"; break;
-						case MUG_MUCOSA_FAILED_HOLD_CLIPBOARD: return "MUG_MUCOSA_FAILED_HOLD_CLIPBOARD"; break;
-						case MUG_MUCOSA_FAILED_SET_CLIPBOARD: return "MUG_MUCOSA_FAILED_SET_CLIPBOARD"; break;
-						case MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS: return "MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_BOOLS"; break;
-						case MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS: return "MUG_MUCOSA_INVALID_MINIMUM_MAXIMUM_DIMENSIONS"; break;
-						case MUG_MUCOSA_INVALID_ID: return "MUG_MUCOSA_INVALID_ID"; break;
-						case MUG_MUCOSA_INVALID_SAMPLE_COUNT: return "MUG_MUCOSA_INVALID_SAMPLE_COUNT"; break;
-						case MUG_MUCOSA_INVALID_DIMENSIONS: return "MUG_MUCOSA_INVALID_DIMENSIONS"; break;
-						case MUG_MUCOSA_INVALID_POINTER: return "MUG_MUCOSA_INVALID_POINTER"; break;
-						case MUG_MUCOSA_INVALID_WINDOW_STATE: return "MUG_MUCOSA_INVALID_WINDOW_STATE"; break;
-						case MUG_MUCOSA_INVALID_TIME: return "MUG_MUCOSA_INVALID_TIME"; break;
-						case MUG_MUCOSA_NONEXISTENT_DEVICE: return "MUG_MUCOSA_NONEXISTENT_DEVICE"; break;
-						case MUG_MUCOSA_OVERSIZED_CLIPBOARD: return "MUG_MUCOSA_OVERSIZED_CLIPBOARD"; break;
-						case MUG_MUCOSA_WINDOW_NON_RESIZABLE: return "MUG_MUCOSA_WINDOW_NON_RESIZABLE"; break;
-						case MUG_MUCOSA_MUMA_SUCCESS: return "MUG_MUCOSA_MUMA_SUCCESS"; break;
-						case MUG_MUCOSA_MUMA_FAILED_TO_ALLOCATE: return "MUG_MUCOSA_MUMA_FAILED_TO_ALLOCATE"; break;
-						case MUG_MUCOSA_MUMA_INVALID_INDEX: return "MUG_MUCOSA_MUMA_INVALID_INDEX"; break;
-						case MUG_MUCOSA_MUMA_INVALID_SHIFT_AMOUNT: return "MUG_MUCOSA_MUMA_INVALID_SHIFT_AMOUNT"; break;
-						case MUG_MUCOSA_MUMA_NOT_FOUND: return "MUG_MUCOSA_MUMA_NOT_FOUND"; break;
-						case MUG_MUMA_SUCCESS: return "MUG_MUMA_SUCCESS"; break;
-						case MUG_MUMA_FAILED_TO_ALLOCATE: return "MUG_MUMA_FAILED_TO_ALLOCATE"; break;
-						case MUG_MUMA_INVALID_INDEX: return "MUG_MUMA_INVALID_INDEX"; break;
-						case MUG_MUMA_INVALID_SHIFT_AMOUNT: return "MUG_MUMA_INVALID_SHIFT_AMOUNT"; break;
-						case MUG_MUMA_NOT_FOUND: return "MUG_MUMA_NOT_FOUND"; break;
-					}
-				}
-			#endif
-
-		/* Initiation / Termination */
-
-			struct mugContext {
-				mug_inner_graphic_array graphics;
-				#define MUG_GGFX mug_global_context->graphics
-				mug_innervk_loaded loaded;
-				#define MUG_GVK_LOADED mug_global_context->loaded
-			};
-
-			mugContext* mug_global_context = 0;
-
-			MUDEF void mug_init(mugResult* result, muWindowSystem window_system) {
-				MU_SET_RESULT(result, MUG_SUCCESS)
-
-				if (mug_global_context != 0) {
-					MU_SET_RESULT(result, MUG_ALREADY_INITIATED)
-					return;
-				}
-
-				muCOSAResult cosa_res = MUCOSA_SUCCESS;
-				muCOSA_init(&cosa_res, window_system);
-				if (cosa_res != MUCOSA_SUCCESS) {
-					MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
-					return;
-				}
-
-				mug_global_context = (mugContext*)mu_malloc(sizeof(mugContext));
-				if (mug_global_context == 0) {
-					MU_SET_RESULT(result, MUG_FAILED_ALLOCATE)
-					return;
-				}
-
-				*mug_global_context = MU_ZERO_STRUCT(mugContext);
-				
-				MU_LOCK_CREATE(MUG_GVK_LOADED.lock, MUG_GVK_LOADED.lock_active)
 			}
 
-			MUDEF void mug_term(mugResult* result) {
-				MU_SET_RESULT(result, MUG_SUCCESS)
+			MUDEF void mug_graphic_clear(mugContext* context, mugResult* result, muGraphic graphic, float r, float g, float b, float a) {
+				mug_graphic* gfx = (mug_graphic*)graphic;
 
-				if (mug_global_context == 0) {
-					MU_SET_RESULT(result, MUG_ALREADY_TERMINATED)
-					return;
+				switch (gfx->api) {
+					default: return; break;
+
+					case MUG_OPENGL: {
+						mug_innergl_graphic_bind(context, gfx);
+						mug_innergl_graphic_clear(r, g, b, a);
+					} break;
 				}
 
-				for (size_m i = 0; i < MUG_GGFX.length; i++) {
-					mu_graphic_destroy(0, i);
-				}
-
-				muCOSAResult cosa_res = MUCOSA_SUCCESS;
-				muCOSA_term(&cosa_res);
-				if (cosa_res != MUCOSA_SUCCESS) {
-					MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
-					return;
-				}
-
-				mug_innervk_unload(&MUG_GVK_LOADED);
-
-				MU_LOCK_DESTROY(MUG_GVK_LOADED.lock, MUG_GVK_LOADED.lock_active)
-
-				mu_free(mug_global_context);
-				mug_global_context = 0;
+				return; if (result) {}
 			}
 
-		/* Graphic */
+			MUDEF void mug_graphic_swap_buffers(mugContext* context, mugResult* result, muGraphic graphic) {
+				mug_graphic* gfx = (mug_graphic*)graphic;
 
-			/* Creation / Destruction */
+				switch (gfx->api) {
+					default: return; break;
 
-				MUDEF muGraphic mu_graphic_create_via_window(mugResult* result, muGraphicAPI api, 
-					muByte* name, uint16_m width, uint16_m height,
-					muWindowCreateInfo create_info
-				) {
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return MU_NONE;)
-
-					mug_inner_graphic s_graphic = MU_ZERO_STRUCT(mug_inner_graphic);
-
-					mumaResult muma_res = MUMA_SUCCESS;
-					muGraphic graphic = MU_NONE;
-					mug_inner_graphic_find_push(&muma_res, &MUG_GGFX, s_graphic, &graphic);
-					if (muma_res != MUMA_SUCCESS) {
-						MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-					}
-					if (graphic == MU_NONE) {
-						return graphic;
-					}
-
-					mug_inner_graphic_hold_element(&muma_res, &MUG_GGFX, graphic);
-					if (muma_res != MUMA_SUCCESS) {
-						MU_SET_RESULT(result, muma_result_to_mug_result(muma_res))
-						return MU_NONE;
-					}
-
-					switch (api) {
-						default: {
-							MU_SET_RESULT(result, MUG_UNKNOWN_GRAPHIC_API)
-							MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-							return MU_NONE;
-						} break;
-
-						case MUG_OPENGL: {
-							s_graphic.api = MUG_OPENGL;
-
-							mugResult res = MUG_SUCCESS;
-							s_graphic.gapi.gl = mug_innergl_graphic_create_via_window(&res,
-								name, width, height, create_info
-							);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-							}
-							if (s_graphic.gapi.gl.win == MU_NONE) {
-								MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-								return MU_NONE;
-							}
-						} break;
-
-						case MUG_VULKAN: {
-							s_graphic.api = MUG_VULKAN;
-
-							if (mug_innervk_load(&MUG_GVK_LOADED) != VK_SUCCESS) {
-								MU_SET_RESULT(result, MUG_UNKNOWN_GRAPHIC_API)
-								MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-								return MU_NONE;
-							}
-
-							mugResult res = MUG_SUCCESS;
-							s_graphic.gapi.vk = mug_innervk_graphic_create_via_window(&res,
-								name, width, height, create_info);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-							}
-							if (s_graphic.gapi.vk.win == MU_NONE) {
-								MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-								return MU_NONE;
-							}
-						} break;
-					}
-
-					s_graphic.active = MU_TRUE;
-
-					MUG_GGFX.data[graphic] = s_graphic;
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return graphic;
+					case MUG_OPENGL: {
+						mug_innergl_graphic_bind(context, gfx);
+						mug_innergl_graphic_swap_buffers(context, result, gfx);
+					} break;
 				}
+			}
 
-				MUDEF muGraphic mu_graphic_destroy(mugResult* result, muGraphic graphic) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return graphic;)
+			MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic) {
+				mug_graphic* gfx = (mug_graphic*)graphic;
 
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return graphic;, mug_inner_graphic_)
-
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: mug_innergl_graphic_destroy(result, &MUG_GGFX.data[graphic].gapi.gl); break;
-						case MUG_VULKAN: mug_innervk_graphic_destroy(result, &MUG_GGFX.data[graphic].gapi.vk); break;
-					}
-
-					MUG_GGFX.data[graphic].active = MU_FALSE;
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return MU_NONE;
+				switch (gfx->api) {
+					default: return; break;
+					
+					case MUG_OPENGL: {
+						mug_innergl_graphic_bind(context, gfx);
+						mug_innergl_graphic_update(context, result, gfx);
+					} break;
 				}
-
-			/* Main loop */
-
-				MUDEF void mu_graphic_clear(mugResult* result, muGraphic graphic, float r, float g, float b, float a) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: mug_innergl_graphic_clear(result, &MUG_GGFX.data[graphic].gapi.gl, r, g, b, a); break;
-						case MUG_VULKAN: mug_innervk_graphic_clear(result, &MUG_GGFX.data[graphic].gapi.vk, r, g, b, a); break;
-					}
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return;
-				}
-
-				MUDEF void mu_graphic_swap_buffers(mugResult* result, muGraphic graphic) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: mug_innergl_graphic_swap_buffers(result, &MUG_GGFX.data[graphic].gapi.gl); break;
-						case MUG_VULKAN: mug_innervk_graphic_swap_buffers(result, &MUG_GGFX.data[graphic].gapi.vk); break;
-					}
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return;
-				}
-
-				MUDEF void mu_graphic_update(mugResult* result, muGraphic graphic) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: mug_innergl_graphic_update(result, &MUG_GGFX.data[graphic].gapi.gl); break;
-						case MUG_VULKAN: mug_innervk_graphic_update(result, &MUG_GGFX.data[graphic].gapi.vk); break;
-					}
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return;
-				}
-
-			/* Get */
-
-				MUDEF muWindow mu_graphic_get_window(mugResult* result, muGraphic graphic) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return MU_NONE;)
-
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return MU_NONE;, mug_inner_graphic_)
-
-					muWindow win = MU_NONE;
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: win = MUG_GGFX.data[graphic].gapi.gl.win; break;
-						case MUG_VULKAN: win = MUG_GGFX.data[graphic].gapi.vk.win; break;
-					}
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					return win;
-				}
-
-			/* Objects */
-
-				MUDEF void mu_graphic_unload_buffer_types(mugResult* result, muGraphic graphic) {
-					MU_SET_RESULT(result, MUG_SUCCESS)
-					MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-					MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-					switch (MUG_GGFX.data[graphic].api) {
-						default: break;
-						case MUG_OPENGL: {
-							mug_innergl_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.gl);
-						} break;
-						case MUG_VULKAN: {
-							mug_innervk_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.vk);
-						} break;
-					}
-
-					MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-				}
-
-				/* Rect */
-
-					MUDEF muRectBuffer mu_rect_buffer_create(mugResult* result, muGraphic graphic, size_m rect_count, muRect* rects) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return MU_NONE;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return MU_NONE;, mug_inner_graphic_)
-
-						muRectBuffer rb = MU_NONE;
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								rb = mug_innergl_rect_buffer_create(result, &MUG_GGFX.data[graphic].gapi.gl, rect_count, rects);
-							} break;
-							case MUG_VULKAN: {
-								rb = mug_innervk_rect_buffer_create(result, &MUG_GGFX.data[graphic].gapi.vk, rect_count, rects);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-
-						return rb;
-					}
-
-					MUDEF muRectBuffer mu_rect_buffer_destroy(mugResult* result, muGraphic graphic, muRectBuffer rb) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return rb;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return rb;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								rb = mug_innergl_rect_buffer_destroy(result, &MUG_GGFX.data[graphic].gapi.gl, rb);
-							} break;
-							case MUG_VULKAN: {
-								rb = mug_innervk_rect_buffer_destroy(result, &MUG_GGFX.data[graphic].gapi.vk, rb);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-
-						return rb;
-					}
-
-					MUDEF void mu_rect_buffer_render(mugResult* result, muGraphic graphic, muRectBuffer rb) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_render(result, &MUG_GGFX.data[graphic].gapi.gl, rb);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_render(result, &MUG_GGFX.data[graphic].gapi.vk, rb);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
-
-					MUDEF void mu_rect_buffer_subrender(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, size_m rect_count) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_subrender(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rect_count_offset, rect_count);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_subrender(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count_offset, rect_count);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
-
-					MUDEF void mu_rect_buffer_fill(mugResult* result, muGraphic graphic, muRectBuffer rb, muRect* rects) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_fill(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rects);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_fill(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rects);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
-
-					MUDEF void mu_rect_buffer_subfill(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count_offset, muRect* rects, size_m rect_count) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_subfill(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rect_count_offset, rects, rect_count);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_subfill(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count_offset, rects, rect_count);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
-
-					MUDEF void mu_rect_buffer_resize(mugResult* result, muGraphic graphic, muRectBuffer rb, size_m rect_count, muRect* rects) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_resize(result, &MUG_GGFX.data[graphic].gapi.gl, rb, rect_count, rects);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_resize(result, &MUG_GGFX.data[graphic].gapi.vk, rb, rect_count, rects);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
-
-					MUDEF void mu_rect_buffer_unload_type(mugResult* result, muGraphic graphic) {
-						MU_SET_RESULT(result, MUG_SUCCESS)
-						MU_SAFEFUNC(result, MUG_, mug_global_context, return;)
-
-						MU_HOLD(result, graphic, MUG_GGFX, mug_global_context, MUG_, return;, mug_inner_graphic_)
-
-						switch (MUG_GGFX.data[graphic].api) {
-							default: break;
-							case MUG_OPENGL: {
-								mug_innergl_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.gl);
-							} break;
-							case MUG_VULKAN: {
-								mug_innervk_rect_buffer_unload_type(result, &MUG_GGFX.data[graphic].gapi.vk);
-							} break;
-						}
-
-						MU_RELEASE(MUG_GGFX, graphic, mug_inner_graphic_)
-					}
+			}
 
 	#ifdef __cplusplus
 	}
 	#endif
 #endif /* MUG_IMPLEMENTATION */
+// @ATTENTION
 
 /*
 For provided source code:
