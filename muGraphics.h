@@ -5,7 +5,11 @@ No warranty implied; use at your own risk.
 
 Licensed under MIT License or public domain, whichever you prefer.
 More explicit license information at the end of file.
-ensure that rendered buffer sections don't get modified, or else UB.
+
+@TODO (Vulkan) Make separate image for framebuffers, draw into it, then blit to the swapchain image to avoid swapchain image format issues.
+@TODO (Vulkan) Benchmark performance, especially in regards to vkQueuePresentKHR.
+@TODO Global Vulkan loader.
+@TODO Fix Vulkan loading/terminating (right now, having multiple Vulkan contexts most likely won't work).
 */
 
 /* @DOCBEGIN
@@ -1914,6 +1918,60 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_ALLOCATION_FAILED,
 				// @DOCLINE `@NLFT`: a `muGraphicAPI` value passed was an invalid/unknown enumerator value.
 				MUG_UNKNOWN_GRAPHIC_API,
+				// @DOCLINE `@NLFT`: a call to `vkbInit` failed.
+				MUG_FAILED_INITIATE_VULKAN,
+				// @DOCLINE `@NLFT`: a call to `vkCreateInstance` failed.
+				MUG_FAILED_CREATE_VK_INSTANCE,
+				// @DOCLINE `@NLFT`: failed to create a valid `VkSurfaceKHR` object.
+				MUG_FAILED_CREATE_VK_SURFACE,
+				// @DOCLINE `@NLFT`: no `VkPhysicalDevice`s could not be found.
+				MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE,
+				// @DOCLINE `@NLFT`: a `VkPhysicalDevice` compatible with mug could not be found.
+				MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE,
+				// @DOCLINE `@NLFT`: information about a `VkQueue` family needed by mug could not be retrieved.
+				MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES,
+				// @DOCLINE `@NLFT`: a `VkQueue` needed by mug could not be found.
+				MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES,
+				// @DOCLINE `@NLFT`: a call to `vkCreateDevice` failed.
+				MUG_FAILED_CREATE_VK_DEVICE,
+				// @DOCLINE `@NLFT`: information about the `VkSurfaceKHR` object obtained could not be retrieved.
+				MUG_FAILED_GET_VK_SURFACE_INFO,
+				// @DOCLINE `@NLFT`: information about a graphic's window's dimensions could not be retrieved.
+				MUG_FAILED_GET_GRAPHIC_WINDOW_DIMENSIONS,
+				// @DOCLINE `@NLFT`: a call to `vkCreateSwapchainKHR` failed.
+				MUG_FAILED_CREATE_VK_SWAPCHAIN,
+				// @DOCLINE `@NLFT`: information about the `VkSwapchainKHR` object obtained could not be retrieved.
+				MUG_FAILED_GET_VK_SWAPCHAIN_INFO,
+				// @DOCLINE `@NLFT`: a `VkSwapchainKHR`'s respective `VkImageView`s could not be created.
+				MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS,
+				// @DOCLINE `@NLFT`: a call to `vkCreateCommandPool` failed.
+				MUG_FAILED_CREATE_VK_COMMAND_POOL,
+				// @DOCLINE `@NLFT`: a call to `vkAllocateCommandBuffers` failed.
+				MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS,
+				// @DOCLINE `@NLFT`: a call to `vkCreateSemaphore` failed.
+				MUG_FAILED_CREATE_VK_SEMAPHORE,
+				// @DOCLINE `@NLFT`: a call to `vkCreateFence` failed.
+				MUG_FAILED_CREATE_VK_FENCE,
+				// @DOCLINE `@NLFT`: a call to `vkWaitForFences` failed.
+				MUG_FAILED_WAIT_FOR_VK_FENCE,
+				// @DOCLINE `@NLFT`: a call to `vkAcquireNextImageKHR` failed.
+				MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE,
+				// @DOCLINE `@NLFT`: a call to `vkResetFences` failed.
+				MUG_FAILED_RESET_VK_FENCE,
+				// @DOCLINE `@NLFT`: a call to `vkResetCommandBuffer` failed.
+				MUG_FAILED_RESET_VK_COMMAND_BUFFER,
+				// @DOCLINE `@NLFT`: a call to `vkBeginCommandBuffer` failed.
+				MUG_FAILED_BEGIN_VK_COMMAND_BUFFER,
+				// @DOCLINE `@NLFT`: a call to `vkEndCommandBuffer` failed.
+				MUG_FAILED_END_VK_COMMAND_BUFFER,
+				// @DOCLINE `@NLFT`: a call to `vkQueueSubmit` failed.
+				MUG_FAILED_SUBMIT_VK_QUEUE,
+				// @DOCLINE `@NLFT`: a call to `vkQueuePresentKHR` failed.
+				MUG_FAILED_PRESENT_VK_QUEUE,
+				// @DOCLINE `@NLFT`: a call to `vkCreateRenderPass` failed.
+				MUG_FAILED_CREATE_VK_RENDER_PASS,
+				// @DOCLINE `@NLFT`: a call to `vkCreateFramebuffer` failed.
+				MUG_FAILED_CREATE_VK_FRAMEBUFFERS,
 
 				// @DOCLINE There are also mug result equivalents for each `muCOSAResult` enumerator value, following the format of `MUG_MUCOSA_...` (ie `MUG_MUCOSA_SUCCESS`).
 				MUG_MUCOSA_SUCCESS,
@@ -2092,6 +2150,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				#define mu_graphic_swap_buffers_(result, ...) mug_graphic_swap_buffers(mug_global_context, result, __VA_ARGS__)
 
 				// @DOCLINE This function should be called near the end of the frame and *before* `mug_graphic_update`.
+				// @DOCLINE Before this function is called, `mug_graphic_clear` must have been called at least once.
 
 			// @DOCLINE ### Update graphic
 
@@ -2105,6 +2164,22 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 				// @DOCLINE This function should be called near the end of the frame and *after* `mug_graphic_swap_buffers`, preferably as the last function call of the frame.
 
+	// @DOCLINE # Graphics API customization
+
+		// @DOCLINE There are certain things that can be done in mug to customize how a particular graphics API functions. This section covers those.
+
+		// @DOCLINE ## Vulkan
+
+			// @DOCLINE ### Frame buffering
+
+				// @DOCLINE Vulkan allows frames to be buffered, which means that multiple frames can be used for drawing, which wastes less time waiting for the previous frame to be finished. The amount of these frames is controllable by the macro `MUG_VK_FRAME_BUFFERS`, whose default value is 3.
+
+			// @DOCLINE ### Debug messages
+
+				// @DOCLINE Vulkan has a built-in system for printing debug information, but requires the Vulkan SDK to be manually installed on the machine to work. As such, this system is, on default, not used, but can be manually turned on by defining `MUG_VK_DEBUG` before the inclusion of the header file.
+
+				// @DOCLINE Note that defining `MUG_VK_DEBUG` without having the Vulkan SDK is safe, the feature just won't work.
+
 	// @DOCLINE # Version macro
 
 		// @DOCLINE mug defines three macros to define the version of mug: `MUG_VERSION_MAJOR`, `MUG_VERSION_MINOR`, and `MUG_VERSION_PATCH`, following the format of `vMAJOR.MINOR.PATCH`.
@@ -2112,6 +2187,40 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 		#define MUG_VERSION_MAJOR 1
 		#define MUG_VERISON_MINOR 0
 		#define MUG_VERSION_PATCH 0
+
+	// @DOCLINE # C standard library dependencies
+
+		// @DOCLINE mug has several C standard library dependencies not provided by its other library dependencies, all of which are overridable by defining them before the inclusion of its header. This is a list of all of those dependencies.
+
+		#if !defined(MU_UINT32_MAX)
+
+			// @DOCLINE ## `stdint.h` dependencies
+			#include <stdint.h>
+
+			// @DOCLINE `MU_UINT32_MAX`: equivalent to `UINT32_MAX`
+			#ifndef MU_UINT32_MAX
+				#define MU_UINT32_MAX UINT32_MAX
+			#endif
+
+			// @DOCLINE `MU_UINT64_MAX`: equivalent to `UINT64_MAX`
+			#ifndef MU_UINT64_MAX
+				#define MU_UINT64_MAX UINT64_MAX
+			#endif
+
+		#endif
+
+		#if defined(MUG_VULKAN_DEBUG) && \
+			!defined(mu_printf)
+
+			// @DOCLINE ## `stdio.h` dependencies
+			#include <stdio.h>
+
+			// @DOCLINE `mu_printf`: equivalent to `printf`; only defined if `MUG_VK_DEBUG` is defined before the inclusion of the header file.
+			#ifndef mu_printf
+				#define mu_printf printf
+			#endif
+
+		#endif
 
 	#ifdef __cplusplus
 	}
@@ -24835,7 +24944,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				that first. If Apple ever decides to officially support Vulkan we can perhaps consider dropping it to the bottom of the priority
 				list. Not sure if this reasoning is sound, but it makes sense in my head!
 				*/
-				"libMoltenVK.dylib",
+				"libMoltendylib",
 				"libvulkan.dylib.1",
 				"libvulkan.dylib"
 		    #else
@@ -37441,6 +37550,32 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_SUCCESS: return "MUG_SUCCESS"; break;
 					case MUG_ALLOCATION_FAILED: return "MUG_ALLOCATION_FAILED"; break;
 					case MUG_UNKNOWN_GRAPHIC_API: return "MUG_UNKNOWN_GRAPHIC_API"; break;
+					case MUG_FAILED_INITIATE_VULKAN: return "MUG_FAILED_INITIATE_VULKAN"; break;
+					case MUG_FAILED_CREATE_VK_INSTANCE: return "MUG_FAILED_CREATE_VK_INSTANCE"; break;
+					case MUG_FAILED_CREATE_VK_SURFACE: return "MUG_FAILED_CREATE_VK_SURFACE"; break;
+					case MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE: return "MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE"; break;
+					case MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE: return "MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE"; break;
+					case MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES: return "MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES"; break;
+					case MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES: return "MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES"; break;
+					case MUG_FAILED_CREATE_VK_DEVICE: return "MUG_FAILED_CREATE_VK_DEVICE"; break;
+					case MUG_FAILED_GET_VK_SURFACE_INFO: return "MUG_FAILED_GET_VK_SURFACE_INFO"; break;
+					case MUG_FAILED_GET_GRAPHIC_WINDOW_DIMENSIONS: return "MUG_FAILED_GET_GRAPHIC_WINDOW_DIMENSIONS"; break;
+					case MUG_FAILED_CREATE_VK_SWAPCHAIN: return "MUG_FAILED_CREATE_VK_SWAPCHAIN"; break;
+					case MUG_FAILED_GET_VK_SWAPCHAIN_INFO: return "MUG_FAILED_GET_VK_SWAPCHAIN_INFO"; break;
+					case MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS: return "MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS"; break;
+					case MUG_FAILED_CREATE_VK_COMMAND_POOL: return "MUG_FAILED_CREATE_VK_COMMAND_POOL"; break;
+					case MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS: return "MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS"; break;
+					case MUG_FAILED_CREATE_VK_SEMAPHORE: return "MUG_FAILED_CREATE_VK_SEMAPHORE"; break;
+					case MUG_FAILED_CREATE_VK_FENCE: return "MUG_FAILED_CREATE_VK_FENCE"; break;
+					case MUG_FAILED_WAIT_FOR_VK_FENCE: return "MUG_FAILED_WAIT_FOR_VK_FENCE"; break;
+					case MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE: return "MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE"; break;
+					case MUG_FAILED_RESET_VK_FENCE: return "MUG_FAILED_RESET_VK_FENCE"; break;
+					case MUG_FAILED_RESET_VK_COMMAND_BUFFER: return "MUG_FAILED_RESET_VK_COMMAND_BUFFER"; break;
+					case MUG_FAILED_BEGIN_VK_COMMAND_BUFFER: return "MUG_FAILED_BEGIN_VK_COMMAND_BUFFER"; break;
+					case MUG_FAILED_END_VK_COMMAND_BUFFER: return "MUG_FAILED_END_VK_COMMAND_BUFFER"; break;
+					case MUG_FAILED_SUBMIT_VK_QUEUE: return "MUG_FAILED_SUBMIT_VK_QUEUE"; break;
+					case MUG_FAILED_PRESENT_VK_QUEUE: return "MUG_FAILED_PRESENT_VK_QUEUE"; break;
+					case MUG_FAILED_CREATE_VK_RENDER_PASS: return "MUG_FAILED_CREATE_VK_RENDER_PASS"; break;
 					case MUG_MUCOSA_SUCCESS: return "MUG_MUCOSA_SUCCESS"; break;
 					case MUG_MUCOSA_ALREADY_ACTIVE: return "MUG_MUCOSA_ALREADY_ACTIVE"; break;
 					case MUG_MUCOSA_ALLOCATION_FAILED: return "MUG_MUCOSA_ALLOCATION_FAILED"; break;
@@ -37567,6 +37702,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		struct mug_graphic {
 			muGraphicAPI api;
+			void* papi;
 			mug_graphic_objtype objtype;
 			mug_graphic_object obj;
 		};
@@ -37589,6 +37725,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			void mug_innergl_graphic_bind(mugContext* context, mug_graphic* gfx) {
 				switch (gfx->objtype) {
 					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_opengl_bind_window(&context->cosa, 0, gfx->obj.win); break;
+				}
+			}
+
+			void mug_innergl_graphic_destroy(mugContext* context, mug_graphic* gfx) {
+				switch (gfx->objtype) {
+					default: break;
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_window_destroy(&context->cosa, 0, gfx->obj.win); break;
 				}
 			}
 
@@ -37657,13 +37800,1476 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				// ...
 			}
 
+	/* Vulkan */
+
+		/* Macros */
+
+			#ifndef MUG_VK_FRAME_BUFFERS
+				#define MUG_VK_FRAME_BUFFERS 3
+			#endif
+
+		/* Inner structs */
+
+			struct mug_innervk_init {
+				VkInstance instance;
+				muBool use_validation_layers;
+				VkDebugUtilsMessengerEXT debug_messenger;
+				unsigned int (*debug_messenger_callback)(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data);
+				VkSurfaceKHR surface;
+
+				VkPhysicalDevice physical_device;
+				VkDevice device;
+				uint32_t graphics_family;
+				VkQueue graphics_queue;
+				uint32_t present_family;
+				VkQueue present_queue;
+			};
+			typedef struct mug_innervk_init mug_innervk_init;
+
+			struct mug_innervk_swapchain {
+				VkSwapchainKHR handle;
+				VkFormat format;
+				VkExtent2D extent;
+				VkViewport viewport;
+				VkRect2D scissor;
+
+				uint32_t image_count;
+				VkImage* images;
+				VkImageView* image_views;
+				uint32_t image_index;
+			};
+			typedef struct mug_innervk_swapchain mug_innervk_swapchain;
+
+			struct mug_innervk_command {
+				VkCommandPool pool;
+				VkCommandBuffer buffer;
+				muBool on;
+
+				VkSemaphore queue_wait_semaphore;
+				VkSemaphore queue_signal_semaphore;
+				VkFence queue_wait_fence;
+			};
+			typedef struct mug_innervk_command mug_innervk_command;
+
+			struct mug_innervk_renderer {
+				VkRenderPass render_pass;
+				VkFramebuffer* framebuffers; // count = sc.image_count
+			};
+			typedef struct mug_innervk_renderer mug_innervk_renderer;
+
+			struct mug_innervk_renderers {
+				// Unknown layout -> color attachment, used for clearing the contents with a color.
+				mug_innervk_renderer unknown_to_ca;
+				// Color attachment layout -> present, used for presentation.
+				mug_innervk_renderer ca_to_present;
+				// Color attachment layout -> color attachment layout, used for pipeline rendering.
+				mug_innervk_renderer ca_to_ca_pip;
+			};
+			typedef struct mug_innervk_renderers mug_innervk_renderers;
+
+			struct mug_innervk_inner {
+				mug_innervk_init init;
+				mug_innervk_swapchain sc;
+				mug_innervk_command cmds[MUG_VK_FRAME_BUFFERS];
+				size_m now_cmd;
+				mug_innervk_renderers rs;
+			};
+			typedef struct mug_innervk_inner mug_innervk_inner;
+
+		/* Graphic */
+
+			mugResult mug_innervk_create_graphic_surface(mugContext* context, mug_graphic* gfx, VkInstance* instance, VkSurfaceKHR* surface) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
+				VkResult vk_res = VK_SUCCESS;
+
+				switch (gfx->objtype) {
+					default: return MUG_FAILED_CREATE_VK_SURFACE; break;
+
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muCOSA_vulkan_create_window_surface(&context->cosa, &cosa_res, gfx->obj.win, &vk_res, instance, 0, surface);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							return muCOSA_result_to_mug_result(cosa_res);
+						}
+						if (vk_res != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_SURFACE;
+						}
+					} break;
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			mugResult mug_innervk_get_graphic_dimensions(mugContext* context, mug_graphic* gfx, uint32_m* w, uint32_m* h) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
+
+				switch (gfx->objtype) {
+					default: return MUG_FAILED_GET_GRAPHIC_WINDOW_DIMENSIONS; break;
+
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muCOSA_window_get_dimensions(&context->cosa, &cosa_res, gfx->obj.win, w, h);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							return muCOSA_result_to_mug_result(cosa_res);
+						}
+					} break;
+				}
+
+				return MUG_SUCCESS;
+			}
+
+		/* Init */
+
+			#define MUG_VK_VALIDATION_LAYER_COUNT 1
+			const char* mug_innervk_validation_layers[MUG_VK_VALIDATION_LAYER_COUNT] = {
+				"VK_LAYER_KHRONOS_validation"
+			};
+
+			muBool mug_innervk_are_validation_layers_available(mug_innervk_init* init) {
+				if (!init->use_validation_layers) {
+					return MU_FALSE;
+				}
+
+				uint32_t prop_count = 0;
+				if (vkEnumerateInstanceLayerProperties(&prop_count, 0) != VK_SUCCESS) {
+					return MU_FALSE;
+				}
+				if (prop_count == 0) {
+					return MU_FALSE;
+				}
+
+				VkLayerProperties* props = (VkLayerProperties*)mu_malloc(sizeof(VkLayerProperties)*prop_count);
+				if (props == 0) {
+					return MU_FALSE;
+				}
+				if (vkEnumerateInstanceLayerProperties(&prop_count, props) != VK_SUCCESS) {
+					mu_free(props);
+					return MU_FALSE;
+				}
+
+				for (uint32_t i = 0; i < MUG_VK_VALIDATION_LAYER_COUNT; i++) {
+					muBool found = MU_FALSE;
+					for (uint32_t j = 0; j < prop_count; j++) {
+						if (mu_strcmp(props[j].layerName, mug_innervk_validation_layers[i]) == 0) {
+							found = MU_TRUE;
+							break;
+						}
+					}
+
+					if (!found) {
+						mu_free(props);
+						return MU_FALSE;
+					}
+				}
+
+				mu_free(props);
+				return MU_TRUE;
+			}
+
+			#define MUG_VK_EXTENSION_COUNT 1
+			const char* mug_innervk_extensions[MUG_VK_EXTENSION_COUNT] = {
+				VK_KHR_SWAPCHAIN_EXTENSION_NAME
+			};
+
+			int32_m mug_innervk_rate_physical_device(VkPhysicalDevice physical_device, VkExtensionProperties* ext_props, size_m ext_prop_count) {
+				int32_m score = 0;
+
+				VkPhysicalDeviceProperties props;
+				vkGetPhysicalDeviceProperties(physical_device, &props);
+				VkPhysicalDeviceFeatures features;
+				vkGetPhysicalDeviceFeatures(physical_device, &features);
+
+				for (size_m i = 0; i < MUG_VK_EXTENSION_COUNT; i++) {
+					muBool found = MU_FALSE;
+					for (size_m j = 0; j < ext_prop_count; j++) {
+						if (mu_strcmp(ext_props[j].extensionName, mug_innervk_extensions[i]) == 0) {
+							found = MU_TRUE;
+							break;
+						}
+					}
+
+					if (!found) {
+						return 0;
+					}
+				}
+
+				switch (props.deviceType) {
+					default: break;
+					case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   score += 500; break;
+					case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: score += 400; break;
+					case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    score += 300; break;
+					case VK_PHYSICAL_DEVICE_TYPE_CPU:            score += 200; break;
+				}
+
+				if (features.fullDrawIndexUint32) score += 20;
+				if (features.imageCubeArray) score += 30;
+				if (features.geometryShader) score += 50;
+				if (features.tessellationShader) score += 100;
+				if (features.sampleRateShading) score += 80;
+				if (features.multiViewport) score += 50;
+				if (features.samplerAnisotropy) score += 60;
+				if (features.shaderStorageImageMultisample) score += 50;
+
+				return score;
+			}
+
+			mugResult mug_innervk_init_create(mugContext* context, mug_graphic* gfx, mug_innervk_init* init) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
+				mugResult res = MUG_SUCCESS;
+
+				/* Instance */
+				{
+					VkInstanceCreateInfo cinfo = MU_ZERO_STRUCT(VkInstanceCreateInfo);
+					cinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+
+					// Surface extensions
+
+					size_m ext_count;
+					const char** exts = muCOSA_vulkan_get_surface_instance_extensions(&context->cosa, &cosa_res, &ext_count);
+					if (cosa_res != MUCOSA_SUCCESS) {
+						return muCOSA_result_to_mug_result(cosa_res);
+					}
+
+					const char** actual_exts = exts;
+					if (init->use_validation_layers && mug_innervk_are_validation_layers_available(init)) {
+						cinfo.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
+						cinfo.ppEnabledLayerNames = (const char* const*)mug_innervk_validation_layers;
+
+						actual_exts = (const char**)mu_malloc((ext_count+1) * sizeof(const char*));
+						if (actual_exts == 0) {
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < ext_count; i++) {
+							actual_exts[i] = exts[i];
+						}
+						actual_exts[ext_count] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+						ext_count += 1;
+					} else {
+						init->use_validation_layers = MU_FALSE;
+					}
+
+					cinfo.enabledExtensionCount = (uint32_t)ext_count;
+					cinfo.ppEnabledExtensionNames = (const char* const*)actual_exts;
+
+					if (vkCreateInstance(&cinfo, 0, &init->instance) != VK_SUCCESS) {
+						if (actual_exts != 0 && actual_exts != exts) {
+							mu_free(actual_exts);
+						}
+						return MUG_FAILED_CREATE_VK_INSTANCE;
+					}
+
+					if (actual_exts != 0 && actual_exts != exts) {
+						mu_free(actual_exts);
+					}
+				}
+
+				/* Validation layers */
+				if (init->use_validation_layers)
+				{
+					VkDebugUtilsMessengerCreateInfoEXT cinfo = MU_ZERO_STRUCT(VkDebugUtilsMessengerCreateInfoEXT);
+					cinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+					cinfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+					cinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+					cinfo.pfnUserCallback = init->debug_messenger_callback;
+
+					PFN_vkCreateDebugUtilsMessengerEXT fun = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(init->instance, "vkCreateDebugUtilsMessengerEXT");
+					if (fun != 0) {
+						if (fun(init->instance, &cinfo, 0, &init->debug_messenger) != VK_SUCCESS) {
+							// :L
+							init->debug_messenger = VK_NULL_HANDLE;
+						}
+					}
+				}
+
+				/* Surface */
+				{
+					res = mug_innervk_create_graphic_surface(context, gfx, &init->instance, &init->surface);
+					if (res != MUG_SUCCESS) {
+						return res;
+					}
+				}
+
+				/* Physical device */
+				{
+					// Get physical devices
+
+					uint32_t count = 0;
+					if (vkEnumeratePhysicalDevices(init->instance, &count, NULL) != VK_SUCCESS) {
+						return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
+					}
+					if (count == 0) {
+						return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
+					}
+
+					VkPhysicalDevice* devices = (VkPhysicalDevice*)mu_malloc(sizeof(VkPhysicalDevice) * count);
+					if (devices == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+					if (vkEnumeratePhysicalDevices(init->instance, &count, devices) != VK_SUCCESS) {
+						mu_free(devices);
+						return MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE;
+					}
+
+					// Rate physical devices
+
+					int32_m best_score = 0;
+					for (uint32_t i = 0; i < count; i++) {
+						// Get extension properties
+						uint32_t ext_count = 0;
+						vkEnumerateDeviceExtensionProperties(devices[i], 0, &ext_count, 0);
+
+						VkExtensionProperties* ext_props = 0;
+						if (ext_count != 0) {
+							ext_props = (VkExtensionProperties*)mu_malloc(sizeof(VkExtensionProperties) * ext_count);
+							if (ext_props == 0) {
+								// :L
+								ext_count = 0;
+							} else {
+								vkEnumerateDeviceExtensionProperties(devices[i], 0, &count, ext_props);
+							}
+						}
+
+						int32_m score = mug_innervk_rate_physical_device(devices[i], ext_props, ext_count);
+						if (score > best_score) {
+							best_score = score;
+							init->physical_device = devices[i];
+						}
+
+						if (ext_props != 0) {
+							mu_free(ext_props);
+						}
+					}
+
+					mu_free(devices);
+
+					if (best_score == 0 || init->physical_device == VK_NULL_HANDLE) {
+						return MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE;
+					}
+				}
+
+				/* Device */
+				{
+					// Queue families
+					uint32_t property_count = 0;
+					vkGetPhysicalDeviceQueueFamilyProperties(init->physical_device, &property_count, 0);
+					if (property_count == 0) {
+						return MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES;
+					}
+
+					VkQueueFamilyProperties* properties = (VkQueueFamilyProperties*)mu_malloc(sizeof(VkQueueFamilyProperties) * property_count);
+					if (properties == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+					vkGetPhysicalDeviceQueueFamilyProperties(init->physical_device, &property_count, properties);
+
+					muBool found_graphics = MU_FALSE, found_present = MU_FALSE;
+					for (uint32_t i = 0; i < property_count; i++) {
+						if (!found_graphics && properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+							found_graphics = MU_TRUE;
+							init->graphics_family = i;
+						}
+
+						if (!found_present) {
+							VkBool32 present_support = VK_FALSE;
+							vkGetPhysicalDeviceSurfaceSupportKHR(init->physical_device, i, init->surface, &present_support);
+							if (present_support) {
+								found_present = MU_TRUE;
+								init->present_family = i;
+							}
+						}
+
+						if (found_present && found_graphics) {
+							break;
+						}
+					}
+					mu_free(properties);
+
+					if (!found_graphics || !found_present) {
+						return MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES;
+					}
+
+					// Queues
+
+					float priority = 1.f;
+
+					VkDeviceQueueCreateInfo graphics_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
+					graphics_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+					graphics_ci.queueFamilyIndex = init->graphics_family;
+					graphics_ci.queueCount = 1;
+					graphics_ci.pQueuePriorities = &priority;
+
+					VkDeviceQueueCreateInfo present_ci = MU_ZERO_STRUCT(VkDeviceQueueCreateInfo);
+					present_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+					present_ci.queueFamilyIndex = init->present_family;
+					present_ci.queueCount = 1;
+					present_ci.pQueuePriorities = &priority;
+
+					// This process is gross, but it does indeed work for 2 families. This will need to be overhauled if otherwise.
+
+					VkDeviceQueueCreateInfo dq_cis[] = { graphics_ci, present_ci };
+					uint32_t dq_ci_count = 2;
+					if (init->graphics_family == init->present_family) {
+						dq_ci_count = 1;
+					}
+
+					// Device
+
+					VkDeviceCreateInfo device_ci = MU_ZERO_STRUCT(VkDeviceCreateInfo);
+					device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+					device_ci.queueCreateInfoCount = dq_ci_count;
+					device_ci.pQueueCreateInfos = dq_cis;
+					device_ci.enabledExtensionCount = MUG_VK_EXTENSION_COUNT;
+					device_ci.ppEnabledExtensionNames = mug_innervk_extensions;
+
+					if (init->use_validation_layers) {
+						device_ci.enabledLayerCount = MUG_VK_VALIDATION_LAYER_COUNT;
+						device_ci.ppEnabledLayerNames = mug_innervk_validation_layers;
+					}
+
+					VkPhysicalDeviceFeatures features = MU_ZERO_STRUCT(VkPhysicalDeviceFeatures);
+					device_ci.pEnabledFeatures = &features;
+
+					if (vkCreateDevice(init->physical_device, &device_ci, 0, &init->device) != VK_SUCCESS) {
+						return MUG_FAILED_CREATE_VK_DEVICE;
+					}
+
+					// Queues, part II: joke that I'm not going to make
+
+					vkGetDeviceQueue(init->device, init->graphics_family, 0, &init->graphics_queue);
+					vkGetDeviceQueue(init->device, init->present_family, 0, &init->present_queue);
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			void mug_innervk_init_destroy(mug_innervk_init* init) {
+				if (init->device != VK_NULL_HANDLE) {
+					vkDeviceWaitIdle(init->device);
+					vkDestroyDevice(init->device, 0);
+				}
+
+				if (init->surface != VK_NULL_HANDLE) {
+					vkDestroySurfaceKHR(init->instance, init->surface, 0);
+				}
+
+				if (init->debug_messenger != VK_NULL_HANDLE) {
+					PFN_vkDestroyDebugUtilsMessengerEXT fun = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(init->instance, "vkDestroyDebugUtilsMessengerEXT");
+					if (fun != 0) {
+						fun(init->instance, init->debug_messenger, 0);
+					}
+				}
+
+				if (init->instance != VK_NULL_HANDLE) {
+					vkDestroyInstance(init->instance, 0);
+				}
+			}
+
+		/* Swapchain */
+
+			mugResult mug_innervk_swapchain_create(mugContext* context, mug_graphic* gfx, mug_innervk_swapchain* sc) {
+				mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+				mugResult res = MUG_SUCCESS;
+
+				/* Create info beginning */
+
+					VkSwapchainCreateInfoKHR ci = MU_ZERO_STRUCT(VkSwapchainCreateInfoKHR);
+					ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+					ci.surface = inner->init.surface;
+					ci.imageArrayLayers = 1;
+					ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+					ci.clipped = VK_TRUE;
+					ci.oldSwapchain = VK_NULL_HANDLE;
+
+					uint32_t families[2] = { inner->init.graphics_family, inner->init.present_family };
+					if (inner->init.graphics_family != inner->init.present_family) {
+						ci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+						ci.queueFamilyIndexCount = 2;
+						ci.pQueueFamilyIndices = families;
+					} else {
+						ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+					}
+
+				/* Capabilities */
+
+					VkSurfaceCapabilitiesKHR cap;
+					if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(inner->init.physical_device, inner->init.surface, &cap) != VK_SUCCESS) {
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					ci.minImageCount = cap.minImageCount + 1;
+					if (cap.maxImageCount > 0 && ci.minImageCount > cap.maxImageCount) {
+						ci.minImageCount = cap.maxImageCount;
+					}
+
+					ci.preTransform = cap.currentTransform;
+					ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+
+				/* Format (based on surface) */
+
+					uint32_t format_count = 0;
+					if (vkGetPhysicalDeviceSurfaceFormatsKHR(inner->init.physical_device, inner->init.surface, &format_count, 0) != VK_SUCCESS) {
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					if (format_count == 0) {
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					VkSurfaceFormatKHR* formats = (VkSurfaceFormatKHR*)mu_malloc(sizeof(VkSurfaceFormatKHR) * format_count);
+					if (formats == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+
+					if (vkGetPhysicalDeviceSurfaceFormatsKHR(inner->init.physical_device, inner->init.surface, &format_count, formats) != VK_SUCCESS) {
+						mu_free(formats);
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					VkSurfaceFormatKHR chosen_format = formats[0];
+					for (uint32_t i = 0; i < format_count; i++) {
+						if (formats[i].format == VK_FORMAT_R8G8B8A8_UNORM && formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+							chosen_format = formats[i];
+							break;
+						}
+					}
+					mu_free(formats);
+
+					ci.imageFormat = chosen_format.format;
+					sc->format = ci.imageFormat;
+					ci.imageColorSpace = chosen_format.colorSpace;
+
+				/* Extent */
+
+					if (cap.currentExtent.width != MU_UINT32_MAX) {
+						ci.imageExtent = cap.currentExtent;
+					} else {
+						uint32_m width=0, height=0;
+						res = mug_innervk_get_graphic_dimensions(context, gfx, &width, &height);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+
+						ci.imageExtent.width = (uint32_t)width;
+						if (ci.imageExtent.width < cap.minImageExtent.width) {
+							ci.imageExtent.width = cap.minImageExtent.width;
+						} else if (ci.imageExtent.width > cap.maxImageExtent.width) {
+							ci.imageExtent.width = cap.maxImageExtent.width;
+						}
+
+						ci.imageExtent.height = (uint32_t)height;
+						if (ci.imageExtent.height < cap.minImageExtent.height) {
+							ci.imageExtent.height = cap.minImageExtent.height;
+						} else if (ci.imageExtent.height > cap.maxImageExtent.height) {
+							ci.imageExtent.height = cap.maxImageExtent.height;
+						}
+					}
+
+					sc->extent = ci.imageExtent;
+
+					sc->viewport.width = sc->extent.width;
+					sc->viewport.height = sc->extent.height;
+					sc->viewport.minDepth = 0.f;
+					sc->viewport.maxDepth = 1.f;
+
+					sc->scissor.extent = sc->extent;
+
+				/* Present modes */
+				// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkPresentModeKHR.html
+
+					uint32_t present_mode_count = 0;
+					if (vkGetPhysicalDeviceSurfacePresentModesKHR(inner->init.physical_device, inner->init.surface, &present_mode_count, 0) != VK_SUCCESS) {
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					if (present_mode_count == 0) {
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					VkPresentModeKHR* present_modes = (VkPresentModeKHR*)mu_malloc(sizeof(VkPresentModeKHR) * present_mode_count);
+					if (present_modes == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+
+					if (vkGetPhysicalDeviceSurfacePresentModesKHR(inner->init.physical_device, inner->init.surface, &present_mode_count, present_modes) != VK_SUCCESS) {
+						mu_free(present_modes);
+						return MUG_FAILED_GET_VK_SURFACE_INFO;
+					}
+
+					ci.presentMode = present_modes[0];
+					for (uint32_t i = 0; i < present_mode_count; i++) {
+						if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+							ci.presentMode = present_modes[i];
+							break;
+						}
+					}
+					mu_free(present_modes);
+
+				/* Creation */
+
+					if (vkCreateSwapchainKHR(inner->init.device, &ci, 0, &sc->handle) != VK_SUCCESS) {
+						return MUG_FAILED_CREATE_VK_SWAPCHAIN;
+					}
+
+				/* Images */
+
+					if (vkGetSwapchainImagesKHR(inner->init.device, sc->handle, &sc->image_count, 0) != VK_SUCCESS) {
+						return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
+					}
+
+					sc->images = (VkImage*)mu_malloc(sizeof(VkImage) * sc->image_count);
+					if (sc->images == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+
+					if (vkGetSwapchainImagesKHR(inner->init.device, sc->handle, &sc->image_count, sc->images) != VK_SUCCESS) {
+						return MUG_FAILED_GET_VK_SWAPCHAIN_INFO;
+					}
+
+				/* Image views */
+
+					sc->image_views = (VkImageView*)mu_malloc(sizeof(VkImageView) * sc->image_count);
+					if (sc->image_views == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+
+					for (uint32_t i = 0; i < sc->image_count; i++) {
+						sc->image_views[i] = VK_NULL_HANDLE;
+					}
+
+					for (uint32_t i = 0; i < sc->image_count; i++) {
+						VkImageViewCreateInfo iv_ci = MU_ZERO_STRUCT(VkImageViewCreateInfo);
+						iv_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+						iv_ci.image = sc->images[i];
+						iv_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+						iv_ci.format = sc->format;
+						iv_ci.components.r = iv_ci.components.g = iv_ci.components.b = iv_ci.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+						iv_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+						iv_ci.subresourceRange.baseMipLevel = 0;
+						iv_ci.subresourceRange.levelCount = 1;
+						iv_ci.subresourceRange.baseArrayLayer = 0;
+						iv_ci.subresourceRange.layerCount = 1;
+
+						if (vkCreateImageView(inner->init.device, &iv_ci, 0, &sc->image_views[i]) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS;
+						}
+					}
+
+				return MUG_SUCCESS;
+			}
+
+			void mug_innervk_swapchain_destroy(mug_graphic* gfx, mug_innervk_swapchain* sc) {
+				mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+				if (sc->image_views != 0) {
+					for (uint32_t i = 0; i < sc->image_count; i++) {
+						if (sc->image_views[i] != VK_NULL_HANDLE) {
+							vkDestroyImageView(inner->init.device, sc->image_views[i], 0);
+						}
+					}
+					mu_free(sc->image_views);
+				}
+
+				if (sc->images != 0) {
+					mu_free(sc->images);
+				}
+
+				if (sc->handle != VK_NULL_HANDLE) {
+					vkDestroySwapchainKHR(inner->init.device, sc->handle, 0);
+				}
+			}
+
+		/* Command */
+
+			/* Creation / Destruction */
+
+				mugResult mug_innervk_command_create(mug_graphic* gfx, mug_innervk_command* cmd) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+
+					/* Pool */
+					{
+						VkCommandPoolCreateInfo ci = MU_ZERO_STRUCT(VkCommandPoolCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+						ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+						ci.queueFamilyIndex = inner->init.graphics_family;
+
+						if (vkCreateCommandPool(inner->init.device, &ci, 0, &cmd->pool) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_COMMAND_POOL;
+						}
+					}
+
+					/* Buffer */
+					{
+						VkCommandBufferAllocateInfo ai = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
+						ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+						ai.commandPool = cmd->pool;
+						ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+						ai.commandBufferCount = 1;
+
+						if (vkAllocateCommandBuffers(inner->init.device, &ai, &cmd->buffer) != VK_SUCCESS) {
+							return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
+						}
+					}
+
+					/* Semaphores */
+					{
+						VkSemaphoreCreateInfo ci = MU_ZERO_STRUCT(VkSemaphoreCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+						if (vkCreateSemaphore(inner->init.device, &ci, 0, &cmd->queue_wait_semaphore) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_SEMAPHORE;
+						}
+						if (vkCreateSemaphore(inner->init.device, &ci, 0, &cmd->queue_signal_semaphore) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_SEMAPHORE;
+						}
+					}
+
+					/* Fence */
+					{
+						VkFenceCreateInfo ci = MU_ZERO_STRUCT(VkFenceCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+						ci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+						if (vkCreateFence(inner->init.device, &ci, 0, &cmd->queue_wait_fence) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_FENCE;
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				void mug_innervk_command_destroy(mug_graphic* gfx, mug_innervk_command* cmd) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					if (cmd->queue_wait_fence != VK_NULL_HANDLE) {
+						vkDestroyFence(inner->init.device, cmd->queue_wait_fence, 0);
+					}
+
+					if (cmd->queue_signal_semaphore != VK_NULL_HANDLE) {
+						vkDestroySemaphore(inner->init.device, cmd->queue_signal_semaphore, 0);
+					}
+					if (cmd->queue_wait_semaphore != VK_NULL_HANDLE) {
+						vkDestroySemaphore(inner->init.device, cmd->queue_wait_semaphore, 0);
+					}
+
+					if (cmd->buffer != VK_NULL_HANDLE) {
+						vkFreeCommandBuffers(inner->init.device, cmd->pool, 1, &cmd->buffer);
+					}
+
+					if (cmd->pool != VK_NULL_HANDLE) {
+						vkDestroyCommandPool(inner->init.device, cmd->pool, 0);
+					}
+				}
+
+			/* Usage */
+
+				mugResult mug_innervk_inner_swapchain_resize(mugContext* context, mug_graphic* gfx, mug_innervk_inner* inner);
+				mugResult mug_innervk_command_begin(mugContext* context, mug_graphic* gfx, mug_innervk_command* cmd) {
+					if (cmd->on) {
+						return MUG_SUCCESS;
+					}
+
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+					VkResult vk_res = VK_SUCCESS;
+					mugResult res = MUG_SUCCESS;
+
+					if (vkWaitForFences(inner->init.device, 1, &cmd->queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
+						return MUG_FAILED_WAIT_FOR_VK_FENCE;
+					}
+
+					/* Start getting next swapchain image */
+					{
+						vk_res = vkAcquireNextImageKHR(inner->init.device, inner->sc.handle, MU_UINT64_MAX, cmd->queue_wait_semaphore, VK_NULL_HANDLE, &inner->sc.image_index);
+
+						while (vk_res == VK_ERROR_OUT_OF_DATE_KHR) {
+							res = mug_innervk_inner_swapchain_resize(context, gfx, inner);
+							if (res != MUG_SUCCESS) {
+								return res;
+							}
+							vk_res = vkAcquireNextImageKHR(inner->init.device, inner->sc.handle, MU_UINT64_MAX, cmd->queue_wait_semaphore, VK_NULL_HANDLE, &inner->sc.image_index);
+						}
+						if (vk_res != VK_SUCCESS && vk_res != VK_SUBOPTIMAL_KHR) {
+							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
+						}
+					}
+
+					if (vkResetFences(inner->init.device, 1, &cmd->queue_wait_fence) != VK_SUCCESS) {
+						return MUG_FAILED_RESET_VK_FENCE;
+					}
+
+					/* Begin command buffer */
+					{
+						if (vkResetCommandBuffer(cmd->buffer, 0) != VK_SUCCESS) {
+							return MUG_FAILED_RESET_VK_COMMAND_BUFFER;
+						}
+
+						VkCommandBufferBeginInfo ci = MU_ZERO_STRUCT(VkCommandBufferBeginInfo);
+						ci.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+						if (vkBeginCommandBuffer(cmd->buffer, &ci) != VK_SUCCESS) {
+							return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
+						}
+						cmd->on = MU_TRUE;
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				mugResult mug_innervk_command_end_submit(mug_graphic* gfx, mug_innervk_command* cmd) {
+					if (!cmd->on) {
+						return MUG_SUCCESS;
+					}
+
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					/* End command buffer, storing all commands */
+					{
+						if (vkEndCommandBuffer(cmd->buffer) != VK_SUCCESS) {
+							return MUG_FAILED_END_VK_COMMAND_BUFFER;
+						}
+						cmd->on = MU_FALSE;
+					}
+
+					/* Submit command buffer to the graphics queue, which will start the command execution */
+					{
+						// (For wait semaphore, wait until all commands relevant to the swapchain image being acquired have finished, ensuring that the image is fully available before the queued commands start executing.)
+						VkPipelineStageFlags wait_dst = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+						VkSubmitInfo info = MU_ZERO_STRUCT(VkSubmitInfo);
+						info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+						info.waitSemaphoreCount = 1;
+						info.pWaitSemaphores = &cmd->queue_wait_semaphore;
+						info.pWaitDstStageMask = &wait_dst;
+						info.commandBufferCount = 1;
+						info.pCommandBuffers = &cmd->buffer;
+						info.signalSemaphoreCount = 1;
+						info.pSignalSemaphores = &cmd->queue_signal_semaphore;
+						// ^ This sets up queue_signal_semaphore to be signaled when all of the commands are submitted to the graphics queue, which is waited for in the present function.
+
+						if (vkQueueSubmit(inner->init.graphics_queue, 1, &info, cmd->queue_wait_fence) != VK_SUCCESS) {
+							return MUG_FAILED_SUBMIT_VK_QUEUE;
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				// Warning: this is an expensive function.
+				mugResult mug_innervk_command_present(mugContext* context, mug_graphic* gfx, mug_innervk_command* cmd) {
+					if (cmd->on) {
+						return MUG_SUCCESS;
+					}
+
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+					VkResult vk_res = VK_SUCCESS;
+
+					/* Present swapchain when commands are finished, signaled by the queue signal. */
+					{
+						VkPresentInfoKHR info = MU_ZERO_STRUCT(VkPresentInfoKHR);
+						info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+						info.waitSemaphoreCount = 1;
+						info.pWaitSemaphores = &cmd->queue_signal_semaphore;
+						info.swapchainCount = 1;
+						info.pSwapchains = &inner->sc.handle;
+						info.pImageIndices = &inner->sc.image_index;
+
+						vk_res = vkQueuePresentKHR(inner->init.present_queue, &info);
+
+						if (vk_res == VK_ERROR_OUT_OF_DATE_KHR || vk_res == VK_SUBOPTIMAL_KHR) {
+							// :L
+							mug_innervk_inner_swapchain_resize(context, gfx, inner);
+							//vkQueuePresentKHR(inner->init.present_queue, &info);
+						} else if (vk_res != VK_SUCCESS) {
+							return MUG_FAILED_PRESENT_VK_QUEUE;
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				mugResult mug_innervk_command_get_next_swapchain(mug_graphic* gfx, mug_innervk_command* cmd) {
+					if (cmd->on) {
+						return MUG_SUCCESS;
+					}
+
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					if (vkWaitForFences(inner->init.device, 1, &cmd->queue_wait_fence, VK_TRUE, MU_UINT64_MAX) != VK_SUCCESS) {
+						return MUG_FAILED_WAIT_FOR_VK_FENCE;
+					}
+
+					/* Start getting next swapchain image */
+					{
+						if (vkAcquireNextImageKHR(inner->init.device, inner->sc.handle, MU_UINT64_MAX, cmd->queue_wait_semaphore, VK_NULL_HANDLE, &inner->sc.image_index) != VK_SUCCESS) {
+							return MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE;
+						}
+					}
+
+					if (vkResetFences(inner->init.device, 1, &cmd->queue_wait_fence) != VK_SUCCESS) {
+						return MUG_FAILED_RESET_VK_FENCE;
+					}
+
+					return MUG_SUCCESS;
+				}
+
+		/* Renderers */
+
+			/* Creation / Destruction */
+
+				VkAttachmentDescription mug_innervk_renderer_def_attachment_desc(mug_innervk_swapchain* sc) {
+					VkAttachmentDescription attr = MU_ZERO_STRUCT(VkAttachmentDescription);
+					attr.format = sc->format;
+					attr.samples = VK_SAMPLE_COUNT_1_BIT;
+					attr.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+					attr.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+					return attr;
+				}
+
+				VkRenderPassCreateInfo mug_innervk_renderer_def_rp_ci(void) {
+					VkRenderPassCreateInfo rp_ci = MU_ZERO_STRUCT(VkRenderPassCreateInfo);
+					rp_ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+					return rp_ci;
+				}
+
+				mugResult mug_innervk_renderers_create_render_passes(mug_graphic* gfx, mug_innervk_renderers* rs) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					VkAttachmentDescription attr;
+					VkRenderPassCreateInfo ci;
+					VkAttachmentReference ref;
+					VkSubpassDescription subpass;
+
+					/* unknown_to_ca */
+					{
+						attr = mug_innervk_renderer_def_attachment_desc(&inner->sc);
+						attr.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+						attr.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+						attr.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+						ref = MU_ZERO_STRUCT(VkAttachmentReference);
+						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
+						subpass.colorAttachmentCount = 1;
+						subpass.pColorAttachments = &ref;
+
+						ci = mug_innervk_renderer_def_rp_ci();
+						ci.attachmentCount = 1;
+						ci.pAttachments = &attr;
+						ci.subpassCount = 1;
+						ci.pSubpasses = &subpass;
+
+						if (vkCreateRenderPass(inner->init.device, &ci, 0, &rs->unknown_to_ca.render_pass) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_RENDER_PASS;
+						}
+					}
+
+					/* ca_to_present */
+					{
+						attr = mug_innervk_renderer_def_attachment_desc(&inner->sc);
+						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+						attr.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+						ref = MU_ZERO_STRUCT(VkAttachmentReference);
+						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
+						subpass.colorAttachmentCount = 1;
+						subpass.pColorAttachments = &ref;
+
+						ci = mug_innervk_renderer_def_rp_ci();
+						ci.attachmentCount = 1;
+						ci.pAttachments = &attr;
+						ci.subpassCount = 1;
+						ci.pSubpasses = &subpass;
+
+						if (vkCreateRenderPass(inner->init.device, &ci, 0, &rs->ca_to_present.render_pass) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_RENDER_PASS;
+						}
+					}
+
+					/* ca_to_ca_pip */
+					{
+						attr = mug_innervk_renderer_def_attachment_desc(&inner->sc);
+						attr.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+						attr.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+						attr.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+						attr.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+						ref = MU_ZERO_STRUCT(VkAttachmentReference);
+						ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+						subpass = MU_ZERO_STRUCT(VkSubpassDescription);
+						subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+						subpass.colorAttachmentCount = 1;
+						subpass.pColorAttachments = &ref;
+
+						ci = mug_innervk_renderer_def_rp_ci();
+						ci.attachmentCount = 1;
+						ci.pAttachments = &attr;
+						ci.subpassCount = 1;
+						ci.pSubpasses = &subpass;
+
+						if (vkCreateRenderPass(inner->init.device, &ci, 0, &rs->ca_to_ca_pip.render_pass) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_RENDER_PASS;
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				void mug_innervk_renderers_destroy_render_passes(mug_graphic* gfx, mug_innervk_renderers* rs) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					if (rs->unknown_to_ca.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(inner->init.device, rs->unknown_to_ca.render_pass, 0);
+					}
+					if (rs->ca_to_present.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(inner->init.device, rs->ca_to_present.render_pass, 0);
+					}
+					if (rs->ca_to_ca_pip.render_pass != VK_NULL_HANDLE) {
+						vkDestroyRenderPass(inner->init.device, rs->ca_to_ca_pip.render_pass, 0);
+					}
+				}
+
+				mugResult mug_innervk_def_framebuffer_create(mug_graphic* gfx, VkRenderPass rp, VkFramebuffer** p_fbs) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					VkFramebuffer* fbs = (VkFramebuffer*)mu_malloc(sizeof(VkFramebuffer) * inner->sc.image_count);
+					if (fbs == 0) {
+						return MUG_ALLOCATION_FAILED;
+					}
+
+					for (uint32_t i = 0; i < inner->sc.image_count; i++) {
+						fbs[i] = VK_NULL_HANDLE;
+					}
+
+					for (uint32_t i = 0; i < inner->sc.image_count; i++) {
+						VkFramebufferCreateInfo ci = MU_ZERO_STRUCT(VkFramebufferCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+						ci.renderPass = rp;
+						ci.attachmentCount = 1;
+						ci.pAttachments = &inner->sc.image_views[i];
+						ci.width = inner->sc.extent.width;
+						ci.height = inner->sc.extent.height;
+						ci.layers = 1;
+
+						if (vkCreateFramebuffer(inner->init.device, &ci, 0, &fbs[i]) != VK_SUCCESS) {
+							return MUG_FAILED_CREATE_VK_FRAMEBUFFERS;
+						}
+					}
+
+					*p_fbs = fbs;
+					return MUG_SUCCESS;
+				}
+
+				mugResult mug_innervk_renderers_create_framebuffers(mug_graphic* gfx, mug_innervk_renderers* rs) {
+					mugResult res = MUG_SUCCESS;
+
+					res = mug_innervk_def_framebuffer_create(gfx, rs->unknown_to_ca.render_pass, &rs->unknown_to_ca.framebuffers);
+					if (res != MUG_SUCCESS) { return res; }
+
+					res = mug_innervk_def_framebuffer_create(gfx, rs->ca_to_present.render_pass, &rs->ca_to_present.framebuffers);
+					if (res != MUG_SUCCESS) { return res; }
+
+					res = mug_innervk_def_framebuffer_create(gfx, rs->ca_to_ca_pip.render_pass, &rs->ca_to_ca_pip.framebuffers);
+					if (res != MUG_SUCCESS) { return res; }
+
+					return MUG_SUCCESS;
+				}
+
+				void mug_innervk_renderer_destroy_framebuffer(mug_graphic* gfx, mug_innervk_renderer* r) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+
+					if (r->framebuffers != 0) {
+						for (uint32_t i = 0; i < inner->sc.image_count; i++) {
+							if (r->framebuffers[i] == VK_NULL_HANDLE) {
+								return;
+							}
+							vkDestroyFramebuffer(inner->init.device, r->framebuffers[i], 0);
+						}
+					}
+				}
+
+				void mug_innervk_renderers_destroy_framebuffers(mug_graphic* gfx, mug_innervk_renderers* rs) {
+					mug_innervk_renderer_destroy_framebuffer(gfx, &rs->unknown_to_ca);
+					mug_innervk_renderer_destroy_framebuffer(gfx, &rs->ca_to_present);
+					mug_innervk_renderer_destroy_framebuffer(gfx, &rs->ca_to_ca_pip);
+				}
+
+			/* Usage */
+
+				mugResult mug_innervk_renderers_clear(mugContext* context, mug_graphic* gfx, mug_innervk_renderers* rs, float r, float g, float b, float a) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+					mugResult res = MUG_SUCCESS;
+
+					/* Turn on commands */
+					{
+						res = mug_innervk_command_begin(context, gfx, &inner->cmds[inner->now_cmd]);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+					}
+
+					/* Start and end unknown_to_ca render pass to clear contents */
+					{
+						VkRenderPassBeginInfo ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
+						ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+						ci.renderPass = rs->unknown_to_ca.render_pass;
+						ci.framebuffer = rs->unknown_to_ca.framebuffers[inner->sc.image_index];
+						ci.renderArea.offset.x = 0;
+						ci.renderArea.offset.y = 0;
+						ci.renderArea.extent = inner->sc.extent;
+
+						VkClearValue clearval = MU_ZERO_STRUCT(VkClearValue);
+						clearval.color.float32[0] = r;
+						clearval.color.float32[1] = g;
+						clearval.color.float32[2] = b;
+						clearval.color.float32[3] = a;
+
+						ci.clearValueCount = 1;
+						ci.pClearValues = &clearval;
+
+						vkCmdBeginRenderPass(inner->cmds[inner->now_cmd].buffer, &ci, VK_SUBPASS_CONTENTS_INLINE);
+						vkCmdEndRenderPass(inner->cmds[inner->now_cmd].buffer);
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				mugResult mug_innervk_renderers_make_presentable(mugContext* context, mug_graphic* gfx, mug_innervk_renderers* rs) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					
+					mugResult res = MUG_SUCCESS;
+
+					/* Turn on commands */
+					{
+						res = mug_innervk_command_begin(context, gfx, &inner->cmds[inner->now_cmd]);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+					}
+
+					/* Start and end ca_to_present render pass to make layout presentable */
+					{
+						VkRenderPassBeginInfo ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
+						ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+						ci.renderPass = rs->ca_to_present.render_pass;
+						ci.framebuffer = rs->ca_to_present.framebuffers[inner->sc.image_index];
+						ci.renderArea.offset.x = 0;
+						ci.renderArea.offset.y = 0;
+						ci.renderArea.extent = inner->sc.extent;
+
+						vkCmdBeginRenderPass(inner->cmds[inner->now_cmd].buffer, &ci, VK_SUBPASS_CONTENTS_INLINE);
+						vkCmdEndRenderPass(inner->cmds[inner->now_cmd].buffer);
+					}
+
+					return MUG_SUCCESS;
+				}
+
+		/* Inner */
+
+			/* Creation / Destruction */
+
+				#ifdef MUG_VK_DEBUG
+					unsigned int mug_innervk_DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data) {
+							printf("[DEBUG] (Vulkan debug message) ");
+							
+							printf("(severity: ");
+							if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) {
+								printf("verbose ");
+							}
+							if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+								printf("info ");
+							}
+							if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+								printf("warning ");
+							}
+							if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+								printf("error ");
+							}
+							printf(") ");
+
+							printf("(types: ");
+							if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT) {
+								printf("general ");
+							}
+							if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+								printf("validation ");
+							}
+							if (types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
+								printf("performance ");
+							}
+							printf(") ");
+
+							printf("message: \n%s\n", data->pMessage);
+							return VK_TRUE; if (user_data) {}
+						}
+				#endif
+
+				// Note: zeros struct
+				mugResult mug_innervk_inner_create(mugContext* context, mug_graphic* gfx, mug_innervk_inner* inner) {
+					*inner = MU_ZERO_STRUCT(mug_innervk_inner);
+					mugResult res = MUG_SUCCESS;
+
+					/* Init */
+					{
+						#ifdef MUG_VK_DEBUG
+							inner->init.use_validation_layers = MU_TRUE;
+							inner->init.debug_messenger_callback = mug_innervk_DebugUtilsMessengerCallback;
+						#else
+							inner->init.use_validation_layers = MU_FALSE;
+						#endif
+						res = mug_innervk_init_create(context, gfx, &inner->init);
+						if (res != MUG_SUCCESS) {
+							mug_innervk_init_destroy(&inner->init);
+							return res;
+						}
+					}
+
+					/* Swapchain */
+					{
+						res = mug_innervk_swapchain_create(context, gfx, &inner->sc);
+						if (res != MUG_SUCCESS) {
+							mug_innervk_swapchain_destroy(gfx, &inner->sc);
+							mug_innervk_init_destroy(&inner->init);
+							return res;
+						}
+					}
+
+					/* Commands */
+					{
+						for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+							res = mug_innervk_command_create(gfx, &inner->cmds[i]);
+
+							if (res != MUG_SUCCESS) {
+								for (size_m j = 0; j <= i; j++) {
+									mug_innervk_command_destroy(gfx, &inner->cmds[j]);
+								}
+
+								mug_innervk_swapchain_destroy(gfx, &inner->sc);
+								mug_innervk_init_destroy(&inner->init);
+								return res;
+							}
+						}
+					}
+
+					/* Render passes */
+					{
+						res = mug_innervk_renderers_create_render_passes(gfx, &inner->rs);
+						if (res != MUG_SUCCESS) {
+							mug_innervk_renderers_destroy_render_passes(gfx, &inner->rs);
+							for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+								mug_innervk_command_destroy(gfx, &inner->cmds[i]);
+							}
+							mug_innervk_swapchain_destroy(gfx, &inner->sc);
+							mug_innervk_init_destroy(&inner->init);
+							return res;
+						}
+					}
+
+					/* Framebuffers */
+					{
+						res = mug_innervk_renderers_create_framebuffers(gfx, &inner->rs);
+						if (res != MUG_SUCCESS) {
+							mug_innervk_renderers_destroy_framebuffers(gfx, &inner->rs);
+							mug_innervk_renderers_destroy_render_passes(gfx, &inner->rs);
+							for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+								mug_innervk_command_destroy(gfx, &inner->cmds[i]);
+							}
+							mug_innervk_swapchain_destroy(gfx, &inner->sc);
+							mug_innervk_init_destroy(&inner->init);
+							return res;
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				void mug_innervk_inner_destroy(mug_graphic* gfx, mug_innervk_inner* inner) {
+					mug_innervk_renderers_destroy_framebuffers(gfx, &inner->rs);
+					mug_innervk_renderers_destroy_render_passes(gfx, &inner->rs);
+					for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+						mug_innervk_command_destroy(gfx, &inner->cmds[i]);
+					}
+					mug_innervk_swapchain_destroy(gfx, &inner->sc);
+					mug_innervk_init_destroy(&inner->init);
+				}
+
+			/* Usage */
+
+				mugResult mug_innervk_inner_swapchain_resize(mugContext* context, mug_graphic* gfx, mug_innervk_inner* inner) {
+					
+					mugResult res = MUG_SUCCESS;
+
+					vkDeviceWaitIdle(inner->init.device);
+
+					mug_innervk_renderers_destroy_framebuffers(gfx, &inner->rs);
+					mug_innervk_swapchain_destroy(gfx, &inner->sc);
+
+					res = mug_innervk_swapchain_create(context, gfx, &inner->sc);
+					if (res != MUG_SUCCESS) {
+						return res;
+					}
+
+					res = mug_innervk_renderers_create_framebuffers(gfx, &inner->rs);
+					if (res != MUG_SUCCESS) {
+						return res;
+					}
+
+					return MUG_SUCCESS;
+				}
+
+		/* Graphic */
+
+			mugResult mug_innervk_graphic_create(mugContext* context, mug_graphic* gfx) {
+				mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+				if (vkbInit(NULL) != VK_SUCCESS) {
+					return MUG_FAILED_INITIATE_VULKAN;
+				}
+				return mug_innervk_inner_create(context, gfx, inner);
+			}
+
+			void mug_innervk_graphic_destroy(mugContext* context, mug_graphic* gfx) {
+				mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+
+				if (inner->init.device != VK_NULL_HANDLE) {
+					vkDeviceWaitIdle(inner->init.device);
+				}
+
+				// Due to X11/Vulkan being weird, X11 requires us to destroy Vulkan stuff AFTER its given window is fully destroyed.
+				// https://github.com/KhronosGroup/Vulkan-LoaderAndValidationLayers/issues/1894
+
+				muWindowSystem window_system = muCOSA_context_get_window_system(&context->cosa);
+				if (window_system != MU_WINDOW_SYSTEM_X11) {
+					mug_innervk_inner_destroy(gfx, inner);
+				} else if (inner->sc.handle != VK_NULL_HANDLE) {
+					// X11 *does* want the swapchain to be destroyed here, though
+					vkDestroySwapchainKHR(inner->init.device, inner->sc.handle, 0);
+					inner->sc.handle = VK_NULL_HANDLE;
+				}
+
+				switch (gfx->objtype) {
+					default: break;
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_window_destroy(&context->cosa, 0, gfx->obj.win); break;
+				}
+
+				if (window_system == MU_WINDOW_SYSTEM_X11) {
+					mug_innervk_inner_destroy(gfx, inner);
+				}
+
+				// ? This should take an API parameter...
+				vkbUninit();
+
+				mu_free(gfx->papi);
+			}
+
+		/* Window */
+
+			void mug_innervk_graphic_create_via_window(mugContext* context, mugResult* result, mug_graphic* gfx, const char* name, uint16_m w, uint16_m h, muWindowCreateInfo ci) {
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
+				mugResult res = MUG_SUCCESS;
+
+				gfx->papi = mu_malloc(sizeof(mug_innervk_inner));
+				if (gfx->papi == 0) {
+					MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+					return;
+				}
+
+				gfx->obj.win = muCOSA_window_create(&context->cosa, &cosa_res, MU_NO_GRAPHICS_API, 0, name, w, h, ci);
+				if (cosa_res != MUCOSA_SUCCESS) {
+					mu_free(gfx->papi);
+					MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
+					return;
+				}
+
+				res = mug_innervk_graphic_create(context, gfx);
+				if (res != MUG_SUCCESS) {
+					MU_SET_RESULT(result, res)
+					return;
+				}
+			}
+
+			/* Main loop */
+
+				void mug_innervk_graphic_clear(mugResult* result, mugContext* context, mug_graphic* gfx, float r, float g, float b, float a) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					mugResult res = MUG_SUCCESS;
+
+					res = mug_innervk_renderers_clear(context, gfx, &inner->rs, r, g, b, a);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+					}
+				}
+
+				void mug_innervk_graphic_swap_buffers(mugResult* result, mugContext* context, mug_graphic* gfx) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					mugResult res = MUG_SUCCESS;
+
+					res = mug_innervk_renderers_make_presentable(context, gfx, &inner->rs);
+					if (res != MUG_SUCCESS) { MU_SET_RESULT(result, res) return; }
+
+					res = mug_innervk_command_end_submit(gfx, &inner->cmds[inner->now_cmd]);
+					if (res != MUG_SUCCESS) { MU_SET_RESULT(result, res) return; }
+
+					// Warning: the function 'vkQueuePresentKHR' is perhaps the meatiest in Vulkan; I'm considering moving this to the beginning of mug_innervk_command_begin, but I'm not sure if that would be wise or even work, and I only wanna try it when mug is in a developed-enough state to do performance tests for this sort of stuff.
+					res = mug_innervk_command_present(context, gfx, &inner->cmds[inner->now_cmd]);
+					if (res != MUG_SUCCESS) { MU_SET_RESULT(result, res) return; }
+
+					inner->now_cmd = (inner->now_cmd + 1) % MUG_VK_FRAME_BUFFERS;
+				}
+
+				void mug_innervk_graphic_update(mugResult* result, mugContext* context, mug_graphic* gfx) {
+					mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+					mugResult res = MUG_SUCCESS;
+					muCOSAResult cosa_res = MUCOSA_SUCCESS;
+
+					uint32_m w,h;
+					res = mug_innervk_get_graphic_dimensions(context, gfx, &w, &h);
+					if (res == MUG_SUCCESS && (w != inner->sc.extent.width || h != inner->sc.extent.height)) {
+						res = mug_innervk_inner_swapchain_resize(context, gfx, inner);
+						if (res != MUG_SUCCESS) { MU_SET_RESULT(result, res) return; }
+					}
+
+					switch (gfx->objtype) {
+						default: break;
+
+						case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+							muCOSA_window_update(&context->cosa, &cosa_res, gfx->obj.win);
+							if (cosa_res != MUCOSA_SUCCESS) {
+								MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
+								// return;
+							}
+						} break;
+					}
+				}
+
 	/* Graphic */
 
 		MUDEF void mug_graphic_destroy(mugContext* context, mugResult* result, muGraphic* graphic) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
-			switch (gfx->objtype) {
+			
+			switch (gfx->api) {
 				default: break;
-				case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_window_destroy(&context->cosa, 0, gfx->obj.win); break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_graphic_destroy(context, gfx);
+				} break;
+
+				case MUG_VULKAN: {
+					mug_innervk_graphic_destroy(context, gfx);
+				} break;
 			}
 
 			mu_free(gfx);
@@ -37688,6 +39294,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 					case MUG_OPENGL: {
 						mug_innergl_graphic_create_via_window(context, &res, gfx, name, width, height, create_info);
+					} break;
+
+					case MUG_VULKAN: {
+						mug_innervk_graphic_create_via_window(context, &res, gfx, name, width, height, create_info);
 					} break;
 				}
 
@@ -37735,9 +39345,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						mug_innergl_graphic_bind(context, gfx);
 						mug_innergl_graphic_clear(r, g, b, a);
 					} break;
-				}
 
-				return; if (result) {}
+					case MUG_VULKAN: {
+						mug_innervk_graphic_clear(result, context, gfx, r, g, b, a);
+					} break;
+				}
 			}
 
 			MUDEF void mug_graphic_swap_buffers(mugContext* context, mugResult* result, muGraphic graphic) {
@@ -37749,6 +39361,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_OPENGL: {
 						mug_innergl_graphic_bind(context, gfx);
 						mug_innergl_graphic_swap_buffers(context, result, gfx);
+					} break;
+
+					case MUG_VULKAN: {
+						mug_innervk_graphic_swap_buffers(result, context, gfx);
 					} break;
 				}
 			}
@@ -37762,6 +39378,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_OPENGL: {
 						mug_innergl_graphic_bind(context, gfx);
 						mug_innergl_graphic_update(context, result, gfx);
+					} break;
+
+					case MUG_VULKAN: {
+						mug_innervk_graphic_update(result, context, gfx);
 					} break;
 				}
 			}
