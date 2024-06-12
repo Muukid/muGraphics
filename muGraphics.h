@@ -10,6 +10,7 @@ More explicit license information at the end of file.
 @TODO (Vulkan) Benchmark performance, especially in regards to vkQueuePresentKHR.
 @TODO Global Vulkan loader.
 @TODO Fix Vulkan loading/terminating (right now, having multiple Vulkan contexts most likely won't work).
+@TODO Internally break up vertex data that's too big to allocate all at once.
 */
 
 /* @DOCBEGIN
@@ -1918,6 +1919,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_ALLOCATION_FAILED,
 				// @DOCLINE `@NLFT`: a `muGraphicAPI` value passed was an invalid/unknown enumerator value.
 				MUG_UNKNOWN_GRAPHIC_API,
+				// @DOCLINE `@NLFT`: a `mugObjectType` value passed was an invalid/unknown enumerator value.
+				MUG_UNKNOWN_OBJECT_TYPE,
+				// @DOCLINE `@NLFT`: a call to `glGenBuffers` failed.
+				MUG_FAILED_CREATE_GL_BUFFER,
+				// @DOCLINE `@NLFT`: a call to `glGenVertexArrays` failed.
+				MUG_FAILED_CREATE_GL_VERTEX_ARRAY,
+				// @DOCLINE `@NLFT`: required OpenGL shaders failed to compile. This would be an issue within mug itself and would need to be fixed internally.
+				MUG_FAILED_COMPILE_GL_SHADERS,
 				// @DOCLINE `@NLFT`: a call to `vkbInit` failed.
 				MUG_FAILED_INITIATE_VULKAN,
 				// @DOCLINE `@NLFT`: a call to `vkCreateInstance` failed.
@@ -2078,12 +2087,12 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 		// @DOCLINE ## Destroy graphic
 
 			// @DOCLINE The function `mug_graphic_destroy` destroys any graphic, defined below: @NLNT
-			MUDEF void mug_graphic_destroy(mugContext* context, mugResult* result, muGraphic* graphic);
+			MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic graphic);
 
 			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
-			#define mu_graphic_destroy(...) mug_graphic_destroy(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
-			#define mu_graphic_destroy_(result, ...) mug_graphic_destroy(mug_global_context, result, __VA_ARGS__)
+			#define mu_graphic_destroy(...) mug_graphic_destroy(mug_global_context, __VA_ARGS__)
+
+			// @DOCLINE Note that `mug_graphic_destroy` *must* be called at some point on every successfully-created graphic.
 
 		// @DOCLINE ## Window graphic
 
@@ -2163,6 +2172,203 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				#define mu_graphic_update_(result, ...) mug_graphic_update(mug_global_context, result, __VA_ARGS__)
 
 				// @DOCLINE This function should be called near the end of the frame and *after* `mug_graphic_swap_buffers`, preferably as the last function call of the frame.
+
+	// @DOCLINE # Object buffers
+
+		// @DOCLINE The primary way that mug renders things is with object buffers (respective type `mugObjectBuffer`). There are different object buffer types that are capable of rendering different types of objects.
+
+		#define mugObjectBuffer void*
+
+		// @DOCLINE ## Object types
+
+			// @DOCLINE The enum `mugObjectType` is used to represent the object type of a buffer. Its possible values are:
+
+			MU_ENUM(mugObjectType,
+				// @DOCLINE * `@NLFT`: a triangle; respective struct `muTriangle`.
+				MUG_OBJECT_TRIANGLE,
+			)
+
+		// @DOCLINE ## Load object type
+
+			// @DOCLINE The function `mug_gobj_type_load` loads the resources needed for creating object buffers of a given type, defined below: @NLNT
+			MUDEF void mug_gobj_type_load(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_type_load(...) mug_gobj_type_load(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_type_load_(result, ...) mug_gobj_type_load(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE This function is automatically called upon creation of an object buffer of type `object_type`, but can also be done manually with this function.
+
+			// @DOCLINE Note that this function will not throw an error if the object type is already loaded.
+
+		// @DOCLINE ## Unload object type
+
+			// @DOCLINE The function `mug_gobj_type_unload` unloads the resources needed for creating object buffers of a given type, defined below: @NLNT
+			MUDEF void mug_gobj_type_unload(mugContext* context, muGraphic graphic, mugObjectType object_type);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_type_unload(...) mug_gobj_type_unload(mug_global_context, __VA_ARGS__)
+
+			// @DOCLINE This function should not be called if there are buffers of the given type still in existence.
+
+			// @DOCLINE This function is not required to be called on all loaded object types; it is automatically handled.
+
+		// @DOCLINE ## Creation
+
+			// @DOCLINE The function `mug_gobj_buffer_create` creates an object buffer, defined below: @NLNT
+			MUDEF mugObjectBuffer mug_gobj_buffer_create(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type, size_m object_count, void* objects);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_create(...) mug_gobj_buffer_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_create_(result, ...) mug_gobj_buffer_create(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE `objects` is rather a pointer to an `object_count`-length array of objects whose type matches the respective type of the enum value of `object_type` ***or*** 0, which creates the buffer without any data. Calling any function that relies on a buffer's data being filled (such as a render function) when the data isn't initialized will result in undefined behaviour.
+
+			// @DOCLINE `object_count` must be at least 1.
+
+			// @DOCLINE Note that a successfully-created object buffer must be destroyed by the user at some point.
+
+		// @DOCLINE ## Destruction
+
+			// @DOCLINE The function `mug_gobj_buffer_destroy` destroys an object buffer, defined below: @NLNT
+			MUDEF mugObjectBuffer mug_gobj_buffer_destroy(mugContext* context, muGraphic graphic, mugObjectBuffer buffer);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_destroy(...) mug_gobj_buffer_destroy(mug_global_context, __VA_ARGS__)
+
+			// @DOCLINE Note that this function must be called on each successfully-created `mugObjectBuffer` object at some point.
+
+		// @DOCLINE ## Render
+
+			// @DOCLINE The function `mug_gobj_buffer_render` renders an object buffer's contents, defined below: @NLNT
+			MUDEF void mug_gobj_buffer_render(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_render(...) mug_gobj_buffer_render(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_render_(result, ...) mug_gobj_buffer_render(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE Once this function is called, the contents of the buffer should not be modified for the rest of the current frame.
+
+		// @DOCLINE ## Sub-render
+
+			// @DOCLINE The function `mug_gobj_buffer_subrender` renders a portion of an object buffer's contents, defined below: @NLNT
+			MUDEF void mug_gobj_buffer_subrender(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_subrender(...) mug_gobj_buffer_subrender(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_subrender_(result, ...) mug_gobj_buffer_subrender(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE Once this function is called, the buffer should not be destroyed or resized for the rest of the current frame, and the portion of the buffer rendered should not be modified.
+
+		// @DOCLINE ## Fill
+
+			// @DOCLINE The function `mug_gobj_buffer_fill` fills an object buffer's contents, defined below: @NLNT
+			MUDEF void mug_gobj_buffer_fill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, void* objects);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_fill(...) mug_gobj_buffer_fill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_fill_(result, ...) mug_gobj_buffer_fill(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE `objects` is a pointer to an array whose length matches the object length of `buffer` and whose type matches the struct associated with the type of `buffer`.
+
+			// @DOCLINE Note that this function should not be called once the buffer's contents have been rendered for the current frame.
+
+		// @DOCLINE ## Sub-fill
+
+			// @DOCLINE The function `mug_gobj_buffer_subfill` fills a portion of an object buffer's contents, defined below: @NLNT
+			MUDEF void mug_gobj_buffer_subfill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count, void* objects);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_subfill(...) mug_gobj_buffer_subfill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_subfill_(result, ...) mug_gobj_buffer_subfill(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE `objects` is a pointer to an array of length `object_count` whose type matches the struct associated with the type of `buffer`.
+
+			// @DOCLINE Note that this function should not be called once the buffer's contents being referenced have been rendered for the current frame.
+
+		// @DOCLINE ## Resize
+
+			// @DOCLINE The function `mug_gobj_buffer_resize` resizes an object buffer, defined below: @NLNT
+			MUDEF void mug_gobj_buffer_resize(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_count, void* objects);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_resize(...) mug_gobj_buffer_resize(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_resize_(result, ...) mug_gobj_buffer_resize(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE Note that this function should not be called once any portion of the buffer's contents have been rendered for the current frame.
+
+	// @DOCLINE # Common structs
+
+		// @DOCLINE mug defines several structs used to define shapes. The following is a list of those structs.
+
+		// @DOCLINE ## Position
+
+			// @DOCLINE mug uses the struct `muPosition` to represent a 2D position, ranging from (0, 0) being the top-left of the graphic to (width, height) being the bottom-right of the graphic, where width and height are the dimensions of the graphic.
+
+			// @DOCLINE ### Members
+
+				struct muPosition {
+					// @DOCLINE * `x`: the x-value of the position, defined below: @NLNT
+					float x;
+					// @DOCLINE * `y`: the y-value of the position, defined below: @NLNT
+					float y;
+				}; typedef struct muPosition muPosition;
+
+		// @DOCLINE ## Color
+
+			// @DOCLINE mug uses the struct `muColor` to represent a color with its respective red, green, blue, and alpha channels. The channels range from 0.0 to 1.0.
+
+			// @DOCLINE ### Members
+
+				struct muColor {
+					// @DOCLINE * `r`: the red channel of the color, defined below: @NLNT
+					float r;
+					// @DOCLINE * `g`: the green channel of the color, defined below: @NLNT
+					float g;
+					// @DOCLINE * `b`: the blue channel of the color, defined below: @NLNT
+					float b;
+					// @DOCLINE * `a`: the alpha channel of the color, defined below: @NLNT
+					float a;
+				}; typedef struct muColor muColor;
+
+		// @DOCLINE ## Point
+
+			// @DOCLINE mug uses the struct `muPoint` to represent a renderable point, being defined with a position and color.
+
+			// @DOCLINE ### Members
+
+				struct muPoint {
+					// @DOCLINE * `pos`: the position of the point, defined below: @NLNT
+					muPosition pos;
+					// @DOCLINE * `col`: the color of the point, defined below: @NLNT
+					muColor col;
+				}; typedef struct muPoint muPoint;
+
+	// @DOCLINE # Triangle object
+
+		// @DOCLINE The triangle object represents a triangle, AKA three points connected as one shape. Its respective `mugObjectType` enum value is `MUG_OBJECT_TRIANGLE` and its respective struct type is `muTriangle`.
+
+		// @DOCLINE ## Struct
+
+			// The struct `muTriangle` has several members:
+
+			struct muTriangle {
+				// @DOCLINE * `p0`: the first point of the triangle, defined below: @NLNT
+				muPoint p0;
+				// @DOCLINE * `p1`: the second point of the triangle, defined below: @NLNT
+				muPoint p1;
+				// @DOCLINE * `p2`: the third point of the triangle, defined below: @NLNT
+				muPoint p2;
+			}; typedef struct muTriangle muTriangle;
+
+			// @DOCLINE All points are interchangeable and in no particular order; swapping two points with each other will have no visual effect.
 
 	// @DOCLINE # Graphics API customization
 
@@ -37550,6 +37756,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_SUCCESS: return "MUG_SUCCESS"; break;
 					case MUG_ALLOCATION_FAILED: return "MUG_ALLOCATION_FAILED"; break;
 					case MUG_UNKNOWN_GRAPHIC_API: return "MUG_UNKNOWN_GRAPHIC_API"; break;
+					case MUG_UNKNOWN_OBJECT_TYPE: return "MUG_UNKNOWN_OBJECT_TYPE"; break;
+					case MUG_FAILED_CREATE_GL_BUFFER: return "MUG_FAILED_CREATE_GL_BUFFER"; break;
+					case MUG_FAILED_CREATE_GL_VERTEX_ARRAY: return "MUG_FAILED_CREATE_GL_VERTEX_ARRAY"; break;
+					case MUG_FAILED_COMPILE_GL_SHADERS: return "MUG_FAILED_COMPILE_GL_SHADERS"; break;
 					case MUG_FAILED_INITIATE_VULKAN: return "MUG_FAILED_INITIATE_VULKAN"; break;
 					case MUG_FAILED_CREATE_VK_INSTANCE: return "MUG_FAILED_CREATE_VK_INSTANCE"; break;
 					case MUG_FAILED_CREATE_VK_SURFACE: return "MUG_FAILED_CREATE_VK_SURFACE"; break;
@@ -37690,6 +37900,32 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			mug_global_context = context;
 		}
 
+	/* Useful functions */
+
+		void mug_inner_point_fill(float* p_f, muPoint point) {
+			p_f[0] = point.pos.x;
+			p_f[1] = point.pos.y;
+			p_f[2] = point.col.r;
+			p_f[3] = point.col.g;
+			p_f[4] = point.col.b;
+			p_f[5] = point.col.a;
+		}
+
+		/* Triangle */
+
+			// Data buf format: { vec2 pos, vec4 col }
+			// Data structure: raw vertex data.
+
+			#define MUG_INNER_TRIBUF_POINTSIZE (sizeof(GLfloat)*6)
+			#define MUG_INNER_TRIBUF_ELCOUNT (18)
+			#define MUG_INNER_TRIBUF_ELSIZE (MUG_INNER_TRIBUF_ELCOUNT*sizeof(GLfloat))
+
+			void mug_inner_triangle_fill(float* p_f, muTriangle tri) {
+				mug_inner_point_fill(p_f,      tri.p0);
+				mug_inner_point_fill(&p_f[6],  tri.p1);
+				mug_inner_point_fill(&p_f[12], tri.p2);
+			}
+
 	/* Pre-API graphic (things needed for the next section) */
 
 		union mug_graphic_object {
@@ -37709,6 +37945,313 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 		typedef struct mug_graphic mug_graphic;
 
 	/* OpenGL */
+
+		/* Graphic */
+
+			struct mug_innergl_shaders {
+				GLuint triangle;
+			}; typedef struct mug_innergl_shaders mug_innergl_shaders;
+
+			struct mug_innergl_context {
+				mug_innergl_shaders shaders;
+				uint32_m last_width;
+				uint32_m last_height;
+			}; typedef struct mug_innergl_context mug_innergl_context;
+
+			mugResult mug_innergl_graphic_get_dim(mugContext* context, mug_graphic* gfx, uint32_m* w, uint32_m* h) {
+				switch (gfx->objtype) {
+					default: {
+						MU_SET_RESULT(w, 0)
+						MU_SET_RESULT(h, 0)
+					} break;
+
+					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: {
+						muCOSAResult cosa_res = MUCOSA_SUCCESS;
+						muCOSA_window_get_dimensions(&context->cosa, &cosa_res, gfx->obj.win, w, h);
+						if (cosa_res != MUCOSA_SUCCESS) {
+							return muCOSA_result_to_mug_result(cosa_res);
+						}
+					} break;
+				}
+
+				return MUG_SUCCESS;
+			}
+
+		/* Buffers */
+
+			/* Useful functions */
+
+				GLuint mug_innergl_comp_shader_vf(const char* vss, const char* fss) {
+					GLint success;
+					GLchar complog[512];
+
+					GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+					glShaderSource(vs, 1, &vss, 0);
+					glCompileShader(vs);
+					glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
+					if (!success) {
+						glGetShaderInfoLog(vs, 512, NULL, complog);
+						return 0;
+					}
+
+					GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+					glShaderSource(fs, 1, &fss, 0);
+					glCompileShader(fs);
+					glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+					if (!success) {
+						glGetShaderInfoLog(fs, 512, NULL, complog);
+						glDeleteShader(vs);
+						return 0;
+					}
+
+					GLuint sp = glCreateProgram();
+					glAttachShader(sp, vs);
+					glAttachShader(sp, fs);
+					glLinkProgram(sp);
+					glGetProgramiv(sp, GL_LINK_STATUS, &success);
+					if (!success) {
+						glDeleteShader(fs);
+						glDeleteShader(vs);
+						return 0;
+					}
+
+					glDeleteShader(fs);
+					glDeleteShader(vs);
+					return sp;
+				}
+
+			/* Triangle */
+
+				/* Buffer */
+
+					struct mug_innergl_tribuf {
+						GLuint vbo;
+						GLuint vao;
+						size_m count;
+					}; typedef struct mug_innergl_tribuf mug_innergl_tribuf;
+
+					void mug_innergl_triangle_buffer_desc(void) {
+						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, MUG_INNER_TRIBUF_POINTSIZE, 0);
+						glEnableVertexAttribArray(0);
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, MUG_INNER_TRIBUF_POINTSIZE, (void*)(2*sizeof(GLfloat)));
+						glEnableVertexAttribArray(1);
+					}
+
+					mugResult mug_innergl_tribuf_fill(mug_innergl_tribuf* buf, size_m count, muTriangle* tris) {
+						glBindVertexArray(buf->vao);
+
+						/* Vertexes */
+						if (tris != 0)
+						{
+							GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_TRIBUF_ELSIZE * count);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							for (size_m i = 0; i < count; i++) {
+								mug_inner_triangle_fill(&vertexes[i*MUG_INNER_TRIBUF_ELCOUNT], tris[i]);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_TRIBUF_ELSIZE * count, vertexes, GL_DYNAMIC_DRAW);
+
+							mu_free(vertexes);
+						} else {
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_TRIBUF_ELSIZE * count, 0, GL_DYNAMIC_DRAW);
+						}
+
+						mug_innergl_triangle_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_tribuf_subfill(mug_innergl_tribuf* buf, size_m trioffset, size_m tricount, muTriangle* tris) {
+						glBindVertexArray(buf->vbo);
+
+						/* Vertexes */
+						{
+							GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_TRIBUF_ELSIZE * tricount);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							for (size_m i = 0; i < tricount; i++) {
+								mug_inner_triangle_fill(&vertexes[i*MUG_INNER_TRIBUF_ELCOUNT], tris[i]);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferSubData(GL_ARRAY_BUFFER, MUG_INNER_TRIBUF_ELSIZE * trioffset, MUG_INNER_TRIBUF_ELSIZE * tricount, vertexes);
+
+							mu_free(vertexes);
+						}
+
+						mug_innergl_triangle_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					void mug_innergl_tribuf_destroy(mug_innergl_tribuf* tribuf) {
+						glDeleteVertexArrays(1, &tribuf->vao);
+						glDeleteBuffers(1, &tribuf->vbo);
+					}
+
+					mug_innergl_tribuf* mug_innergl_tribuf_create(mugResult* result, size_m count, muTriangle* triangles) {
+						mug_innergl_tribuf buf;
+						buf.vbo = 0;
+						buf.vao = 0;
+						buf.count = count;
+						mugResult res = MUG_SUCCESS;
+
+						/* Generate objects */
+						{
+							glGenBuffers(1, &buf.vbo);
+							if (buf.vbo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								return 0;
+							}
+
+							glGenVertexArrays(1, &buf.vao);
+							if (buf.vao == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_VERTEX_ARRAY)
+								glDeleteBuffers(1, &buf.vbo);
+								return 0;
+							}
+						}
+
+						/* Fill buffer */
+						{
+							res = mug_innergl_tribuf_fill(&buf, count, triangles);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_tribuf_destroy(&buf);
+								return 0;
+							}
+						}
+
+						mug_innergl_tribuf* pbuf = (mug_innergl_tribuf*)mu_malloc(sizeof(mug_innergl_tribuf));
+						if (pbuf == 0) {
+							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+							mug_innergl_tribuf_destroy(&buf);
+							return 0;
+						}
+						*pbuf = buf;
+						return pbuf;
+					}
+
+					void mug_innergl_tribuf_resize(mugResult* result, mug_innergl_tribuf* buf, size_m count, muTriangle* triangles) {
+						buf->count = count;
+						mugResult res = mug_innergl_tribuf_fill(buf, count, triangles);
+						MU_SET_RESULT(result, res)
+					}
+
+					void mug_innergl_tribuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_tribuf* buf) {
+						mugResult res = MUG_SUCCESS;
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.triangle);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							// @TODO Don't update each frame
+							glUniform2f(glGetUniformLocation(gl->shaders.triangle, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawArrays(GL_TRIANGLES, 0, buf->count*3);
+						glBindVertexArray(0);
+
+						glUseProgram(0);
+					}
+
+					void mug_innergl_tribuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_tribuf* buf, size_m offset, size_m count) {
+						mugResult res = MUG_SUCCESS;
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.triangle);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.triangle, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						// "offset*3" ?
+						glDrawArrays(GL_TRIANGLES, offset*3, count*3);
+						glBindVertexArray(0);
+
+						glUseProgram(0);
+					}
+
+				/* Shader */
+
+					const char* mug_innergl_triangle_vshader = 
+						"#version 400 core\n"
+
+						"layout(location=0)in vec2 vPos;"
+						"layout(location=1)in vec4 vCol;"
+
+						"out vec4 fCol;"
+						"uniform vec2 d;"
+
+						"void main(){"
+							"gl_Position=vec4((vPos.x-(d.x))/d.x,-(vPos.y-(d.y))/d.y,0.0,1.0);"
+							"fCol=vCol;"
+						"}"
+					;
+
+					const char* mug_innergl_triangle_fshader = 
+						"#version 400 core\n"
+
+						"in vec4 fCol;"
+						"out vec4 oCol;"
+
+						"void main(){"
+							"oCol=fCol;"
+						"}"
+					;
+
+		/* Shaders */
+
+			mugResult mug_innergl_load_shader(mug_graphic* gfx, mugObjectType objtype) {
+				mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+
+				switch (objtype) {
+					default: return MUG_UNKNOWN_OBJECT_TYPE; break;
+
+					case MUG_OBJECT_TRIANGLE: {
+						if (gl->shaders.triangle == 0) {
+							gl->shaders.triangle = mug_innergl_comp_shader_vf(mug_innergl_triangle_vshader, mug_innergl_triangle_fshader);
+							if (gl->shaders.triangle == 0) {
+								return MUG_FAILED_COMPILE_GL_SHADERS;
+							}
+						}
+					} break;
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			void mug_innergl_deload_shader(mug_graphic* gfx, mugObjectType objtype) {
+				mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+
+				switch (objtype) {
+					default: return; break;
+
+					case MUG_OBJECT_TRIANGLE: {
+						if (gl->shaders.triangle == 0) {
+							glDeleteProgram(gl->shaders.triangle);
+							gl->shaders.triangle = 0;
+						}
+					} break;
+				}
+			}
 
 		/* Loading */
 
@@ -37733,12 +38276,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					default: break;
 					case MUG_GRAPHIC_OBJTYPE_MUWINDOW: muCOSA_window_destroy(&context->cosa, 0, gfx->obj.win); break;
 				}
+
+				mu_free(gfx->papi);
 			}
 
 		/* Enabling features */
 
 			void mug_innergl_enable_features(void) {
-				glEnable(GL_PRIMITIVE_RESTART);
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			}
@@ -37748,13 +38292,26 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			void mug_innergl_graphic_create_via_window(mugContext* context, mugResult* result, mug_graphic* gfx, const char* name, uint16_m w, uint16_m h, muWindowCreateInfo ci) {
 				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
+				gfx->papi = mu_malloc(sizeof(mug_innergl_context));
+				if (gfx->papi == 0) {
+					MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+					return;
+				}
+				mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+				*gl = MU_ZERO_STRUCT(mug_innergl_context);
+
 				gfx->obj.win = muCOSA_window_create(&context->cosa, &cosa_res, MU_OPENGL_4_0_CORE, mug_innergl_load_funcs, name, w, h, ci);
 				if (cosa_res != MUCOSA_SUCCESS) {
 					MU_SET_RESULT(result, muCOSA_result_to_mug_result(cosa_res))
+					mu_free(gfx->papi);
 					return;
 				}
 
 				mug_innergl_enable_features();
+
+				glViewport(0, 0, w, h);
+				gl->last_width = w;
+				gl->last_height = h;
 			}
 
 		/* Main loop */
@@ -37778,11 +38335,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						}
 					} break;
 				}
-
-				// ...
 			}
 
 			void mug_innergl_graphic_update(mugContext* context, mugResult* result, mug_graphic* gfx) {
+				mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
 				muCOSAResult cosa_res = MUCOSA_SUCCESS;
 
 				switch (gfx->objtype) {
@@ -37797,7 +38353,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					} break;
 				}
 
-				// ...
+				uint32_m w, h;
+				if (mug_innergl_graphic_get_dim(context, gfx, &w, &h) == MUG_SUCCESS) {
+					if (w != gl->last_width || h != gl->last_height) {
+						gl->last_width = w;
+						gl->last_height = h;
+						glViewport(0, 0, gl->last_width, gl->last_height);
+					}
+				}
 			}
 
 	/* Vulkan */
@@ -37808,73 +38371,236 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				#define MUG_VK_FRAME_BUFFERS 3
 			#endif
 
-		/* Inner structs */
+		/* Graphics pipeline */
 
-			struct mug_innervk_init {
-				VkInstance instance;
-				muBool use_validation_layers;
-				VkDebugUtilsMessengerEXT debug_messenger;
-				unsigned int (*debug_messenger_callback)(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data);
-				VkSurfaceKHR surface;
+			const char* mug_innervk_shader_entry = "main";
 
-				VkPhysicalDevice physical_device;
-				VkDevice device;
-				uint32_t graphics_family;
-				VkQueue graphics_queue;
-				uint32_t present_family;
-				VkQueue present_queue;
-			};
-			typedef struct mug_innervk_init mug_innervk_init;
-
-			struct mug_innervk_swapchain {
-				VkSwapchainKHR handle;
-				VkFormat format;
-				VkExtent2D extent;
+			struct mug_innervk_gpipeline_ci {
+				VkGraphicsPipelineCreateInfo pipeline_ci;
+				VkPipelineShaderStageCreateInfo shader_stages[2];
+				VkPipelineVertexInputStateCreateInfo vertex_input;
+				VkPipelineInputAssemblyStateCreateInfo input_asm;
 				VkViewport viewport;
 				VkRect2D scissor;
-
-				uint32_t image_count;
-				VkImage* images;
-				VkImageView* image_views;
-				uint32_t image_index;
+				VkPipelineViewportStateCreateInfo viewport_state;
+				VkPipelineRasterizationStateCreateInfo raster;
+				VkPipelineMultisampleStateCreateInfo ms;
+				VkPipelineDepthStencilStateCreateInfo ds;
+				VkPipelineColorBlendAttachmentState blend_att;
+				VkPipelineColorBlendStateCreateInfo blend;
+				VkDynamicState dystates[2];
+				VkPipelineDynamicStateCreateInfo dystate;
 			};
-			typedef struct mug_innervk_swapchain mug_innervk_swapchain;
+			typedef struct mug_innervk_gpipeline_ci mug_innervk_gpipeline_ci;
 
-			struct mug_innervk_command {
-				VkCommandPool pool;
-				VkCommandBuffer buffer;
-				muBool on;
+			// Note: does zero the struct for you. :)
+			void mug_innervk_def_gpipeline_ci(mug_innervk_gpipeline_ci* p_ci, VkShaderModule* p_vert_module, VkShaderModule* p_frag_module, float width, float height, VkPipelineLayout layout, VkRenderPass render_pass, uint32_t subpass) {
+				*p_ci = MU_ZERO_STRUCT(mug_innervk_gpipeline_ci);
+				p_ci->pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 
-				VkSemaphore queue_wait_semaphore;
-				VkSemaphore queue_signal_semaphore;
-				VkFence queue_wait_fence;
-			};
-			typedef struct mug_innervk_command mug_innervk_command;
+				/* Shader stages */
 
-			struct mug_innervk_renderer {
-				VkRenderPass render_pass;
-				VkFramebuffer* framebuffers; // count = sc.image_count
-			};
-			typedef struct mug_innervk_renderer mug_innervk_renderer;
+					p_ci->pipeline_ci.pStages = p_ci->shader_stages;
 
-			struct mug_innervk_renderers {
-				// Unknown layout -> color attachment, used for clearing the contents with a color.
-				mug_innervk_renderer unknown_to_ca;
-				// Color attachment layout -> present, used for presentation.
-				mug_innervk_renderer ca_to_present;
-				// Color attachment layout -> color attachment layout, used for pipeline rendering.
-				mug_innervk_renderer ca_to_ca_pip;
-			};
-			typedef struct mug_innervk_renderers mug_innervk_renderers;
+					if (p_vert_module) {
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].stage = VK_SHADER_STAGE_VERTEX_BIT;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].module = *p_vert_module;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].pName = mug_innervk_shader_entry;
+						p_ci->pipeline_ci.stageCount += 1;
+					}
 
-			struct mug_innervk_inner {
-				mug_innervk_init init;
-				mug_innervk_swapchain sc;
-				mug_innervk_command cmds[MUG_VK_FRAME_BUFFERS];
-				size_m now_cmd;
-				mug_innervk_renderers rs;
-			};
-			typedef struct mug_innervk_inner mug_innervk_inner;
+					if (p_frag_module) {
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].module = *p_frag_module;
+						p_ci->shader_stages[p_ci->pipeline_ci.stageCount].pName = mug_innervk_shader_entry;
+						p_ci->pipeline_ci.stageCount += 1;
+					}
+
+				/* Vertex input */
+
+					p_ci->vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+					p_ci->pipeline_ci.pVertexInputState = &p_ci->vertex_input;
+
+				/* Input assembly */
+
+					p_ci->input_asm.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+					p_ci->input_asm.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+					p_ci->input_asm.primitiveRestartEnable = VK_FALSE;
+					p_ci->pipeline_ci.pInputAssemblyState = &p_ci->input_asm;
+
+				/* Tessellation state */
+
+					// ...
+
+				/* Viewport state */
+
+					p_ci->viewport.x = 0.f;
+					p_ci->viewport.y = 0.f;
+					p_ci->viewport.width = width;
+					p_ci->viewport.height = height;
+					p_ci->viewport.minDepth = 0.f;
+					p_ci->viewport.maxDepth = 1.f;
+
+					p_ci->scissor.extent.width = width;
+					p_ci->scissor.extent.height = height;
+
+					p_ci->viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+					p_ci->viewport_state.viewportCount = 1;
+					p_ci->viewport_state.pViewports = &p_ci->viewport;
+					p_ci->viewport_state.scissorCount = 1;
+					p_ci->viewport_state.pScissors = &p_ci->scissor;
+					p_ci->pipeline_ci.pViewportState = &p_ci->viewport_state;
+
+				/* Rasterization state */
+
+					p_ci->raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+					p_ci->raster.depthClampEnable = VK_FALSE;
+					p_ci->raster.rasterizerDiscardEnable = VK_FALSE;
+					p_ci->raster.polygonMode = VK_POLYGON_MODE_FILL;
+					p_ci->raster.cullMode = VK_CULL_MODE_NONE;
+					p_ci->raster.depthBiasEnable = VK_FALSE;
+					p_ci->raster.lineWidth = 1.f;
+					p_ci->pipeline_ci.pRasterizationState = &p_ci->raster;
+
+				/* Multisample state */
+
+					p_ci->ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+					p_ci->ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+					p_ci->ms.sampleShadingEnable = VK_FALSE;
+					p_ci->ms.alphaToCoverageEnable = VK_FALSE;
+					p_ci->ms.alphaToOneEnable = VK_FALSE;
+					p_ci->pipeline_ci.pMultisampleState = &p_ci->ms;
+
+				/* Depth/Stencil state */
+
+					p_ci->ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+					p_ci->ds.depthTestEnable = VK_FALSE;
+					p_ci->ds.depthBoundsTestEnable = VK_FALSE;
+					p_ci->ds.stencilTestEnable = VK_FALSE;
+					p_ci->pipeline_ci.pDepthStencilState = &p_ci->ds;
+
+				/* Color blend state */
+
+					p_ci->blend_att.blendEnable = VK_TRUE;
+					p_ci->blend_att.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+					p_ci->blend_att.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+					p_ci->blend_att.colorBlendOp = VK_BLEND_OP_ADD;
+					p_ci->blend_att.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+					p_ci->blend_att.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+					p_ci->blend_att.alphaBlendOp = VK_BLEND_OP_ADD;
+					p_ci->blend_att.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+					VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+					p_ci->blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+					p_ci->blend.logicOpEnable = VK_FALSE;
+					p_ci->blend.attachmentCount = 1;
+					p_ci->blend.pAttachments = &p_ci->blend_att;
+					p_ci->pipeline_ci.pColorBlendState = &p_ci->blend;
+
+				/* Dynamic state */
+
+					p_ci->dystates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+					p_ci->dystates[1] = VK_DYNAMIC_STATE_SCISSOR;
+
+					p_ci->dystate.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+					p_ci->dystate.dynamicStateCount = 2;
+					p_ci->dystate.pDynamicStates = p_ci->dystates;
+
+					p_ci->pipeline_ci.pDynamicState = &p_ci->dystate;
+
+				/* Other given stuff */
+
+					p_ci->pipeline_ci.layout = layout;
+					p_ci->pipeline_ci.renderPass = render_pass;
+					p_ci->pipeline_ci.subpass = subpass;
+			}
+
+		/* Inner structs */
+
+			/* Setup stuff */
+
+				struct mug_innervk_init {
+					VkInstance instance;
+					muBool use_validation_layers;
+					VkDebugUtilsMessengerEXT debug_messenger;
+					unsigned int (*debug_messenger_callback)(VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT types, const VkDebugUtilsMessengerCallbackDataEXT* data, void* user_data);
+					VkSurfaceKHR surface;
+
+					VkPhysicalDevice physical_device;
+					VkDevice device;
+					uint32_t graphics_family;
+					VkQueue graphics_queue;
+					uint32_t present_family;
+					VkQueue present_queue;
+				};
+				typedef struct mug_innervk_init mug_innervk_init;
+
+				struct mug_innervk_swapchain {
+					VkSwapchainKHR handle;
+					VkFormat format;
+					VkExtent2D extent;
+					VkViewport viewport;
+					VkRect2D scissor;
+
+					uint32_t image_count;
+					VkImage* images;
+					VkImageView* image_views;
+					uint32_t image_index;
+				};
+				typedef struct mug_innervk_swapchain mug_innervk_swapchain;
+
+				struct mug_innervk_command {
+					VkCommandPool pool;
+					VkCommandBuffer buffer;
+					muBool on;
+
+					VkSemaphore queue_wait_semaphore;
+					VkSemaphore queue_signal_semaphore;
+					VkFence queue_wait_fence;
+				};
+				typedef struct mug_innervk_command mug_innervk_command;
+
+				struct mug_innervk_renderer {
+					VkRenderPass render_pass;
+					VkFramebuffer* framebuffers; // count = sc.image_count
+				};
+				typedef struct mug_innervk_renderer mug_innervk_renderer;
+
+				struct mug_innervk_renderers {
+					// Unknown layout -> color attachment, used for clearing the contents with a color.
+					mug_innervk_renderer unknown_to_ca;
+					// Color attachment layout -> present, used for presentation.
+					mug_innervk_renderer ca_to_present;
+					// Color attachment layout -> color attachment layout, used for pipeline rendering.
+					mug_innervk_renderer ca_to_ca_pip;
+				};
+				typedef struct mug_innervk_renderers mug_innervk_renderers;
+
+			/* Useful objects */
+
+				struct mug_innervk_buffer {
+					VkBuffer buf;
+					VkDeviceMemory mem;
+					void* mapped_mem;
+				};
+				typedef struct mug_innervk_buffer mug_innervk_buffer;
+
+			/* Shaders */
+
+
+
+			/* Inner */
+
+				struct mug_innervk_inner {
+					mug_innervk_init init;
+					mug_innervk_swapchain sc;
+					mug_innervk_command cmds[MUG_VK_FRAME_BUFFERS];
+					size_m now_cmd;
+					mug_innervk_renderers rs;
+				};
+				typedef struct mug_innervk_inner mug_innervk_inner;
 
 		/* Graphic */
 
@@ -39256,7 +39982,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 	/* Graphic */
 
-		MUDEF void mug_graphic_destroy(mugContext* context, mugResult* result, muGraphic* graphic) {
+		MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic graphic) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
 			
 			switch (gfx->api) {
@@ -39273,7 +39999,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			}
 
 			mu_free(gfx);
-			return; if (result) {}
+			return 0;
 		}
 
 		/* Window */
@@ -39330,7 +40056,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							return MU_FALSE;
 						}
 
-						return ret;
+						return !ret;
 					} break;
 				}
 			}
@@ -39385,6 +40111,158 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					} break;
 				}
 			}
+
+	/* Object buffers */
+
+		MUDEF void mug_gobj_type_load(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_load_shader(gfx, object_type);
+				} break;
+			}
+
+			return; if (result) {}
+		}
+
+		MUDEF void mug_gobj_type_unload(mugContext* context, muGraphic graphic, mugObjectType object_type) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_deload_shader(gfx, object_type);
+				} break;
+			}
+		}
+
+		MUDEF mugObjectBuffer mug_gobj_buffer_create(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type, size_m object_count, void* objects) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugResult res = MUG_SUCCESS;
+
+			switch (gfx->api) {
+				default: return 0; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+
+					switch (object_type) {
+						default: break;
+
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innergl_load_shader(gfx, MUG_OBJECT_TRIANGLE);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								return 0;
+							}
+							return (mugObjectBuffer)mug_innergl_tribuf_create(result, object_count, (muTriangle*)objects);
+						} break;
+					}
+				} break;
+			}
+
+			MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE)
+			return 0;
+		}
+
+		MUDEF mugObjectBuffer mug_gobj_buffer_destroy(mugContext* context, muGraphic graphic, mugObjectBuffer buffer) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: mu_free(buffer); break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_tribuf_destroy((mug_innergl_tribuf*)buffer);
+					mu_free(buffer);
+					return 0;
+				} break;
+			}
+
+			return 0;
+		}
+
+		MUDEF void mug_gobj_buffer_render(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_tribuf_render(context, gfx, (mug_innergl_tribuf*)buffer);
+				} break;
+			}
+
+			return; if (result) {}
+		}
+
+		MUDEF void mug_gobj_buffer_subrender(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_tribuf_subrender(context, gfx, (mug_innergl_tribuf*)buffer, object_offset, object_count);
+				} break;
+			}
+
+			return; if (result) {}
+		}
+
+		MUDEF void mug_gobj_buffer_fill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, void* objects) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_tribuf* tribuf = (mug_innergl_tribuf*)buffer;
+					mug_innergl_tribuf_fill(tribuf, tribuf->count, (muTriangle*)objects);
+				} break;
+			}
+
+			return; if (result) {}
+		}
+
+		MUDEF void mug_gobj_buffer_subfill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count, void* objects) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mugResult res = mug_innergl_tribuf_subfill((mug_innergl_tribuf*)buffer, object_offset, object_count, (muTriangle*)objects);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
+				} break;
+			}
+		}
+
+		MUDEF void mug_gobj_buffer_resize(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_count, void* objects) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_graphic_bind(context, gfx);
+					mug_innergl_tribuf_resize(result, (mug_innergl_tribuf*)buffer, object_count, (muTriangle*)objects);
+				} break;
+			}
+		}
 
 	#ifdef __cplusplus
 	}
