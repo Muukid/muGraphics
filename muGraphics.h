@@ -8,9 +8,12 @@ More explicit license information at the end of file.
 
 @TODO (Vulkan) Make separate image for framebuffers, draw into it, then blit to the swapchain image to avoid swapchain image format issues.
 @TODO (Vulkan) Benchmark performance, especially in regards to vkQueuePresentKHR.
-@TODO Global Vulkan loader.
-@TODO Fix Vulkan loading/terminating (right now, having multiple Vulkan contexts most likely won't work).
+@TODO (Vulkan) Global loader.
+@TODO Fix loading/terminating (right now, having multiple Vulkan contexts most likely won't work, same with OpenGL).
 @TODO Internally break up vertex data that's too big to allocate all at once.
+@TODO (Vulkan) Make memory optimizer thingamabob.
+@TODO (Vulkan) Abstract shader code more (will need to be done once more shaders are added just to see what's in common and what the best abstractions would be).
+@TODO Add switch statements for different object types in the various buffer-related functions.
 */
 
 /* @DOCBEGIN
@@ -1925,7 +1928,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_FAILED_CREATE_GL_BUFFER,
 				// @DOCLINE `@NLFT`: a call to `glGenVertexArrays` failed.
 				MUG_FAILED_CREATE_GL_VERTEX_ARRAY,
-				// @DOCLINE `@NLFT`: required OpenGL shaders failed to compile. This would be an issue within mug itself and would need to be fixed internally.
+				// @DOCLINE `@NLFT`: required OpenGL shaders failed to compile. This would be an issue within mug itself regarding its shader code and would need to be fixed internally.
 				MUG_FAILED_COMPILE_GL_SHADERS,
 				// @DOCLINE `@NLFT`: a call to `vkbInit` failed.
 				MUG_FAILED_INITIATE_VULKAN,
@@ -1981,6 +1984,26 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_FAILED_CREATE_VK_RENDER_PASS,
 				// @DOCLINE `@NLFT`: a call to `vkCreateFramebuffer` failed.
 				MUG_FAILED_CREATE_VK_FRAMEBUFFERS,
+				// @DOCLINE `@NLFT`: a call to `vkCreateBuffer` failed.
+				MUG_FAILED_CREATE_VK_BUFFER,
+				// @DOCLINE `@NLFT`: the memory type needed to perform the task could not be found or is not available.
+				MUG_FAILED_FIND_COMPATIBLE_VK_MEMORY_TYPE,
+				// @DOCLINE `@NLFT`: a call to `vkAllocateMemory` failed.
+				MUG_FAILED_ALLOCATE_VK_MEMORY,
+				// @DOCLINE `@NLFT`: a call to `vkMapMemory` failed.
+				MUG_FAILED_MAP_VK_MEMORY,
+				// @DOCLINE `@NLFT`: a call to `vkCreateShaderModule` failed. This would be an issue within mug itself regarding its shader code and would need to be fixed internally.
+				MUG_FAILED_CREATE_VK_SHADER_MODULE,
+				// @DOCLINE `@NLFT`: a call to `vkCreateDescriptorSetLayout` failed.
+				MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT,
+				// @DOCLINE `@NLFT`: a call to `vkCreateDescriptorPool` failed.
+				MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL,
+				// @DOCLINE `@NLFT`: a call to `vkAllocateDescriptorSets` failed.
+				MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS,
+				// @DOCLINE `@NLFT`: a call to `vkCreatePipelineLayout` failed.
+				MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT,
+				// @DOCLINE `@NLFT`: a call to `vkCreateGraphicsPipelines` failed.
+				MUG_FAILED_CREATE_VK_PIPELINE_GRAPHIC,
 
 				// @DOCLINE There are also mug result equivalents for each `muCOSAResult` enumerator value, following the format of `MUG_MUCOSA_...` (ie `MUG_MUCOSA_SUCCESS`).
 				MUG_MUCOSA_SUCCESS,
@@ -2278,6 +2301,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 			// @DOCLINE Note that this function should not be called once the buffer's contents have been rendered for the current frame.
 
+			// @DOCLINE Note that `objects` is not safe to be 0.
+
 		// @DOCLINE ## Sub-fill
 
 			// @DOCLINE The function `mug_gobj_buffer_subfill` fills a portion of an object buffer's contents, defined below: @NLNT
@@ -2292,6 +2317,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 			// @DOCLINE Note that this function should not be called once the buffer's contents being referenced have been rendered for the current frame.
 
+			// @DOCLINE Note that `objects` is not safe to be 0.
+
 		// @DOCLINE ## Resize
 
 			// @DOCLINE The function `mug_gobj_buffer_resize` resizes an object buffer, defined below: @NLNT
@@ -2303,6 +2330,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			#define mu_gobj_buffer_resize_(result, ...) mug_gobj_buffer_resize(mug_global_context, result, __VA_ARGS__)
 
 			// @DOCLINE Note that this function should not be called once any portion of the buffer's contents have been rendered for the current frame.
+
+			// @DOCLINE Note that `objects` is safe to be 0.
 
 	// @DOCLINE # Common structs
 
@@ -37786,6 +37815,17 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_FAILED_SUBMIT_VK_QUEUE: return "MUG_FAILED_SUBMIT_VK_QUEUE"; break;
 					case MUG_FAILED_PRESENT_VK_QUEUE: return "MUG_FAILED_PRESENT_VK_QUEUE"; break;
 					case MUG_FAILED_CREATE_VK_RENDER_PASS: return "MUG_FAILED_CREATE_VK_RENDER_PASS"; break;
+					case MUG_FAILED_CREATE_VK_FRAMEBUFFERS: return "MUG_FAILED_CREATE_VK_FRAMEBUFFERS"; break;
+					case MUG_FAILED_CREATE_VK_BUFFER: return "MUG_FAILED_CREATE_VK_BUFFER"; break;
+					case MUG_FAILED_FIND_COMPATIBLE_VK_MEMORY_TYPE: return "MUG_FAILED_FIND_COMPATIBLE_VK_MEMORY_TYPE"; break;
+					case MUG_FAILED_ALLOCATE_VK_MEMORY: return "MUG_FAILED_ALLOCATE_VK_MEMORY"; break;
+					case MUG_FAILED_MAP_VK_MEMORY: return "MUG_FAILED_MAP_VK_MEMORY"; break;
+					case MUG_FAILED_CREATE_VK_SHADER_MODULE: return "MUG_FAILED_CREATE_VK_SHADER_MODULE"; break;
+					case MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT: return "MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT"; break;
+					case MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL: return "MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL"; break;
+					case MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS: return "MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS"; break;
+					case MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT: return "MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT"; break;
+					case MUG_FAILED_CREATE_VK_PIPELINE_GRAPHIC: return "MUG_FAILED_CREATE_VK_PIPELINE_GRAPHIC"; break;
 					case MUG_MUCOSA_SUCCESS: return "MUG_MUCOSA_SUCCESS"; break;
 					case MUG_MUCOSA_ALREADY_ACTIVE: return "MUG_MUCOSA_ALREADY_ACTIVE"; break;
 					case MUG_MUCOSA_ALLOCATION_FAILED: return "MUG_MUCOSA_ALLOCATION_FAILED"; break;
@@ -38578,18 +38618,12 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				};
 				typedef struct mug_innervk_renderers mug_innervk_renderers;
 
-			/* Useful objects */
-
-				struct mug_innervk_buffer {
-					VkBuffer buf;
-					VkDeviceMemory mem;
-					void* mapped_mem;
-				};
-				typedef struct mug_innervk_buffer mug_innervk_buffer;
-
 			/* Shaders */
 
-
+				struct mug_innervk_shaders {
+					void* triangle;
+				};
+				typedef struct mug_innervk_shaders mug_innervk_shaders;
 
 			/* Inner */
 
@@ -38599,6 +38633,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mug_innervk_command cmds[MUG_VK_FRAME_BUFFERS];
 					size_m now_cmd;
 					mug_innervk_renderers rs;
+
+					mug_innervk_shaders sh;
 				};
 				typedef struct mug_innervk_inner mug_innervk_inner;
 
@@ -39703,6 +39739,787 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					return MUG_SUCCESS;
 				}
 
+		/* Buffer */
+
+			struct mug_innervk_buffer {
+				VkDeviceSize size;
+				VkBuffer buf;
+				VkDeviceMemory mem;
+				void* mapped_mem;
+			};
+			typedef struct mug_innervk_buffer mug_innervk_buffer;
+
+			// Note: does not zero struct
+			mugResult mug_innervk_buffer_create(mug_innervk_inner* inner, mug_innervk_buffer* buf, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags props) {
+				buf->size = size;
+
+				/* Buffer */
+				{
+					VkBufferCreateInfo ci = MU_ZERO_STRUCT(VkBufferCreateInfo);
+					ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+					ci.size = size;
+					ci.usage = usage;
+					ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+					if (vkCreateBuffer(inner->init.device, &ci, 0, &buf->buf) != VK_SUCCESS) {
+						return MUG_FAILED_CREATE_VK_BUFFER;
+					}
+				}
+
+				/* Memory */
+				{
+					VkMemoryRequirements req;
+					vkGetBufferMemoryRequirements(inner->init.device, buf->buf, &req);
+					VkPhysicalDeviceMemoryProperties prop;
+					vkGetPhysicalDeviceMemoryProperties(inner->init.physical_device, &prop);
+
+					muBool found = MU_FALSE;
+					uint32_t index;
+					for (uint32_t i = 0; i < prop.memoryTypeCount; i++) {
+						if ((req.memoryTypeBits & (1 << i)) && (prop.memoryTypes[i].propertyFlags & props) == props) {
+							index = i;
+							found = MU_TRUE;
+							break;
+						}
+					}
+
+					if (!found) {
+						vkDestroyBuffer(inner->init.device, buf->buf, 0);
+						buf->buf = VK_NULL_HANDLE;
+						return MUG_FAILED_FIND_COMPATIBLE_VK_MEMORY_TYPE;
+					}
+
+					VkMemoryAllocateInfo ai = MU_ZERO_STRUCT(VkMemoryAllocateInfo);
+					ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+					ai.allocationSize = req.size;
+					ai.memoryTypeIndex = index;
+
+					if (vkAllocateMemory(inner->init.device, &ai, 0, &buf->mem) != VK_SUCCESS) {
+						vkDestroyBuffer(inner->init.device, buf->buf, 0);
+						buf->buf = VK_NULL_HANDLE;
+						return MUG_FAILED_ALLOCATE_VK_MEMORY;
+					}
+
+					vkBindBufferMemory(inner->init.device, buf->buf, buf->mem, 0);
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			void mug_innervk_buffer_destroy(mug_innervk_inner* inner, mug_innervk_buffer* buf) {
+				// I feel like these should be swapped... idk
+				if (buf->buf != VK_NULL_HANDLE) {
+					vkDestroyBuffer(inner->init.device, buf->buf, 0);
+				}
+				if (buf->mem != VK_NULL_HANDLE) {
+					vkFreeMemory(inner->init.device, buf->mem, 0);
+				}
+			}
+
+			// This function is a bit gross, but Vulkan is Vulkan...
+			mugResult mug_innervk_buffer_copy(mug_innervk_inner* inner, VkBuffer dst, VkDeviceSize dst_offset, VkBuffer src, VkDeviceSize src_offset, VkDeviceSize size) {
+				VkCommandBuffer cmd;
+
+				/* Command buffer allocation */
+				{
+					VkCommandBufferAllocateInfo ai = MU_ZERO_STRUCT(VkCommandBufferAllocateInfo);
+					ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+					ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+					ai.commandPool = inner->cmds[inner->now_cmd].pool;
+					ai.commandBufferCount = 1;
+
+					if (vkAllocateCommandBuffers(inner->init.device, &ai, &cmd) != VK_SUCCESS) {
+						return MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS;
+					}
+				}
+
+				/* Commands */
+				{
+					VkCommandBufferBeginInfo begin = MU_ZERO_STRUCT(VkCommandBufferBeginInfo);
+					begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+					begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+					if (vkBeginCommandBuffer(cmd, &begin) != VK_SUCCESS) {
+						vkFreeCommandBuffers(inner->init.device, inner->cmds[inner->now_cmd].pool, 1, &cmd);
+						return MUG_FAILED_BEGIN_VK_COMMAND_BUFFER;
+					}
+
+					VkBufferCopy region = MU_ZERO_STRUCT(VkBufferCopy);
+					region.srcOffset = src_offset;
+					region.dstOffset = dst_offset;
+					region.size = size;
+					vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+
+					if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+						vkFreeCommandBuffers(inner->init.device, inner->cmds[inner->now_cmd].pool, 1, &cmd);
+						return MUG_FAILED_END_VK_COMMAND_BUFFER;
+					}
+				}
+
+				/* Submit */
+				{
+					VkSubmitInfo submit = MU_ZERO_STRUCT(VkSubmitInfo);
+					submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+					submit.commandBufferCount = 1;
+					submit.pCommandBuffers = &cmd;
+
+					if (vkQueueSubmit(inner->init.graphics_queue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
+						vkFreeCommandBuffers(inner->init.device, inner->cmds[inner->now_cmd].pool, 1, &cmd);
+						return MUG_FAILED_SUBMIT_VK_QUEUE;
+					}
+
+					vkQueueWaitIdle(inner->init.graphics_queue);
+					vkFreeCommandBuffers(inner->init.device, inner->cmds[inner->now_cmd].pool, 1, &cmd);
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			mugResult mug_innervk_buffer_transfer(mug_innervk_inner* inner, mug_innervk_buffer* buffer, VkDeviceSize offset, void* data, VkDeviceSize size) {
+				mugResult res;
+				mug_innervk_buffer stage = MU_ZERO_STRUCT(mug_innervk_buffer);
+
+				/* Stage buffer creation */
+				{
+					res = mug_innervk_buffer_create(inner, &stage, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+					if (res != MUG_SUCCESS) {
+						return res;
+					}
+				}
+
+				/* Stage buffer copying */
+				{
+					if (vkMapMemory(inner->init.device, stage.mem, 0, size, 0, &stage.mapped_mem) != VK_SUCCESS) {
+						mug_innervk_buffer_destroy(inner, &stage);
+						return MUG_FAILED_MAP_VK_MEMORY;
+					}
+
+					mu_memcpy(stage.mapped_mem, data, (size_t)size);
+					vkUnmapMemory(inner->init.device, stage.mem);
+				}
+
+				/* Copy stage buffer into buffer */
+				{
+					res = mug_innervk_buffer_copy(inner, buffer->buf, offset, stage.buf, 0, size);
+					if (res != MUG_SUCCESS) {
+						mug_innervk_buffer_destroy(inner, &stage);
+						return res;
+					}
+				}
+
+				mug_innervk_buffer_destroy(inner, &stage);
+				return MUG_SUCCESS;
+			}
+
+		/* Shaders */
+
+			/* Shader uniform handling */
+
+				struct mug_innervk_shader_uniform {
+					VkDescriptorSetLayout dsl[MUG_VK_FRAME_BUFFERS];
+					VkDescriptorPool dp;
+					VkDescriptorSet ds[MUG_VK_FRAME_BUFFERS];
+				};
+				typedef struct mug_innervk_shader_uniform mug_innervk_shader_uniform;
+
+				void mug_innervk_shader_uniform_destroy(mug_innervk_inner* inner, mug_innervk_shader_uniform* suni);
+				// Note: zeros dsl_bindings and pool_sizes
+				// Note: buffers is [uniform_count][MUG_VK_FRAME_BUFFERS]
+				mugResult mug_innervk_shader_uniform_create(mug_innervk_inner* inner, mug_innervk_shader_uniform* suni, uint32_t uniform_count, VkDescriptorType* descriptors, VkDeviceSize* sizes, uint32_t* bindings, VkShaderStageFlags* stages, VkDescriptorSetLayoutBinding* dsl_bindings, VkDescriptorPoolSize* pool_sizes, mug_innervk_buffer** buffers) {
+					/* Descriptor set layouts */
+					{
+						mu_memset(dsl_bindings, 0, sizeof(VkDescriptorSetLayoutBinding) * uniform_count);
+
+						for (uint32_t i = 0; i < uniform_count; i++) {
+							dsl_bindings[i].binding = bindings[i];
+							dsl_bindings[i].descriptorType = descriptors[i];
+							dsl_bindings[i].descriptorCount = 1;
+							dsl_bindings[i].stageFlags = stages[i];
+						}
+
+						VkDescriptorSetLayoutCreateInfo ci = MU_ZERO_STRUCT(VkDescriptorSetLayoutCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+						ci.bindingCount = uniform_count;
+						ci.pBindings = dsl_bindings;
+
+						for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+							if (vkCreateDescriptorSetLayout(inner->init.device, &ci, 0, &suni->dsl[i]) != VK_SUCCESS) {
+								mug_innervk_shader_uniform_destroy(inner, suni);
+								return MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT;
+							}
+						}
+					}
+
+					/* Descriptor pool */
+					{
+						mu_memset(pool_sizes, 0, sizeof(VkDescriptorPoolSize)*uniform_count);
+
+						for (uint32_t i = 0; i < uniform_count; i++) {
+							pool_sizes[i].type = descriptors[i];
+							pool_sizes[i].descriptorCount = MUG_VK_FRAME_BUFFERS;
+						}
+
+						VkDescriptorPoolCreateInfo ci = MU_ZERO_STRUCT(VkDescriptorPoolCreateInfo);
+						ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+						ci.maxSets = MUG_VK_FRAME_BUFFERS;
+						ci.poolSizeCount = uniform_count;
+						ci.pPoolSizes = pool_sizes;
+
+						if (vkCreateDescriptorPool(inner->init.device, &ci, 0, &suni->dp) != VK_SUCCESS) {
+							mug_innervk_shader_uniform_destroy(inner, suni);
+							return MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL;
+						}
+					}
+
+					/* Descriptor sets */
+					{
+						VkDescriptorSetAllocateInfo ai = MU_ZERO_STRUCT(VkDescriptorSetAllocateInfo);
+						ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+						ai.descriptorPool = suni->dp;
+						ai.descriptorSetCount = MUG_VK_FRAME_BUFFERS;
+						ai.pSetLayouts = suni->dsl;
+
+						if (vkAllocateDescriptorSets(inner->init.device, &ai, suni->ds) != VK_SUCCESS) {
+							mug_innervk_shader_uniform_destroy(inner, suni);
+							return MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS;
+						}
+
+						for (size_m f = 0; f < MUG_VK_FRAME_BUFFERS; f++) {
+							for (uint32_t u = 0; u < uniform_count; u++) {
+								VkDescriptorBufferInfo info = MU_ZERO_STRUCT(VkDescriptorBufferInfo);
+								info.buffer = buffers[u][f].buf;
+								info.range = sizes[u];
+
+								VkWriteDescriptorSet desc = MU_ZERO_STRUCT(VkWriteDescriptorSet);
+								desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+								desc.dstSet = suni->ds[f];
+								desc.dstBinding = bindings[u];
+								desc.dstArrayElement = 0;
+								desc.descriptorCount = 1;
+								desc.descriptorType = descriptors[u];
+								desc.pBufferInfo = &info;
+
+								vkUpdateDescriptorSets(inner->init.device, 1, &desc, 0, 0);
+							}
+						}
+					}
+
+					return MUG_SUCCESS;
+				}
+
+				void mug_innervk_shader_uniform_destroy(mug_innervk_inner* inner, mug_innervk_shader_uniform* suni) {
+					if (suni->dp != VK_NULL_HANDLE) {
+						// (DSs are implicity free'd by this call)
+						vkDestroyDescriptorPool(inner->init.device, suni->dp, 0);
+					}
+
+					for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
+						if (suni->dsl[i] != VK_NULL_HANDLE) {
+							vkDestroyDescriptorSetLayout(inner->init.device, suni->dsl[i], 0);
+						}
+					}
+				}
+
+			/* Triangle */
+
+				/* Buffer */
+
+					mugResult mug_innervk_triangle_buffer_subfill(mug_innervk_inner* inner, mug_innervk_buffer* buffer, size_m offset, size_m count, muTriangle* tris) {
+						mugResult res;
+
+						if (!tris) {
+							return MUG_SUCCESS;
+						}
+
+						float* vertexes = (float*)mu_malloc(MUG_INNER_TRIBUF_ELSIZE * count);
+						if (vertexes == 0) {
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_inner_triangle_fill(&vertexes[i*MUG_INNER_TRIBUF_ELCOUNT], tris[i]);
+						}
+
+						res = mug_innervk_buffer_transfer(inner, buffer, offset, vertexes, MUG_INNER_TRIBUF_ELSIZE * count);
+						mu_free(vertexes);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innervk_triangle_buffer_fill(mug_innervk_inner* inner, mug_innervk_buffer* buffer, muTriangle* tris) {
+						return mug_innervk_triangle_buffer_subfill(inner, buffer, 0, buffer->size / MUG_INNER_TRIBUF_ELSIZE, tris);
+					}
+
+					mugResult mug_innervk_triangle_buffer_raw_create(mug_innervk_inner* inner, mug_innervk_buffer* buf, size_m count, muTriangle* tris) {
+						mugResult res;
+
+						// Create
+						res = mug_innervk_buffer_create(inner, buf, count * MUG_INNER_TRIBUF_ELSIZE, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+
+						// Fill
+						res = mug_innervk_triangle_buffer_subfill(inner, buf, 0, count, tris);
+						if (res != MUG_SUCCESS) {
+							mug_innervk_buffer_destroy(inner, buf);
+							return res;
+						}
+
+						return MUG_SUCCESS;
+					}
+
+					mug_innervk_buffer* mug_innervk_triangle_buffer_create(mugResult* result, mug_innervk_inner* inner, size_m count, muTriangle* tris) {
+						mugResult res;
+
+						mug_innervk_buffer* buf = (mug_innervk_buffer*)mu_malloc(sizeof(mug_innervk_buffer));
+						if (buf == 0) {
+							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+							return 0;
+						}
+
+						res = mug_innervk_triangle_buffer_raw_create(inner, buf, count, tris);
+						if (res != MUG_SUCCESS) {
+							mu_free(buf);
+							return 0;
+						}
+
+						return buf;
+					}
+
+					void mug_innervk_triangle_buffer_destroy(mug_innervk_inner* inner, mug_innervk_buffer* buffer) {
+						if (inner->init.device != VK_NULL_HANDLE) {
+							vkDeviceWaitIdle(inner->init.device);
+						}
+						mug_innervk_buffer_destroy(inner, buffer);
+						mu_free(buffer);
+					}
+
+					mugResult mug_innervk_triangle_buffer_resize(mug_innervk_inner* inner, mug_innervk_buffer* buffer, size_m count, muTriangle* tris) {
+						mugResult res;
+
+						mug_innervk_buffer_destroy(inner, buffer);
+						res = mug_innervk_triangle_buffer_raw_create(inner, buffer, count, tris);
+						if (res != MUG_SUCCESS) {
+							return res;
+						}
+
+						return MUG_SUCCESS;
+					}
+
+				/* SPIR-V */
+
+					/* glslc shader.vert -o vert.spv
+					#version 450
+
+					layout(location=0)in vec2 vPos;
+					layout(location=1)in vec4 vCol;
+
+					layout(location=0)out vec4 fCol;
+
+					layout(binding=0)uniform Dim {
+						vec2 dim;	
+					};
+
+					void main() {
+						gl_Position=vec4((vPos.x-(dim.x))/dim.x,(vPos.y-(dim.y))/dim.y,0.0,1.0);
+						fCol = vCol;
+					}
+					*/
+
+					const muByte mug_innervk_vtriangle_spirv[] = {
+						0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x00, 0x0D, 0x00, 0x32, 0x00, 0x00, 0x00, 
+						0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x06, 0x00, 
+						0x01, 0x00, 0x00, 0x00, 0x47, 0x4C, 0x53, 0x4C, 0x2E, 0x73, 0x74, 0x64, 0x2E, 0x34, 0x35, 0x30, 
+						0x00, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x0F, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x6D, 0x61, 0x69, 0x6E, 
+						0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00, 
+						0x30, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00, 0xC2, 0x01, 0x00, 0x00, 
+						0x04, 0x00, 0x0A, 0x00, 0x47, 0x4C, 0x5F, 0x47, 0x4F, 0x4F, 0x47, 0x4C, 0x45, 0x5F, 0x63, 0x70, 
+						0x70, 0x5F, 0x73, 0x74, 0x79, 0x6C, 0x65, 0x5F, 0x6C, 0x69, 0x6E, 0x65, 0x5F, 0x64, 0x69, 0x72, 
+						0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x00, 0x04, 0x00, 0x08, 0x00, 0x47, 0x4C, 0x5F, 0x47, 
+						0x4F, 0x4F, 0x47, 0x4C, 0x45, 0x5F, 0x69, 0x6E, 0x63, 0x6C, 0x75, 0x64, 0x65, 0x5F, 0x64, 0x69, 
+						0x72, 0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x05, 0x00, 0x04, 0x00, 0x04, 0x00, 0x00, 0x00, 
+						0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x06, 0x00, 0x0B, 0x00, 0x00, 0x00, 
+						0x67, 0x6C, 0x5F, 0x50, 0x65, 0x72, 0x56, 0x65, 0x72, 0x74, 0x65, 0x78, 0x00, 0x00, 0x00, 0x00, 
+						0x06, 0x00, 0x06, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x50, 
+						0x6F, 0x73, 0x69, 0x74, 0x69, 0x6F, 0x6E, 0x00, 0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 
+						0x01, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x50, 0x6F, 0x69, 0x6E, 0x74, 0x53, 0x69, 0x7A, 0x65, 
+						0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
+						0x67, 0x6C, 0x5F, 0x43, 0x6C, 0x69, 0x70, 0x44, 0x69, 0x73, 0x74, 0x61, 0x6E, 0x63, 0x65, 0x00, 
+						0x06, 0x00, 0x07, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x67, 0x6C, 0x5F, 0x43, 
+						0x75, 0x6C, 0x6C, 0x44, 0x69, 0x73, 0x74, 0x61, 0x6E, 0x63, 0x65, 0x00, 0x05, 0x00, 0x03, 0x00, 
+						0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04, 0x00, 0x12, 0x00, 0x00, 0x00, 
+						0x76, 0x50, 0x6F, 0x73, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 
+						0x44, 0x69, 0x6D, 0x00, 0x06, 0x00, 0x04, 0x00, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+						0x64, 0x69, 0x6D, 0x00, 0x05, 0x00, 0x03, 0x00, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+						0x05, 0x00, 0x04, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x66, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 
+						0x05, 0x00, 0x04, 0x00, 0x30, 0x00, 0x00, 0x00, 0x76, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 
+						0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 
+						0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x00, 
+						0x02, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 
+						0x47, 0x00, 0x03, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x12, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0x05, 0x00, 
+						0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+						0x47, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x19, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x19, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x2E, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x30, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, 0x00, 0x02, 0x00, 
+						0x02, 0x00, 0x00, 0x00, 0x21, 0x00, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
+						0x16, 0x00, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x17, 0x00, 0x04, 0x00, 
+						0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x15, 0x00, 0x04, 0x00, 
+						0x08, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 
+						0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x04, 0x00, 
+						0x0A, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x06, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 
+						0x0A, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 
+						0x03, 0x00, 0x00, 0x00, 0x15, 0x00, 0x04, 0x00, 0x0E, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 
+						0x01, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 0x0E, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
+						0x00, 0x00, 0x00, 0x00, 0x17, 0x00, 0x04, 0x00, 0x10, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 
+						0x02, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x11, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x10, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 0x11, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 
+						0x01, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x04, 0x00, 0x08, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 
+						0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 0x14, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x06, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x03, 0x00, 0x17, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 
+						0x20, 0x00, 0x04, 0x00, 0x18, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x17, 0x00, 0x00, 0x00, 
+						0x3B, 0x00, 0x04, 0x00, 0x18, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
+						0x20, 0x00, 0x04, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 
+						0x2B, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+						0x2B, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F, 
+						0x20, 0x00, 0x04, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 
+						0x3B, 0x00, 0x04, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
+						0x20, 0x00, 0x04, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 
+						0x3B, 0x00, 0x04, 0x00, 0x2F, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x36, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+						0x03, 0x00, 0x00, 0x00, 0xF8, 0x00, 0x02, 0x00, 0x05, 0x00, 0x00, 0x00, 0x41, 0x00, 0x05, 0x00, 
+						0x14, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 
+						0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 
+						0x41, 0x00, 0x06, 0x00, 0x1A, 0x00, 0x00, 0x00, 0x1B, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 
+						0x0F, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 
+						0x1C, 0x00, 0x00, 0x00, 0x1B, 0x00, 0x00, 0x00, 0x83, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 
+						0x1D, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 
+						0x1A, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
+						0x13, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 
+						0x1E, 0x00, 0x00, 0x00, 0x88, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 
+						0x1D, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x41, 0x00, 0x05, 0x00, 0x14, 0x00, 0x00, 0x00, 
+						0x21, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 
+						0x06, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00, 0x21, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 
+						0x1A, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 
+						0x09, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 
+						0x23, 0x00, 0x00, 0x00, 0x83, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 
+						0x22, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x41, 0x00, 0x06, 0x00, 0x1A, 0x00, 0x00, 0x00, 
+						0x26, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 
+						0x3D, 0x00, 0x04, 0x00, 0x06, 0x00, 0x00, 0x00, 0x27, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 
+						0x88, 0x00, 0x05, 0x00, 0x06, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 
+						0x27, 0x00, 0x00, 0x00, 0x50, 0x00, 0x07, 0x00, 0x07, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x00, 0x00, 
+						0x20, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00, 
+						0x41, 0x00, 0x05, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x2D, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 
+						0x0F, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x03, 0x00, 0x2D, 0x00, 0x00, 0x00, 0x2B, 0x00, 0x00, 0x00, 
+						0x3D, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 0x31, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 
+						0x3E, 0x00, 0x03, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x31, 0x00, 0x00, 0x00, 0xFD, 0x00, 0x01, 0x00, 
+						0x38, 0x00, 0x01, 0x00
+					};
+
+					/* glslc shader.frag -o frag.spv
+					#version 450
+
+					layout (location=0) in vec4 fCol;
+					layout (location=0) out vec4 oCol;
+
+					void main() {
+						oCol = fCol;
+					}
+					*/
+
+					const muByte mug_innervk_ftriangle_spirv[] = {
+						0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x00, 0x0D, 0x00, 0x0D, 0x00, 0x00, 0x00, 
+						0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x06, 0x00, 
+						0x01, 0x00, 0x00, 0x00, 0x47, 0x4C, 0x53, 0x4C, 0x2E, 0x73, 0x74, 0x64, 0x2E, 0x34, 0x35, 0x30, 
+						0x00, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 
+						0x0F, 0x00, 0x07, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x6D, 0x61, 0x69, 0x6E, 
+						0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x10, 0x00, 0x03, 0x00, 
+						0x04, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x03, 0x00, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00, 
+						0xC2, 0x01, 0x00, 0x00, 0x04, 0x00, 0x0A, 0x00, 0x47, 0x4C, 0x5F, 0x47, 0x4F, 0x4F, 0x47, 0x4C, 
+						0x45, 0x5F, 0x63, 0x70, 0x70, 0x5F, 0x73, 0x74, 0x79, 0x6C, 0x65, 0x5F, 0x6C, 0x69, 0x6E, 0x65, 
+						0x5F, 0x64, 0x69, 0x72, 0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x00, 0x04, 0x00, 0x08, 0x00, 
+						0x47, 0x4C, 0x5F, 0x47, 0x4F, 0x4F, 0x47, 0x4C, 0x45, 0x5F, 0x69, 0x6E, 0x63, 0x6C, 0x75, 0x64, 
+						0x65, 0x5F, 0x64, 0x69, 0x72, 0x65, 0x63, 0x74, 0x69, 0x76, 0x65, 0x00, 0x05, 0x00, 0x04, 0x00, 
+						0x04, 0x00, 0x00, 0x00, 0x6D, 0x61, 0x69, 0x6E, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04, 0x00, 
+						0x09, 0x00, 0x00, 0x00, 0x6F, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x04, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x66, 0x43, 0x6F, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x09, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x47, 0x00, 0x04, 0x00, 
+						0x0B, 0x00, 0x00, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x02, 0x00, 
+						0x02, 0x00, 0x00, 0x00, 0x21, 0x00, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 
+						0x16, 0x00, 0x03, 0x00, 0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x17, 0x00, 0x04, 0x00, 
+						0x07, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 
+						0x08, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 
+						0x08, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x20, 0x00, 0x04, 0x00, 
+						0x0A, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x3B, 0x00, 0x04, 0x00, 
+						0x0A, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x36, 0x00, 0x05, 0x00, 
+						0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 
+						0xF8, 0x00, 0x02, 0x00, 0x05, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x04, 0x00, 0x07, 0x00, 0x00, 0x00, 
+						0x0C, 0x00, 0x00, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x03, 0x00, 0x09, 0x00, 0x00, 0x00, 
+						0x0C, 0x00, 0x00, 0x00, 0xFD, 0x00, 0x01, 0x00, 0x38, 0x00, 0x01, 0x00
+					};
+
+				/* Loading / Unloading */
+
+					struct mug_innervk_triangle_shader {
+						VkShaderModule vert;
+						VkShaderModule frag;
+
+						VkPipelineLayout layout;
+						VkPipeline pipeline;
+
+						mug_innervk_buffer dim_unibufs[MUG_VK_FRAME_BUFFERS];
+						mug_innervk_shader_uniform suni;
+					};
+					typedef struct mug_innervk_triangle_shader mug_innervk_triangle_shader;
+
+					void mug_innervk_triangle_shader_deload(mug_innervk_inner* inner);
+					mugResult mug_innervk_triangle_shader_load(mug_innervk_inner* inner) {
+						mugResult res;
+						mug_innervk_triangle_shader* tri;
+
+						if (inner->sh.triangle != 0) {
+							return MUG_SUCCESS;
+						}
+
+						/* Allocation */
+						{
+							inner->sh.triangle = mu_malloc(sizeof(mug_innervk_triangle_shader));
+							if (inner->sh.triangle == 0) {
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							tri = (mug_innervk_triangle_shader*)inner->sh.triangle;
+							*tri = MU_ZERO_STRUCT(mug_innervk_triangle_shader);
+						}
+
+						/* Shader */
+						{
+							VkShaderModuleCreateInfo ci = MU_ZERO_STRUCT(VkShaderModuleCreateInfo);
+
+							ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+							ci.codeSize = sizeof(mug_innervk_vtriangle_spirv);
+							ci.pCode = (const uint32_t*)mug_innervk_vtriangle_spirv;
+							if (vkCreateShaderModule(inner->init.device, &ci, 0, &tri->vert) != VK_SUCCESS) {
+								mug_innervk_triangle_shader_deload(inner);
+								return MUG_FAILED_CREATE_VK_SHADER_MODULE;
+							}
+
+							ci.codeSize = sizeof(mug_innervk_ftriangle_spirv);
+							ci.pCode = (const uint32_t*)mug_innervk_ftriangle_spirv;
+							if (vkCreateShaderModule(inner->init.device, &ci, 0, &tri->frag) != VK_SUCCESS) {
+								mug_innervk_triangle_shader_deload(inner);
+								return MUG_FAILED_CREATE_VK_SHADER_MODULE;
+							}
+						}
+
+						/* Uniform buffers */
+						{
+							for (size_m f = 0; f < MUG_VK_FRAME_BUFFERS; f++) {
+								res = mug_innervk_buffer_create(inner, &tri->dim_unibufs[f], 4*2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+								if (res != MUG_SUCCESS) {
+									mug_innervk_triangle_shader_deload(inner);
+									return res;
+								}
+
+								if (vkMapMemory(inner->init.device, tri->dim_unibufs[f].mem, 0, 4*2, 0, &tri->dim_unibufs[f].mapped_mem) != VK_SUCCESS) {
+									mug_innervk_triangle_shader_deload(inner);
+									return MUG_FAILED_MAP_VK_MEMORY;
+								}
+							}
+						}
+
+						/* Uniforms */
+						{
+							VkDescriptorType descriptor = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+							VkDeviceSize size = 4*2;
+							uint32_t binding = 0;
+							VkShaderStageFlags stage = VK_SHADER_STAGE_VERTEX_BIT;
+							VkDescriptorSetLayoutBinding dsl_binding;
+							VkDescriptorPoolSize pool_size;
+							mug_innervk_buffer* unibufs[] = { tri->dim_unibufs };
+
+							res = mug_innervk_shader_uniform_create(inner, &tri->suni, 1, &descriptor, &size, &binding, &stage, &dsl_binding, &pool_size, unibufs);
+							if (res != MUG_SUCCESS) {
+								mug_innervk_triangle_shader_deload(inner);
+								return res;
+							}
+						}
+
+						/* Pipeline layout */
+						{
+							VkPipelineLayoutCreateInfo ci = MU_ZERO_STRUCT(VkPipelineLayoutCreateInfo);
+							ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+							ci.setLayoutCount = MUG_VK_FRAME_BUFFERS;
+							ci.pSetLayouts = tri->suni.dsl;
+
+							if (vkCreatePipelineLayout(inner->init.device, &ci, 0, &tri->layout) != VK_SUCCESS) {
+								mug_innervk_triangle_shader_deload(inner);
+								return MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT;
+							}
+						}
+
+						/* Pipeline */
+						{
+							float w = (float)inner->sc.extent.width, h = (float)inner->sc.extent.height;
+
+							mug_innervk_gpipeline_ci pipeline_creator;
+							mug_innervk_def_gpipeline_ci(&pipeline_creator, &tri->vert, &tri->frag, w, h, tri->layout, inner->rs.ca_to_ca_pip.render_pass, 0);
+
+							uint32_t offset = 0;
+
+							/* Vertex input attributes */
+							{
+								VkVertexInputAttributeDescription att[2];
+								mu_memset(att, 0, sizeof(att));
+
+								att[0].format = VK_FORMAT_R32G32_SFLOAT;
+								offset += 4*2;
+
+								att[1].location = 1;
+								//att[1].binding = 0;
+								att[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+								att[1].offset = offset;
+								offset += 4*4;
+
+								pipeline_creator.vertex_input.vertexAttributeDescriptionCount = sizeof(att) / sizeof(VkVertexInputAttributeDescription);
+								pipeline_creator.vertex_input.pVertexAttributeDescriptions = att;
+							}
+
+							/* Vertex binding */
+							{
+								VkVertexInputBindingDescription desc = MU_ZERO_STRUCT(VkVertexInputBindingDescription);
+								desc.stride = offset;
+								desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+								pipeline_creator.vertex_input.vertexBindingDescriptionCount = 1;
+								pipeline_creator.vertex_input.pVertexBindingDescriptions = &desc;
+							}
+
+							if (vkCreateGraphicsPipelines(inner->init.device, VK_NULL_HANDLE, 1, &pipeline_creator.pipeline_ci, 0, &tri->pipeline) != VK_SUCCESS) {
+								mug_innervk_triangle_shader_deload(inner);
+								return MUG_FAILED_CREATE_VK_PIPELINE_GRAPHIC;
+							}
+						}
+
+						return MUG_SUCCESS;
+					}
+
+					void mug_innervk_triangle_shader_deload(mug_innervk_inner* inner) {
+						if (inner->sh.triangle != 0) {
+							mug_innervk_triangle_shader* tri = (mug_innervk_triangle_shader*)inner->sh.triangle;
+
+							if (tri->layout != VK_NULL_HANDLE) {
+								vkDestroyPipelineLayout(inner->init.device, tri->layout, 0);
+							}
+							if (tri->pipeline != VK_NULL_HANDLE) {
+								vkDestroyPipeline(inner->init.device, tri->pipeline, 0);
+							}
+
+							mug_innervk_shader_uniform_destroy(inner, &tri->suni);
+
+							for (size_m f = 0; f < MUG_VK_FRAME_BUFFERS; f++) {
+								mug_innervk_buffer_destroy(inner, &tri->dim_unibufs[f]);
+							}
+
+							if (tri->frag != VK_NULL_HANDLE) {
+								vkDestroyShaderModule(inner->init.device, tri->frag, 0);
+							}
+							if (tri->vert != VK_NULL_HANDLE) {
+								vkDestroyShaderModule(inner->init.device, tri->vert, 0);
+							}
+							
+							mu_free(inner->sh.triangle);
+							inner->sh.triangle = 0;
+						}
+					}
+
+				/* Rendering */
+
+					// @TODO Simplify this function with further abstraction, should be pretty easy
+					mugResult mug_innervk_triangle_buffer_subrender(mugContext* context, mug_graphic* gfx, mug_innervk_buffer* buffer, size_m offset, size_m count) {
+						mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
+						mug_innervk_triangle_shader* tri = (mug_innervk_triangle_shader*)inner->sh.triangle;
+						mug_innervk_command* cmd = &inner->cmds[inner->now_cmd];
+						mugResult res;
+
+						/* Update uniforms */
+						// @TODO Don't do each frame
+						{
+							uint32_m w, h;
+							if (mug_innervk_get_graphic_dimensions(context, gfx, &w, &h) == MUG_SUCCESS) {
+								float* p_f = (float*)tri->dim_unibufs[inner->now_cmd].mapped_mem;
+								if (p_f) {
+									p_f[0] = ((float)w) / 2.f;
+									p_f[1] = ((float)h) / 2.f;
+								}
+							}
+						}
+
+						/* Turn on commands */
+						{
+							res = mug_innervk_command_begin(context, gfx, cmd);
+							if (res != MUG_SUCCESS) {
+								return res;
+							}
+						}
+
+						/* Start render pass */
+						{
+							VkRenderPassBeginInfo ci = MU_ZERO_STRUCT(VkRenderPassBeginInfo);
+							ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+							ci.renderPass = inner->rs.ca_to_ca_pip.render_pass;
+							ci.framebuffer = inner->rs.ca_to_ca_pip.framebuffers[inner->sc.image_index];
+							ci.renderArea.extent = inner->sc.extent;
+							vkCmdBeginRenderPass(cmd->buffer, &ci, VK_SUBPASS_CONTENTS_INLINE);
+						}
+
+						/* Bind things */
+						{
+							// Pipeline (and respective dynamic state)
+							vkCmdBindPipeline(cmd->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tri->pipeline);
+							vkCmdSetScissor(cmd->buffer, 0, 1, &inner->sc.scissor);
+							vkCmdSetViewport(cmd->buffer, 0, 1, &inner->sc.viewport);
+
+							// Vertex buffer
+							//VkDeviceSize offset = (VkDeviceSize)offset;
+							//offset *= MUG_INNER_TRIBUF_ELSIZE;
+							VkDeviceSize offset = 0;
+							vkCmdBindVertexBuffers(cmd->buffer, 0, 1, &buffer->buf, &offset);
+
+							// Descriptor sets
+							vkCmdBindDescriptorSets(cmd->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tri->layout, 0, 1, &tri->suni.ds[inner->now_cmd], 0, 0);
+						}
+
+						/* Render and then end render pass */
+						{
+							vkCmdDraw(cmd->buffer, count*3, 1, offset*3, 0);
+							vkCmdEndRenderPass(cmd->buffer);
+						}
+
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innervk_triangle_buffer_render(mugContext* context, mug_graphic* gfx, mug_innervk_buffer* buffer) {
+						return mug_innervk_triangle_buffer_subrender(context, gfx, buffer, 0, buffer->size/MUG_INNER_TRIBUF_ELSIZE);
+					}
+
+			/* Multi-shader functions */
+
+				void mug_innervk_shaders_deload(mug_innervk_inner* inner) {
+					mug_innervk_triangle_shader_deload(inner);
+				}
+
 		/* Inner */
 
 			/* Creation / Destruction */
@@ -39823,6 +40640,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				}
 
 				void mug_innervk_inner_destroy(mug_graphic* gfx, mug_innervk_inner* inner) {
+					/*if (inner->init.device != VK_NULL_HANDLE) {
+						vkDeviceWaitIdle(inner->init.device);
+					}*/
+					mug_innervk_shaders_deload(inner);
 					mug_innervk_renderers_destroy_framebuffers(gfx, &inner->rs);
 					mug_innervk_renderers_destroy_render_passes(gfx, &inner->rs);
 					for (size_m i = 0; i < MUG_VK_FRAME_BUFFERS; i++) {
@@ -40124,9 +40945,16 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mug_innergl_graphic_bind(context, gfx);
 					mug_innergl_load_shader(gfx, object_type);
 				} break;
+
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_shader_load((mug_innervk_inner*)gfx->papi);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+					}
+				} break;
 			}
 
-			return; if (result) {}
+			return;
 		}
 
 		MUDEF void mug_gobj_type_unload(mugContext* context, muGraphic graphic, mugObjectType object_type) {
@@ -40138,6 +40966,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
 					mug_innergl_deload_shader(gfx, object_type);
+				} break;
+
+				case MUG_VULKAN: {
+					mug_innervk_triangle_shader_deload((mug_innervk_inner*)gfx->papi);
 				} break;
 			}
 		}
@@ -40165,6 +40997,22 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						} break;
 					}
 				} break;
+
+				case MUG_VULKAN: {
+					switch (object_type) {
+						default: break;
+
+						case MUG_OBJECT_TRIANGLE: {
+							mugResult res = mug_innervk_triangle_shader_load((mug_innervk_inner*)gfx->papi);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								return 0;
+							}
+
+							return (mugObjectBuffer)mug_innervk_triangle_buffer_create(result, (mug_innervk_inner*)gfx->papi, object_count, (muTriangle*)objects);
+						} break;
+					}
+				} break;
 			}
 
 			MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE)
@@ -40183,6 +41031,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mu_free(buffer);
 					return 0;
 				} break;
+
+				case MUG_VULKAN: {
+					mug_innervk_triangle_buffer_destroy((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer);
+				} break;
 			}
 
 			return 0;
@@ -40198,9 +41050,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mug_innergl_graphic_bind(context, gfx);
 					mug_innergl_tribuf_render(context, gfx, (mug_innergl_tribuf*)buffer);
 				} break;
-			}
 
-			return; if (result) {}
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_buffer_render(context, gfx, (mug_innervk_buffer*)buffer);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
+				} break;
+			}
 		}
 
 		MUDEF void mug_gobj_buffer_subrender(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count) {
@@ -40213,9 +41071,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mug_innergl_graphic_bind(context, gfx);
 					mug_innergl_tribuf_subrender(context, gfx, (mug_innergl_tribuf*)buffer, object_offset, object_count);
 				} break;
-			}
 
-			return; if (result) {}
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_buffer_subrender(context, gfx, (mug_innervk_buffer*)buffer, object_offset, object_count);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
+				} break;
+			}
 		}
 
 		MUDEF void mug_gobj_buffer_fill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, void* objects) {
@@ -40229,9 +41093,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					mug_innergl_tribuf* tribuf = (mug_innergl_tribuf*)buffer;
 					mug_innergl_tribuf_fill(tribuf, tribuf->count, (muTriangle*)objects);
 				} break;
-			}
 
-			return; if (result) {}
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_buffer_fill((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, (muTriangle*)objects);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
+				} break;
+			}
 		}
 
 		MUDEF void mug_gobj_buffer_subfill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count, void* objects) {
@@ -40243,6 +41113,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
 					mugResult res = mug_innergl_tribuf_subfill((mug_innergl_tribuf*)buffer, object_offset, object_count, (muTriangle*)objects);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
+				} break;
+
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_buffer_subfill((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, object_offset, object_count, (muTriangle*)objects);
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -40260,6 +41138,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
 					mug_innergl_tribuf_resize(result, (mug_innergl_tribuf*)buffer, object_count, (muTriangle*)objects);
+				} break;
+
+				case MUG_VULKAN: {
+					mugResult res = mug_innervk_triangle_buffer_resize((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, object_count, (muTriangle*)objects);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						return;
+					}
 				} break;
 			}
 		}
