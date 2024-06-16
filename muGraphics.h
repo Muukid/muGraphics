@@ -14,6 +14,10 @@ More explicit license information at the end of file.
 @TODO (Vulkan) Make memory optimizer thingamabob.
 @TODO (Vulkan) Abstract shader code more (will need to be done once more shaders are added just to see what's in common and what the best abstractions would be).
 @TODO Add switch statements for different object types in the various buffer-related functions.
+@TODO Add "get buffer size" function.
+@TODO Fix non-resizable windows having incorrect dimensions on Win32.
+@TODO Make the "quad" shape.
+@TODO Don't update dimensions each render call.
 */
 
 /* @DOCBEGIN
@@ -57,10 +61,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 	// @DOCLINE # Other library dependencies
 		// @DOCLINE mug has a dependency on the following libraries:
 		
-		// @DOCLINE * [muCOSA v1.0.0](https://github.com/Muukid/muCOSA/releases/tag/v1.0.0).
+		// @DOCLINE * [muCOSA commit 1bec97f](https://github.com/Muukid/muCOSA/tree/1bec97fc551e44bed87305ae9f6e188e68ddf617).
 		// @IGNORE
 			#if !defined(MU_CHECK_VERSION_MISMATCHING) && defined(MUCOSA_H) && \
-				(MUCOSA_VERSION_MAJOR != 1 || MUCOSA_VERSION_MINOR != 0 || MUCOSA_VERSION_PATCH != 0)
+				(MUCOSA_VERSION_MAJOR != 1 || MUCOSA_VERSION_MINOR != 1 || MUCOSA_VERSION_PATCH != 0)
 
 				#pragma message("[MUG] muCOSA's header has already been defined, but version doesn't match the version that this library is built for. This may lead to errors, warnings, or unexpected behavior. Define MU_CHECK_VERSION_MISMATCHING before this to turn off this message.")
 
@@ -505,7 +509,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						// @DOCLINE muCOSA defines three macros to define the version of muCOSA: `MUCOSA_VERSION_MAJOR`, `MUCOSA_VERSION_MINOR`, and `MUCOSA_VERSION_PATCH`, following the format of `vMAJOR.MINOR.PATCH`.
 
 						#define MUCOSA_VERSION_MAJOR 1
-						#define MUCOSA_VERSION_MINOR 0
+						#define MUCOSA_VERSION_MINOR 1
 						#define MUCOSA_VERSION_PATCH 0
 
 					#if defined(MUCOSA_VULKAN) && !defined(MUCOSA_NO_INCLUDE_VULKAN)
@@ -1138,7 +1142,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 								// @DOCLINE The function `muCOSA_context_create` creates a context, defined below: @NLNT
 								MUDEF void muCOSA_context_create(muCOSAContext* context, muWindowSystem system, muBool set_context);
 								// @DOCLINE Note that the result of this function is stored within `context->result`.
-								// @DOCLINE Note that, upon success, this function automatically calls `muCOSA_context_create` on the created context unless `set_context` is equal to `MU_FALSE`.
+								// @DOCLINE Note that, upon success, this function automatically calls `muCOSA_context_set` on the created context unless `set_context` is equal to `MU_FALSE`.
 
 							// @DOCLINE #### Destruction
 
@@ -1605,11 +1609,25 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 							// @DOCLINE The function `muCOSA_time_get` returns the time since the given muCOSA context has been created, defined below: @NLNT
 							MUDEF double muCOSA_time_get(muCOSAContext* context, muCOSAResult* result);
+
 							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
 							#define mu_time_get() muCOSA_time_get(muCOSA_global_context, &muCOSA_global_context->result)
 							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
 							#define mu_time_get_(result) muCOSA_time_get(muCOSA_global_context, result)
+
 							// @DOCLINE Note that the time can be manually changed via `muCOSA_time_set`, which would change the values returned by this function respectively.
+
+						// @DOCLINE ### Get fixed time
+
+							// @DOCLINE The function `muCOSA_time_get_fixed` returns the time since the given muCOSA context has been created *without* consideration to the currently user-set time, defined below: @NLNT
+							MUDEF double muCOSA_time_get_fixed(muCOSAContext* context, muCOSAResult* result);
+
+							// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_get_fixed() muCOSA_time_get_fixed(muCOSA_global_context, &muCOSA_global_context->result)
+							// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+							#define mu_time_get_fixed_(result) muCOSA_time_get_fixed(muCOSA_global_context, result)
+
+							// @DOCLINE When the function `muCOSA_time_set`, the function `muCOSA_time_get` is altered in regards to the time set, but `muCOSA_time_get_fixed` is unaffected.
 
 						// @DOCLINE ### Set time
 
@@ -2187,12 +2205,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE ### Update graphic
 
 				// DOCLINE The function `mug_graphic_update` updates the graphic for usage in the next frame, defined below: @NLNT
-				MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic);
+				MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic, double target_fps);
 
 				// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
 				#define mu_graphic_update(...) mug_graphic_update(mug_global_context, &mug_global_context->result, __VA_ARGS__)
 				// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
 				#define mu_graphic_update_(result, ...) mug_graphic_update(mug_global_context, result, __VA_ARGS__)
+
+				// @DOCLINE `target_fps` describes the amount of frames per second that mug should attempt to cap at, sleeping for an amount of time to do so. To unlock the FPS, simply set this value to 0.
 
 				// @DOCLINE This function should be called near the end of the frame and *after* `mug_graphic_swap_buffers`, preferably as the last function call of the frame.
 
@@ -2209,6 +2229,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			MU_ENUM(mugObjectType,
 				// @DOCLINE * `@NLFT`: a triangle; respective struct `muTriangle`.
 				MUG_OBJECT_TRIANGLE,
+				// @DOCLINE * `@NLFT`: a rectangle; respective struct `muRect`.
+				MUG_OBJECT_RECT,
 			)
 
 		// @DOCLINE ## Load object type
@@ -2321,7 +2343,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		// @DOCLINE ## Resize
 
-			// @DOCLINE The function `mug_gobj_buffer_resize` resizes an object buffer, defined below: @NLNT
+			// @DOCLINE The function `mug_gobj_buffer_resize` resizes an object buffer and clears its prior contents, defined below: @NLNT
 			MUDEF void mug_gobj_buffer_resize(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_count, void* objects);
 
 			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
@@ -2329,9 +2351,19 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
 			#define mu_gobj_buffer_resize_(result, ...) mug_gobj_buffer_resize(mug_global_context, result, __VA_ARGS__)
 
+			// @DOCLINE Note that this function completely clears whatever contents were in the buffer. This function is primarily used to resize a buffer whilst still maintaining the same handle.
+
 			// @DOCLINE Note that this function should not be called once any portion of the buffer's contents have been rendered for the current frame.
 
 			// @DOCLINE Note that `objects` is safe to be 0.
+
+		// @DOCLINE ## Get type
+
+			// @DOCLINE The function `mug_gobj_buffer_get_type` returns the `mugObjectType` the buffer was originally created with, defined below: @NLNT
+			MUDEF mugObjectType mug_gobj_buffer_get_type(mugContext* context, muGraphic graphic, mugObjectBuffer buffer);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_gobj_buffer_get_type(...) mug_gobj_buffer_get_type(mug_global_context, __VA_ARGS__)
 
 	// @DOCLINE # Common structs
 
@@ -2380,6 +2412,19 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					muColor col;
 				}; typedef struct muPoint muPoint;
 
+		// @DOCLINE ## Dimensions
+
+			// @DOCLINE mug uses the struct `muDimensions` to represent a width and height.
+
+			// @DOCLINE ### Members
+
+				struct muDimensions {
+					// @DOCLINE * `width`: the width, defined below: @NLNT
+					float width;
+					// @DOCLINE * `height`: the height, defined below: @NLNT
+					float height;
+				}; typedef struct muDimensions muDimensions;
+
 	// @DOCLINE # Triangle object
 
 		// @DOCLINE The triangle object represents a triangle, AKA three points connected as one shape. Its respective `mugObjectType` enum value is `MUG_OBJECT_TRIANGLE` and its respective struct type is `muTriangle`.
@@ -2398,6 +2443,23 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			}; typedef struct muTriangle muTriangle;
 
 			// @DOCLINE All points are interchangeable and in no particular order; swapping two points with each other will have no visual effect.
+
+	// @DOCLINE # Rect object
+
+		// @DOCLINE The rect object represents a rectangle. Its respective `mugObjectType` enum value is `MUG_OBJECT_RECT` and its respective struct type is `muRect`.
+
+		// @DOCLINE ## Struct
+
+			// The struct `muRect` has several members:
+
+			struct muRect {
+				// @DOCLINE * `center`: the center point of the rect, defined below: @NLNT
+				muPoint center;
+				// @DOCLINE * `dim`: the dimensions of the rect, defined below: @NLNT
+				muDimensions dim;
+				// @DOCLINE * `rot`: the rotation of the rect in radians, defined below: @NLNT
+				float rot;
+			}; typedef struct muRect muRect;
 
 	// @DOCLINE # Graphics API customization
 
@@ -2427,7 +2489,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		// @DOCLINE mug has several C standard library dependencies not provided by its other library dependencies, all of which are overridable by defining them before the inclusion of its header. This is a list of all of those dependencies.
 
-		#if !defined(MU_UINT32_MAX)
+		#if !defined(MU_UINT32_MAX) || \
+			!defined(MU_UINT64_MAX)
 
 			// @DOCLINE ## `stdint.h` dependencies
 			#include <stdint.h>
@@ -2453,6 +2516,24 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE `mu_printf`: equivalent to `printf`; only defined if `MUG_VK_DEBUG` is defined before the inclusion of the header file.
 			#ifndef mu_printf
 				#define mu_printf printf
+			#endif
+
+		#endif
+
+		#if !defined(mu_sin) || \
+			!defined(mu_cos)
+
+			// @DOCLINE ## `math.h` dependencies
+			#include <math.h>
+
+			// @DOCLINE `mu_sin`: equivalent to `sin`
+			#ifndef mu_sin
+				#define mu_sin sin
+			#endif
+
+			// @DOCLINE `mu_cos`: equivalent to `cos`
+			#ifndef mu_cos
+				#define mu_cos cos
 			#endif
 
 		#endif
@@ -32974,11 +33055,12 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						struct muCOSA_Win32_time {
 							double orig_time;
+							double fixed_orig_time;
 						};
 						typedef struct muCOSA_Win32_time muCOSA_Win32_time;
 
 						void muCOSA_Win32_time_init(muCOSA_Win32_time* time) {
-							time->orig_time = muCOSA_Win32_get_current_time();
+							time->fixed_orig_time = time->orig_time = muCOSA_Win32_get_current_time();
 						}
 
 				/* OpenGL */
@@ -34460,6 +34542,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							if (result) {}
 						}
 
+						double muCOSA_Win32_time_get_fixed(muCOSA_Win32_context* context, muCOSAResult* result) {
+							return muCOSA_Win32_get_current_time() - context->time.fixed_orig_time;
+							if (result) {}
+						}
+
 						void muCOSA_Win32_time_set(muCOSA_Win32_context* context, muCOSAResult* result, double time) {
 							context->time.orig_time = muCOSA_Win32_get_current_time() - time;
 							return; if (result) {}
@@ -34800,12 +34887,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						struct muCOSA_X11_time {
 							double orig_time;
+							double fixed_orig_time;
 						};
 						typedef struct muCOSA_X11_time muCOSA_X11_time;
 
 						double muCOSA_X11_get_system_time(void);
 						void muCOSA_X11_time_init(muCOSA_X11_time* time) {
-							time->orig_time = muCOSA_X11_get_system_time();
+							time->fixed_orig_time = time->orig_time = muCOSA_X11_get_system_time();
 						}
 
 					/* Important functions */
@@ -34819,6 +34907,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						double muCOSA_X11_time_get(muCOSA_X11_time* time) {
 							return muCOSA_X11_get_system_time() - time->orig_time;
+						}
+
+						double muCOSA_X11_time_get_fixed(muCOSA_X11_time* time) {
+							return muCOSA_X11_get_system_time() - time->fixed_orig_time;
 						}
 
 						void muCOSA_X11_time_set(muCOSA_X11_time* time, double dtime) {
@@ -37163,6 +37255,18 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (result) {}
 					}
 
+				MUDEF double muCOSA_time_get_fixed(muCOSAContext* context, muCOSAResult* result) {
+					muCOSA_inner* inner = (muCOSA_inner*)context->inner;
+
+						switch (inner->system) {
+							default: return 0.f; break;
+							MUCOSA_WIN32_CALL(case MU_WINDOW_SYSTEM_WIN32: return muCOSA_Win32_time_get_fixed((muCOSA_Win32_context*)inner->context, result); break;)
+							MUCOSA_X11_CALL(case MU_WINDOW_SYSTEM_X11: return muCOSA_X11_time_get_fixed(&((muCOSA_X11_context*)inner->context)->time); break;)
+						}
+
+						if (result) {}
+				}
+
 					MUDEF void muCOSA_time_set(muCOSAContext* context, muCOSAResult* result, double time) {
 						muCOSA_inner* inner = (muCOSA_inner*)context->inner;
 
@@ -37951,6 +38055,16 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			p_f[5] = point.col.a;
 		}
 
+		void mug_inner_rotate_point_around_point(float rpx, float rpy, float cpx, float cpy, float srot, float crot, float* p_px, float* p_py) {
+			float ox = rpx-cpx, oy = rpy-cpy;
+			if (p_px) {
+				*p_px = (ox*crot - oy*srot) + cpx;
+			}
+			if (p_py) {
+				*p_py = (ox*srot + oy*crot) + cpy;
+			}
+		}
+
 		/* Triangle */
 
 			// Data buf format: { vec2 pos, vec4 col }
@@ -37964,6 +38078,59 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				mug_inner_point_fill(p_f,      tri.p0);
 				mug_inner_point_fill(&p_f[6],  tri.p1);
 				mug_inner_point_fill(&p_f[12], tri.p2);
+			}
+
+		/* Rect */
+
+			// Data buf format: { vec2 pos, vec4 col }
+			// Data structure: vertex/32-index, triangle strip, & primitive restarting.
+
+			#define MUG_INNER_RECTBUF_VPOINTSIZE (sizeof(GLfloat)*6)
+			#define MUG_INNER_RECTBUF_VELCOUNT (24)
+			#define MUG_INNER_RECTBUF_IELCOUNT (5)
+			#define MUG_INNER_RECTBUF_VELSIZE (MUG_INNER_RECTBUF_VELCOUNT*sizeof(GLfloat))
+			#define MUG_INNER_RECTBUF_IELSIZE (MUG_INNER_RECTBUF_IELCOUNT*sizeof(GLuint))
+
+			void mug_innergl_rect_fill_f(float* f, muRect rect) {
+				float srot = mu_sin(rect.rot);
+				float crot = mu_cos(rect.rot);
+				float halfw = rect.dim.width / 2.f;
+				float halfh = rect.dim.height / 2.f;
+
+				// Top-left
+				mug_inner_rotate_point_around_point(rect.center.pos.x - halfw, rect.center.pos.y - halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[0], &f[1]);
+				// Top-right
+				mug_inner_rotate_point_around_point(rect.center.pos.x + halfw, rect.center.pos.y - halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[6], &f[7]);
+				// Bottom-left
+				mug_inner_rotate_point_around_point(rect.center.pos.x - halfw, rect.center.pos.y + halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[12], &f[13]);
+				// Bottom-right
+				mug_inner_rotate_point_around_point(rect.center.pos.x + halfw, rect.center.pos.y + halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[18], &f[19]);
+
+				f[2]  = rect.center.col.r;
+				f[3]  = rect.center.col.g;
+				f[4]  = rect.center.col.b;
+				f[5]  = rect.center.col.a;
+				f[8]  = rect.center.col.r;
+				f[9]  = rect.center.col.g;
+				f[10] = rect.center.col.b;
+				f[11] = rect.center.col.a;
+				f[14] = rect.center.col.r;
+				f[15] = rect.center.col.g;
+				f[16] = rect.center.col.b;
+				f[17] = rect.center.col.a;
+				f[20] = rect.center.col.r;
+				f[21] = rect.center.col.g;
+				f[22] = rect.center.col.b;
+				f[23] = rect.center.col.a;
+			}
+
+			void mug_innergl_rect_fill_i(uint32_t* i, size_m index, uint32_t prim_restart) {
+				size_m i6 = index*6;
+				i[0] = i6;
+				i[1] = i6+1;
+				i[2] = i6+2;
+				i[3] = i6+3;
+				i[4] = prim_restart;
 			}
 
 	/* Pre-API graphic (things needed for the next section) */
@@ -37981,15 +38148,22 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			void* papi;
 			mug_graphic_objtype objtype;
 			mug_graphic_object obj;
+
+			double last_time;
+			double target_fps;
+			double deltatime;
 		};
 		typedef struct mug_graphic mug_graphic;
 
 	/* OpenGL */
 
+		#define MUG_GL_PRIM_RESTART_32 4294967295
+
 		/* Graphic */
 
 			struct mug_innergl_shaders {
 				GLuint triangle;
+				GLuint rect;
 			}; typedef struct mug_innergl_shaders mug_innergl_shaders;
 
 			struct mug_innergl_context {
@@ -38065,6 +38239,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				/* Buffer */
 
 					struct mug_innergl_tribuf {
+						mugObjectType objtype;
 						GLuint vbo;
 						GLuint vao;
 						size_m count;
@@ -38142,6 +38317,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 					mug_innergl_tribuf* mug_innergl_tribuf_create(mugResult* result, size_m count, muTriangle* triangles) {
 						mug_innergl_tribuf buf;
+						buf.objtype = MUG_OBJECT_TRIANGLE;
 						buf.vbo = 0;
 						buf.vao = 0;
 						buf.count = count;
@@ -38184,9 +38360,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					}
 
 					void mug_innergl_tribuf_resize(mugResult* result, mug_innergl_tribuf* buf, size_m count, muTriangle* triangles) {
-						buf->count = count;
 						mugResult res = mug_innergl_tribuf_fill(buf, count, triangles);
-						MU_SET_RESULT(result, res)
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						buf->count = count;
 					}
 
 					void mug_innergl_tribuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_tribuf* buf) {
@@ -38257,6 +38437,249 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						"}"
 					;
 
+			/* Rect */
+
+				/* Buffer */
+
+					struct mug_innergl_rectbuf {
+						mugObjectType objtype;
+						GLuint vbo;
+						GLuint ebo;
+						GLuint vao;
+						size_m count;
+					}; typedef struct mug_innergl_rectbuf mug_innergl_rectbuf;
+
+					void mug_innergl_rect_buffer_desc(void) {
+						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, MUG_INNER_RECTBUF_VPOINTSIZE, 0);
+						glEnableVertexAttribArray(0);
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, MUG_INNER_RECTBUF_VPOINTSIZE, (void*)(2*sizeof(GLfloat)));
+						glEnableVertexAttribArray(1);
+					}
+
+					mugResult mug_innergl_rectbuf_fill_v(mug_innergl_rectbuf* buf, size_m count, muRect* rects) {
+						glBindVertexArray(buf->vao);
+
+						if (rects != 0)
+						{
+							GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_RECTBUF_VELSIZE * count);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							for (size_m i = 0; i < count; i++) {
+								mug_innergl_rect_fill_f(&vertexes[i*MUG_INNER_RECTBUF_VELCOUNT], rects[i]);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_RECTBUF_VELSIZE * count, vertexes, GL_DYNAMIC_DRAW);
+
+							mu_free(vertexes);
+						} else {
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_RECTBUF_VELSIZE * count, 0, GL_DYNAMIC_DRAW);
+						}
+
+						mug_innergl_rect_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_rectbuf_subfill_v(mug_innergl_rectbuf* buf, size_m offset, size_m count, muRect* rects) {
+						glBindVertexArray(buf->vao);
+
+						GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_RECTBUF_VELSIZE * count);
+						if (vertexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_innergl_rect_fill_f(&vertexes[i*MUG_INNER_RECTBUF_VELCOUNT], rects[i]);
+						}
+
+						glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+						glBufferSubData(GL_ARRAY_BUFFER, MUG_INNER_RECTBUF_VELSIZE * offset, MUG_INNER_RECTBUF_VELSIZE * count, vertexes);
+
+						mu_free(vertexes);
+
+						mug_innergl_rect_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_rectbuf_fill_i(mug_innergl_rectbuf* buf, size_m count) {
+						glBindVertexArray(buf->vao);
+
+						GLuint* indexes = (GLuint*)mu_malloc(MUG_INNER_RECTBUF_IELSIZE * count);
+						if (indexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_innergl_rect_fill_i(&indexes[i*MUG_INNER_RECTBUF_IELCOUNT], i, MUG_GL_PRIM_RESTART_32);
+						}
+
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf->ebo);
+						glBufferData(GL_ELEMENT_ARRAY_BUFFER, MUG_INNER_RECTBUF_IELSIZE * count, indexes, GL_STATIC_DRAW);
+
+						mu_free(indexes);
+
+						mug_innergl_rect_buffer_desc();
+						//glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					void mug_innergl_rectbuf_destroy(mug_innergl_rectbuf* buf) {
+						glDeleteVertexArrays(1, &buf->vao);
+						glDeleteBuffers(1, &buf->vbo);
+						glDeleteBuffers(1, &buf->ebo);
+					}
+
+					mug_innergl_rectbuf* mug_innergl_rectbuf_create(mugResult* result, size_m count, muRect* rects) {
+						mug_innergl_rectbuf buf;
+						buf.objtype = MUG_OBJECT_RECT;
+						buf.vbo = 0;
+						buf.ebo = 0;
+						buf.vao = 0;
+						buf.count = count;
+						mugResult res;
+
+						/* Generate objects */
+						{
+							glGenBuffers(1, &buf.vbo);
+							if (buf.vbo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								return 0;
+							}
+
+							glGenBuffers(1, &buf.ebo);
+							if (buf.ebo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								glDeleteBuffers(1, &buf.vbo);
+								return 0;
+							}
+
+							glGenVertexArrays(1, &buf.vao);
+							if (buf.vao == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_VERTEX_ARRAY)
+								glDeleteBuffers(1, &buf.vbo);
+								glDeleteBuffers(1, &buf.ebo);
+								return 0;
+							}
+						}
+
+						/* Fill buffer */
+						{
+							res = mug_innergl_rectbuf_fill_v(&buf, count, rects);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_rectbuf_destroy(&buf);
+								return 0;
+							}
+
+							res = mug_innergl_rectbuf_fill_i(&buf, count);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_rectbuf_destroy(&buf);
+								return 0;
+							}
+						}
+
+						mug_innergl_rectbuf* pbuf = (mug_innergl_rectbuf*)mu_malloc(sizeof(mug_innergl_rectbuf));
+						if (pbuf == 0) {
+							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+							mug_innergl_rectbuf_destroy(&buf);
+							return 0;
+						}
+						*pbuf = buf;
+						return pbuf;
+					}
+
+					void mug_innergl_rectbuf_resize(mugResult* result, mug_innergl_rectbuf* buf, size_m count, muRect* rects) {
+						mugResult res = mug_innergl_rectbuf_fill_v(buf, count, rects);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						res = mug_innergl_rectbuf_fill_i(buf, count);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						buf->count = count;
+					}
+
+					void mug_innergl_rectbuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_rectbuf* buf) {
+						mugResult res;
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.rect);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.rect, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, buf->count * MUG_INNER_RECTBUF_IELCOUNT, GL_UNSIGNED_INT, 0);
+						glBindVertexArray(0);
+						glUseProgram(0);
+					}
+
+					void mug_innergl_rectbuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_rectbuf* buf, size_m offset, size_m count) {
+						mugResult res;
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.rect);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.rect, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, count * MUG_INNER_RECTBUF_IELCOUNT, GL_UNSIGNED_INT, (const void*)(MUG_INNER_RECTBUF_IELSIZE * offset));
+						glBindVertexArray(0);
+						glUseProgram(0);
+					}
+
+				/* Shader */
+
+					const char* mug_innergl_rect_vshader =
+						"#version 400 core\n"
+
+						"layout(location=0)in vec2 vPos;"
+						"layout(location=1)in vec4 vCol;"
+
+						"out vec4 fCol;"
+						"uniform vec2 d;"
+
+						"void main(){"
+							"gl_Position=vec4((vPos.x-(d.x))/d.x,-(vPos.y-(d.y))/d.y,0.0,1.0);"
+							"fCol=vCol;"
+						"}"
+					;
+
+					const char* mug_innergl_rect_fshader = 
+						"#version 400 core\n"
+
+						"in vec4 fCol;"
+						"out vec4 oCol;"
+
+						"void main(){"
+							"oCol=fCol;"
+						"}"
+					;
+
 		/* Shaders */
 
 			mugResult mug_innergl_load_shader(mug_graphic* gfx, mugObjectType objtype) {
@@ -38269,6 +38692,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (gl->shaders.triangle == 0) {
 							gl->shaders.triangle = mug_innergl_comp_shader_vf(mug_innergl_triangle_vshader, mug_innergl_triangle_fshader);
 							if (gl->shaders.triangle == 0) {
+								return MUG_FAILED_COMPILE_GL_SHADERS;
+							}
+						}
+					} break;
+
+					case MUG_OBJECT_RECT: {
+						if (gl->shaders.rect == 0) {
+							gl->shaders.rect = mug_innergl_comp_shader_vf(mug_innergl_rect_vshader, mug_innergl_rect_fshader);
+							if (gl->shaders.rect == 0) {
 								return MUG_FAILED_COMPILE_GL_SHADERS;
 							}
 						}
@@ -38288,6 +38720,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (gl->shaders.triangle == 0) {
 							glDeleteProgram(gl->shaders.triangle);
 							gl->shaders.triangle = 0;
+						}
+					} break;
+
+					case MUG_OBJECT_RECT: {
+						if (gl->shaders.rect == 0) {
+							glDeleteProgram(gl->shaders.rect);
+							gl->shaders.rect = 0;
 						}
 					} break;
 				}
@@ -40020,12 +40459,20 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					}
 				}
 
+			/* Shared shader functionality */
+
+				struct mug_innervk_sbuffer {
+					mugObjectType objtype;
+					mug_innervk_buffer buf;
+				}; typedef struct mug_innervk_sbuffer mug_innervk_sbuffer;
+
 			/* Triangle */
 
 				/* Buffer */
 
-					mugResult mug_innervk_triangle_buffer_subfill(mug_innervk_inner* inner, mug_innervk_buffer* buffer, size_m offset, size_m count, muTriangle* tris) {
+					mugResult mug_innervk_triangle_buffer_subfill(mug_innervk_inner* inner, mug_innervk_sbuffer* sbuffer, size_m offset, size_m count, muTriangle* tris) {
 						mugResult res;
+						mug_innervk_buffer* buffer = &sbuffer->buf;
 
 						if (!tris) {
 							return MUG_SUCCESS;
@@ -40040,7 +40487,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_inner_triangle_fill(&vertexes[i*MUG_INNER_TRIBUF_ELCOUNT], tris[i]);
 						}
 
-						res = mug_innervk_buffer_transfer(inner, buffer, offset, vertexes, MUG_INNER_TRIBUF_ELSIZE * count);
+						res = mug_innervk_buffer_transfer(inner, buffer, MUG_INNER_TRIBUF_ELSIZE * offset, vertexes, MUG_INNER_TRIBUF_ELSIZE * count);
 						mu_free(vertexes);
 						if (res != MUG_SUCCESS) {
 							return res;
@@ -40049,12 +40496,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_innervk_triangle_buffer_fill(mug_innervk_inner* inner, mug_innervk_buffer* buffer, muTriangle* tris) {
-						return mug_innervk_triangle_buffer_subfill(inner, buffer, 0, buffer->size / MUG_INNER_TRIBUF_ELSIZE, tris);
+					mugResult mug_innervk_triangle_buffer_fill(mug_innervk_inner* inner, mug_innervk_sbuffer* sbuffer, muTriangle* tris) {
+						mug_innervk_buffer* buffer = &sbuffer->buf;
+						return mug_innervk_triangle_buffer_subfill(inner, sbuffer, 0, buffer->size / MUG_INNER_TRIBUF_ELSIZE, tris);
 					}
 
-					mugResult mug_innervk_triangle_buffer_raw_create(mug_innervk_inner* inner, mug_innervk_buffer* buf, size_m count, muTriangle* tris) {
+					mugResult mug_innervk_triangle_buffer_raw_create(mug_innervk_inner* inner, mug_innervk_sbuffer* sbuf, size_m count, muTriangle* tris) {
 						mugResult res;
+						mug_innervk_buffer* buf = &sbuf->buf;
 
 						// Create
 						res = mug_innervk_buffer_create(inner, buf, count * MUG_INNER_TRIBUF_ELSIZE, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -40063,7 +40512,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						}
 
 						// Fill
-						res = mug_innervk_triangle_buffer_subfill(inner, buf, 0, count, tris);
+						res = mug_innervk_triangle_buffer_subfill(inner, sbuf, 0, count, tris);
 						if (res != MUG_SUCCESS) {
 							mug_innervk_buffer_destroy(inner, buf);
 							return res;
@@ -40072,36 +40521,36 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					mug_innervk_buffer* mug_innervk_triangle_buffer_create(mugResult* result, mug_innervk_inner* inner, size_m count, muTriangle* tris) {
+					mug_innervk_sbuffer* mug_innervk_triangle_buffer_create(mugResult* result, mug_innervk_inner* inner, size_m count, muTriangle* tris) {
 						mugResult res;
 
-						mug_innervk_buffer* buf = (mug_innervk_buffer*)mu_malloc(sizeof(mug_innervk_buffer));
-						if (buf == 0) {
+						mug_innervk_sbuffer* sbuf = (mug_innervk_sbuffer*)mu_malloc(sizeof(mug_innervk_sbuffer));
+						if (sbuf == 0) {
 							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
 							return 0;
 						}
 
-						res = mug_innervk_triangle_buffer_raw_create(inner, buf, count, tris);
+						res = mug_innervk_triangle_buffer_raw_create(inner, sbuf, count, tris);
 						if (res != MUG_SUCCESS) {
-							mu_free(buf);
+							mu_free(sbuf);
 							return 0;
 						}
 
-						return buf;
+						return sbuf;
 					}
 
-					void mug_innervk_triangle_buffer_destroy(mug_innervk_inner* inner, mug_innervk_buffer* buffer) {
+					void mug_innervk_triangle_buffer_destroy(mug_innervk_inner* inner, mug_innervk_sbuffer* sbuffer) {
 						if (inner->init.device != VK_NULL_HANDLE) {
 							vkDeviceWaitIdle(inner->init.device);
 						}
-						mug_innervk_buffer_destroy(inner, buffer);
-						mu_free(buffer);
+						mug_innervk_buffer_destroy(inner, &sbuffer->buf);
+						mu_free(sbuffer);
 					}
 
-					mugResult mug_innervk_triangle_buffer_resize(mug_innervk_inner* inner, mug_innervk_buffer* buffer, size_m count, muTriangle* tris) {
+					mugResult mug_innervk_triangle_buffer_resize(mug_innervk_inner* inner, mug_innervk_sbuffer* buffer, size_m count, muTriangle* tris) {
 						mugResult res;
 
-						mug_innervk_buffer_destroy(inner, buffer);
+						mug_innervk_buffer_destroy(inner, &buffer->buf);
 						res = mug_innervk_triangle_buffer_raw_create(inner, buffer, count, tris);
 						if (res != MUG_SUCCESS) {
 							return res;
@@ -40447,10 +40896,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				/* Rendering */
 
 					// @TODO Simplify this function with further abstraction, should be pretty easy
-					mugResult mug_innervk_triangle_buffer_subrender(mugContext* context, mug_graphic* gfx, mug_innervk_buffer* buffer, size_m offset, size_m count) {
+					mugResult mug_innervk_triangle_buffer_subrender(mugContext* context, mug_graphic* gfx, mug_innervk_sbuffer* sbuffer, size_m offset, size_m count) {
 						mug_innervk_inner* inner = (mug_innervk_inner*)gfx->papi;
 						mug_innervk_triangle_shader* tri = (mug_innervk_triangle_shader*)inner->sh.triangle;
 						mug_innervk_command* cmd = &inner->cmds[inner->now_cmd];
+						mug_innervk_buffer* buffer = &sbuffer->buf;
 						mugResult res;
 
 						/* Update uniforms */
@@ -40494,8 +40944,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							// Vertex buffer
 							//VkDeviceSize offset = (VkDeviceSize)offset;
 							//offset *= MUG_INNER_TRIBUF_ELSIZE;
-							VkDeviceSize offset = 0;
-							vkCmdBindVertexBuffers(cmd->buffer, 0, 1, &buffer->buf, &offset);
+							VkDeviceSize size_offset = 0;
+							vkCmdBindVertexBuffers(cmd->buffer, 0, 1, &buffer->buf, &size_offset);
 
 							// Descriptor sets
 							vkCmdBindDescriptorSets(cmd->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tri->layout, 0, 1, &tri->suni.ds[inner->now_cmd], 0, 0);
@@ -40510,8 +40960,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_innervk_triangle_buffer_render(mugContext* context, mug_graphic* gfx, mug_innervk_buffer* buffer) {
-						return mug_innervk_triangle_buffer_subrender(context, gfx, buffer, 0, buffer->size/MUG_INNER_TRIBUF_ELSIZE);
+					mugResult mug_innervk_triangle_buffer_render(mugContext* context, mug_graphic* gfx, mug_innervk_sbuffer* sbuffer) {
+						return mug_innervk_triangle_buffer_subrender(context, gfx, sbuffer, 0, sbuffer->buf.size/MUG_INNER_TRIBUF_ELSIZE);
 					}
 
 			/* Multi-shader functions */
@@ -40834,6 +41284,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 				gfx->api = api;
 				gfx->objtype = MUG_GRAPHIC_OBJTYPE_MUWINDOW;
+				gfx->last_time = 0.0;
+				gfx->target_fps = 60.0;
+				gfx->deltatime = 0.0;
 				mugResult res = MUG_SUCCESS;
 
 				switch (gfx->api) {
@@ -40916,11 +41369,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				}
 			}
 
-			MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic) {
+			MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic, double target_fps) {
 				mug_graphic* gfx = (mug_graphic*)graphic;
 
 				switch (gfx->api) {
-					default: return; break;
+					default: break;
 					
 					case MUG_OPENGL: {
 						mug_innergl_graphic_bind(context, gfx);
@@ -40930,6 +41383,20 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					case MUG_VULKAN: {
 						mug_innervk_graphic_update(result, context, gfx);
 					} break;
+				}
+
+				muCOSAResult cosa_res = MUCOSA_SUCCESS;
+				double time = muCOSA_time_get(&context->cosa, &cosa_res);
+				if (cosa_res == MUCOSA_SUCCESS) {
+					gfx->deltatime = time - gfx->last_time;
+					gfx->last_time = time;
+				}
+
+				if (target_fps != 0.0) {
+					double inv_target_fps = 1.0 / target_fps;
+					if (gfx->deltatime < inv_target_fps) {
+						muCOSA_sleep(&context->cosa, 0, (inv_target_fps-gfx->deltatime));
+					}
 				}
 			}
 
@@ -40984,8 +41451,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
 
-					switch (object_type) {
-						default: break;
+					switch (object_type) { default: break;
 
 						case MUG_OBJECT_TRIANGLE: {
 							res = mug_innergl_load_shader(gfx, MUG_OBJECT_TRIANGLE);
@@ -40995,12 +41461,20 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							}
 							return (mugObjectBuffer)mug_innergl_tribuf_create(result, object_count, (muTriangle*)objects);
 						} break;
+
+						case MUG_OBJECT_RECT: {
+							res = mug_innergl_load_shader(gfx, MUG_OBJECT_RECT);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								return 0;
+							}
+							return (mugObjectBuffer)mug_innergl_rectbuf_create(result, object_count, (muRect*)objects);
+						} break;
 					}
 				} break;
 
 				case MUG_VULKAN: {
-					switch (object_type) {
-						default: break;
+					switch (object_type) { default: break;
 
 						case MUG_OBJECT_TRIANGLE: {
 							mugResult res = mug_innervk_triangle_shader_load((mug_innervk_inner*)gfx->papi);
@@ -41021,19 +41495,33 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF mugObjectBuffer mug_gobj_buffer_destroy(mugContext* context, muGraphic graphic, mugObjectBuffer buffer) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: mu_free(buffer); break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mug_innergl_tribuf_destroy((mug_innergl_tribuf*)buffer);
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innergl_tribuf_destroy((mug_innergl_tribuf*)buffer);
+						} break;
+						case MUG_OBJECT_RECT: {
+							mug_innergl_rectbuf_destroy((mug_innergl_rectbuf*)buffer);
+						} break;
+					}
+
 					mu_free(buffer);
 					return 0;
 				} break;
 
 				case MUG_VULKAN: {
-					mug_innervk_triangle_buffer_destroy((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer);
+					switch (objtype) { default: mu_free(buffer); break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innervk_triangle_buffer_destroy((mug_innervk_inner*)gfx->papi, (mug_innervk_sbuffer*)buffer);
+						} break;
+					}
 				} break;
 			}
 
@@ -41042,17 +41530,32 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF void mug_gobj_buffer_render(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: return; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mug_innergl_tribuf_render(context, gfx, (mug_innergl_tribuf*)buffer);
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innergl_tribuf_render(context, gfx, (mug_innergl_tribuf*)buffer);
+						} break;
+						case MUG_OBJECT_RECT: {
+							mug_innergl_rectbuf_render(context, gfx, (mug_innergl_rectbuf*)buffer);
+						} break;
+					}
 				} break;
 
 				case MUG_VULKAN: {
-					mugResult res = mug_innervk_triangle_buffer_render(context, gfx, (mug_innervk_buffer*)buffer);
+					mugResult res = MUG_SUCCESS;
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innervk_triangle_buffer_render(context, gfx, (mug_innervk_sbuffer*)buffer);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -41063,17 +41566,32 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF void mug_gobj_buffer_subrender(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: return; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mug_innergl_tribuf_subrender(context, gfx, (mug_innergl_tribuf*)buffer, object_offset, object_count);
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innergl_tribuf_subrender(context, gfx, (mug_innergl_tribuf*)buffer, object_offset, object_count);
+						} break;
+						case MUG_OBJECT_RECT: {
+							mug_innergl_rectbuf_subrender(context, gfx, (mug_innergl_rectbuf*)buffer, object_offset, object_count);
+						} break;
+					}
 				} break;
 
 				case MUG_VULKAN: {
-					mugResult res = mug_innervk_triangle_buffer_subrender(context, gfx, (mug_innervk_buffer*)buffer, object_offset, object_count);
+					mugResult res = MUG_SUCCESS;
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innervk_triangle_buffer_subrender(context, gfx, (mug_innervk_sbuffer*)buffer, object_offset, object_count);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -41084,18 +41602,35 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF void mug_gobj_buffer_fill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, void* objects) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: return; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mug_innergl_tribuf* tribuf = (mug_innergl_tribuf*)buffer;
-					mug_innergl_tribuf_fill(tribuf, tribuf->count, (muTriangle*)objects);
+
+					switch (objtype) { default: return; break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innergl_tribuf* tribuf = (mug_innergl_tribuf*)buffer;
+							mug_innergl_tribuf_fill(tribuf, tribuf->count, (muTriangle*)objects);
+						} break;
+						case MUG_OBJECT_RECT: {
+							mug_innergl_rectbuf* rectbuf = (mug_innergl_rectbuf*)buffer;
+							mug_innergl_rectbuf_fill_v(rectbuf, rectbuf->count, (muRect*)objects);
+						} break;
+					}
 				} break;
 
 				case MUG_VULKAN: {
-					mugResult res = mug_innervk_triangle_buffer_fill((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, (muTriangle*)objects);
+					mugResult res = MUG_SUCCESS;
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innervk_triangle_buffer_fill((mug_innervk_inner*)gfx->papi, (mug_innervk_sbuffer*)buffer, (muTriangle*)objects);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -41106,13 +41641,24 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF void mug_gobj_buffer_subfill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count, void* objects) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: return; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mugResult res = mug_innergl_tribuf_subfill((mug_innergl_tribuf*)buffer, object_offset, object_count, (muTriangle*)objects);
+					mugResult res = MUG_SUCCESS;
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innergl_tribuf_subfill((mug_innergl_tribuf*)buffer, object_offset, object_count, (muTriangle*)objects);
+						} break;
+						case MUG_OBJECT_RECT: {
+							res = mug_innergl_rectbuf_subfill_v((mug_innergl_rectbuf*)buffer, object_offset, object_count, (muRect*)objects);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -41120,7 +41666,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				} break;
 
 				case MUG_VULKAN: {
-					mugResult res = mug_innervk_triangle_buffer_subfill((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, object_offset, object_count, (muTriangle*)objects);
+					mugResult res = MUG_SUCCESS;
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innervk_triangle_buffer_subfill((mug_innervk_inner*)gfx->papi, (mug_innervk_sbuffer*)buffer, object_offset, object_count, (muTriangle*)objects);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
@@ -41131,23 +41684,43 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF void mug_gobj_buffer_resize(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_count, void* objects) {
 			mug_graphic* gfx = (mug_graphic*)graphic;
+			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
 				default: return; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
-					mug_innergl_tribuf_resize(result, (mug_innergl_tribuf*)buffer, object_count, (muTriangle*)objects);
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							mug_innergl_tribuf_resize(result, (mug_innergl_tribuf*)buffer, object_count, (muTriangle*)objects);
+						} break;
+						case MUG_OBJECT_RECT: {
+							mug_innergl_rectbuf_resize(result, (mug_innergl_rectbuf*)buffer, object_count, (muRect*)objects);
+						} break;
+					}
 				} break;
 
 				case MUG_VULKAN: {
-					mugResult res = mug_innervk_triangle_buffer_resize((mug_innervk_inner*)gfx->papi, (mug_innervk_buffer*)buffer, object_count, (muTriangle*)objects);
+					mugResult res = MUG_SUCCESS;
+
+					switch (objtype) { default: break;
+						case MUG_OBJECT_TRIANGLE: {
+							res = mug_innervk_triangle_buffer_resize((mug_innervk_inner*)gfx->papi, (mug_innervk_sbuffer*)buffer, object_count, (muTriangle*)objects);
+						} break;
+					}
+
 					if (res != MUG_SUCCESS) {
 						MU_SET_RESULT(result, res)
 						return;
 					}
 				} break;
 			}
+		}
+
+		MUDEF mugObjectType mug_gobj_buffer_get_type(mugContext* context, muGraphic graphic, mugObjectBuffer buffer) {
+			return *(mugObjectType*)buffer; if (context) {} if (graphic) {}
 		}
 
 	#ifdef __cplusplus
