@@ -2231,6 +2231,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_OBJECT_TRIANGLE,
 				// @DOCLINE * `@NLFT`: a rectangle; respective struct `muRect`.
 				MUG_OBJECT_RECT,
+				// @DOCLINE * `@NLFT`: a rounded rectangle; respective struct `muRoundRect`.
+				MUG_OBJECT_ROUND_RECT,
 			)
 
 		// @DOCLINE ## Load object type
@@ -2431,7 +2433,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		// @DOCLINE ## Struct
 
-			// The struct `muTriangle` has several members:
+			// @DOCLINE The struct `muTriangle` has several members:
 
 			struct muTriangle {
 				// @DOCLINE * `p0`: the first point of the triangle, defined below: @NLNT
@@ -2450,7 +2452,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		// @DOCLINE ## Struct
 
-			// The struct `muRect` has several members:
+			// @DOCLINE The struct `muRect` has several members:
 
 			struct muRect {
 				// @DOCLINE * `center`: the center point of the rect, defined below: @NLNT
@@ -2460,6 +2462,27 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				// @DOCLINE * `rot`: the rotation of the rect in radians, defined below: @NLNT
 				float rot;
 			}; typedef struct muRect muRect;
+
+	// @DOCLINE # Rounded rect object
+
+		// @DOCLINE The rounded rect object represents a rounded rectangle. Its respective `mugObjectType` enum value is `MUG_OBJECT_ROUND_RECT` and its respective struct type is `muRoundRect`.
+
+			// @DOCLINE ## Struct
+
+				// @DOCLINE The struct `muRoundRect` has several members:
+
+				struct muRoundRect {
+					// @DOCLINE * `center`: the center point of the rect, defined below: @NLNT
+					muPoint center;
+					// @DOCLINE * `dim`: the dimensions of the rect, defined below: @NLNT
+					muDimensions dim;
+					// @DOCLINE * `rot`: the rotation of the rect in radians, defined below: @NLNT
+					float rot;
+					// @DOCLINE * `round`: the radius of the circles on the rounded edges, defined below: @NLNT
+					float round;
+				}; typedef struct muRoundRect muRoundRect;
+
+				// @DOCLINE `round` should be at least 0 and less than `dim.width` and `dim.height`.
 
 	// @DOCLINE # Graphics API customization
 
@@ -38124,7 +38147,87 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				f[23] = rect.center.col.a;
 			}
 			void mug_inner_rect_fill_i(uint32_t* i, size_m index, uint32_t prim_restart) {
-				size_m i6 = index*6;
+				size_m i6 = index*4;
+				i[0] = i6;
+				i[1] = i6+1;
+				i[2] = i6+2;
+				i[3] = i6+3;
+				i[4] = prim_restart;
+			}
+
+		/* Round rect */
+
+			// Data buf format: { vec2 pos, vec4 col, float rot, vec2 dim, float round, vec2 center }
+			// Data structure: vertex/32-index, triangle strip, & primitive restarting.
+
+			#define MUG_INNER_ROUNDRECTBUF_VPOINTSIZE (sizeof(GLfloat)*12)
+			#define MUG_INNER_ROUNDRECTBUF_VELCOUNT (48)
+			#define MUG_INNER_ROUNDRECTBUF_IELCOUNT (5)
+			#define MUG_INNER_ROUNDRECTBUF_VELSIZE (MUG_INNER_ROUNDRECTBUF_VELCOUNT*sizeof(GLfloat))
+			#define MUG_INNER_ROUNDRECTBUF_IELSIZE (MUG_INNER_ROUNDRECTBUF_IELCOUNT*sizeof(GLuint))
+
+			void mug_inner_roundrect_fill_f(float* f, muRoundRect rect) {
+				float srot = mu_sin(rect.rot);
+				float crot = mu_cos(rect.rot);
+				float halfw = rect.dim.width / 2.f;
+				float halfh = rect.dim.height / 2.f;
+
+				// Top-left
+				mug_inner_rotate_point_around_point(rect.center.pos.x - halfw, rect.center.pos.y - halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[0], &f[1]);
+				// Top-right
+				mug_inner_rotate_point_around_point(rect.center.pos.x + halfw, rect.center.pos.y - halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[12], &f[13]);
+				// Bottom-left
+				mug_inner_rotate_point_around_point(rect.center.pos.x - halfw, rect.center.pos.y + halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[24], &f[25]);
+				// Bottom-right
+				mug_inner_rotate_point_around_point(rect.center.pos.x + halfw, rect.center.pos.y + halfh, rect.center.pos.x, rect.center.pos.y, srot, crot, &f[36], &f[37]);
+
+				f[2]  = rect.center.col.r;
+				f[3]  = rect.center.col.g;
+				f[4]  = rect.center.col.b;
+				f[5]  = rect.center.col.a;
+				f[6]  = rect.rot;
+				f[7]  = rect.dim.width;
+				f[8]  = rect.dim.height;
+				f[9]  = rect.round;
+				f[10] = rect.center.pos.x;
+				f[11] = rect.center.pos.y;
+
+				f[14] = rect.center.col.r;
+				f[15] = rect.center.col.g;
+				f[16] = rect.center.col.b;
+				f[17] = rect.center.col.a;
+				f[18] = rect.rot;
+				f[19] = rect.dim.width;
+				f[20] = rect.dim.height;
+				f[21] = rect.round;
+				f[22] = rect.center.pos.x;
+				f[23] = rect.center.pos.y;
+
+				f[26] = rect.center.col.r;
+				f[27] = rect.center.col.g;
+				f[28] = rect.center.col.b;
+				f[29] = rect.center.col.a;
+				f[30] = rect.rot;
+				f[31] = rect.dim.width;
+				f[32] = rect.dim.height;
+				f[33] = rect.round;
+				f[34] = rect.center.pos.x;
+				f[35] = rect.center.pos.y;
+
+				f[38] = rect.center.col.r;
+				f[39] = rect.center.col.g;
+				f[40] = rect.center.col.b;
+				f[41] = rect.center.col.a;
+				f[42] = rect.rot;
+				f[43] = rect.dim.width;
+				f[44] = rect.dim.height;
+				f[45] = rect.round;
+				f[46] = rect.center.pos.x;
+				f[47] = rect.center.pos.y;
+			}
+
+			void mug_inner_roundrect_fill_i(uint32_t* i, size_m index, uint32_t prim_restart) {
+				size_m i6 = index*4;
 				i[0] = i6;
 				i[1] = i6+1;
 				i[2] = i6+2;
@@ -38163,6 +38266,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			struct mug_innergl_shaders {
 				GLuint triangle;
 				GLuint rect;
+				GLuint round_rect;
 			}; typedef struct mug_innergl_shaders mug_innergl_shaders;
 
 			struct mug_innergl_context {
@@ -38194,16 +38298,24 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 			/* Useful functions */
 
+				// Uncomment to print info log upon failure, used for debugging
+				#define MUG_GL_SHADER_INFO_LOG_PRINT
+
 				GLuint mug_innergl_comp_shader_vf(const char* vss, const char* fss) {
 					GLint success;
-					GLchar complog[512];
+					#ifdef MUG_GL_SHADER_INFO_LOG_PRINT
+						GLchar complog[512];
+					#endif
 
 					GLuint vs = glCreateShader(GL_VERTEX_SHADER);
 					glShaderSource(vs, 1, &vss, 0);
 					glCompileShader(vs);
 					glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
 					if (!success) {
-						glGetShaderInfoLog(vs, 512, NULL, complog);
+						#ifdef MUG_GL_SHADER_INFO_LOG_PRINT
+							glGetShaderInfoLog(vs, 512, NULL, complog);
+							printf("vert: %s\n", complog);
+						#endif
 						return 0;
 					}
 
@@ -38212,7 +38324,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					glCompileShader(fs);
 					glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
 					if (!success) {
-						glGetShaderInfoLog(fs, 512, NULL, complog);
+						#ifdef MUG_GL_SHADER_INFO_LOG_PRINT
+							glGetShaderInfoLog(fs, 512, NULL, complog);
+							printf("frag: %s\n", complog);
+						#endif
 						glDeleteShader(vs);
 						return 0;
 					}
@@ -38232,6 +38347,16 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 					glDeleteShader(vs);
 					return sp;
 				}
+
+			/* Useful structs */
+
+				struct mug_innergl_vibuf {
+					mugObjectType objtype;
+					GLuint vbo;
+					GLuint ebo;
+					GLuint vao;
+					size_m count;
+				}; typedef struct mug_innergl_vibuf mug_innergl_vibuf;
 
 			/* Triangle */
 
@@ -38440,14 +38565,6 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 				/* Buffer */
 
-					struct mug_innergl_rectbuf {
-						mugObjectType objtype;
-						GLuint vbo;
-						GLuint ebo;
-						GLuint vao;
-						size_m count;
-					}; typedef struct mug_innergl_rectbuf mug_innergl_rectbuf;
-
 					void mug_innergl_rect_buffer_desc(void) {
 						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, MUG_INNER_RECTBUF_VPOINTSIZE, 0);
 						glEnableVertexAttribArray(0);
@@ -38455,7 +38572,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						glEnableVertexAttribArray(1);
 					}
 
-					mugResult mug_innergl_rectbuf_fill_v(mug_innergl_rectbuf* buf, size_m count, muRect* rects) {
+					mugResult mug_innergl_rectbuf_fill_v(mug_innergl_vibuf* buf, size_m count, muRect* rects) {
 						glBindVertexArray(buf->vao);
 
 						if (rects != 0)
@@ -38485,7 +38602,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_innergl_rectbuf_subfill_v(mug_innergl_rectbuf* buf, size_m offset, size_m count, muRect* rects) {
+					mugResult mug_innergl_rectbuf_subfill_v(mug_innergl_vibuf* buf, size_m offset, size_m count, muRect* rects) {
 						glBindVertexArray(buf->vao);
 
 						GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_RECTBUF_VELSIZE * count);
@@ -38509,7 +38626,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					mugResult mug_innergl_rectbuf_fill_i(mug_innergl_rectbuf* buf, size_m count) {
+					mugResult mug_innergl_rectbuf_fill_i(mug_innergl_vibuf* buf, size_m count) {
 						glBindVertexArray(buf->vao);
 
 						GLuint* indexes = (GLuint*)mu_malloc(MUG_INNER_RECTBUF_IELSIZE * count);
@@ -38533,14 +38650,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return MUG_SUCCESS;
 					}
 
-					void mug_innergl_rectbuf_destroy(mug_innergl_rectbuf* buf) {
+					void mug_innergl_rectbuf_destroy(mug_innergl_vibuf* buf) {
 						glDeleteVertexArrays(1, &buf->vao);
 						glDeleteBuffers(1, &buf->vbo);
 						glDeleteBuffers(1, &buf->ebo);
 					}
 
-					mug_innergl_rectbuf* mug_innergl_rectbuf_create(mugResult* result, size_m count, muRect* rects) {
-						mug_innergl_rectbuf buf;
+					mug_innergl_vibuf* mug_innergl_rectbuf_create(mugResult* result, size_m count, muRect* rects) {
+						mug_innergl_vibuf buf;
 						buf.objtype = MUG_OBJECT_RECT;
 						buf.vbo = 0;
 						buf.ebo = 0;
@@ -38574,14 +38691,14 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						/* Fill buffer */
 						{
-							res = mug_innergl_rectbuf_fill_v(&buf, count, rects);
+							res = mug_innergl_rectbuf_fill_i(&buf, count);
 							if (res != MUG_SUCCESS) {
 								MU_SET_RESULT(result, res)
 								mug_innergl_rectbuf_destroy(&buf);
 								return 0;
 							}
 
-							res = mug_innergl_rectbuf_fill_i(&buf, count);
+							res = mug_innergl_rectbuf_fill_v(&buf, count, rects);
 							if (res != MUG_SUCCESS) {
 								MU_SET_RESULT(result, res)
 								mug_innergl_rectbuf_destroy(&buf);
@@ -38589,7 +38706,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							}
 						}
 
-						mug_innergl_rectbuf* pbuf = (mug_innergl_rectbuf*)mu_malloc(sizeof(mug_innergl_rectbuf));
+						mug_innergl_vibuf* pbuf = (mug_innergl_vibuf*)mu_malloc(sizeof(mug_innergl_vibuf));
 						if (pbuf == 0) {
 							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
 							mug_innergl_rectbuf_destroy(&buf);
@@ -38599,7 +38716,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						return pbuf;
 					}
 
-					void mug_innergl_rectbuf_resize(mugResult* result, mug_innergl_rectbuf* buf, size_m count, muRect* rects) {
+					void mug_innergl_rectbuf_resize(mugResult* result, mug_innergl_vibuf* buf, size_m count, muRect* rects) {
 						mugResult res = mug_innergl_rectbuf_fill_v(buf, count, rects);
 						if (res != MUG_SUCCESS) {
 							MU_SET_RESULT(result, res)
@@ -38615,7 +38732,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						buf->count = count;
 					}
 
-					void mug_innergl_rectbuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_rectbuf* buf) {
+					void mug_innergl_rectbuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf) {
 						mugResult res;
 						glEnable(GL_PRIMITIVE_RESTART);
 
@@ -38635,7 +38752,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						glDisable(GL_PRIMITIVE_RESTART);
 					}
 
-					void mug_innergl_rectbuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_rectbuf* buf, size_m offset, size_m count) {
+					void mug_innergl_rectbuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf, size_m offset, size_m count) {
 						mugResult res;
 						glEnable(GL_PRIMITIVE_RESTART);
 
@@ -38683,6 +38800,385 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						"}"
 					;
 
+			/* Round rect */
+
+				/* Buffer */
+
+					void mug_innergl_roundrect_buffer_desc(void) {
+						// vec2 pos
+						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, (void*)(2*sizeof(GLfloat)));
+						glEnableVertexAttribArray(1);
+						// float rot
+						glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, (void*)(6*sizeof(GLfloat)));
+						glEnableVertexAttribArray(2);
+						// vec2 dim
+						glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, (void*)(7*sizeof(GLfloat)));
+						glEnableVertexAttribArray(3);
+						// float round
+						glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, (void*)(9*sizeof(GLfloat)));
+						glEnableVertexAttribArray(4);
+						// vec2 centre
+						glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, MUG_INNER_ROUNDRECTBUF_VPOINTSIZE, (void*)(10*sizeof(GLfloat)));
+						glEnableVertexAttribArray(5);
+					}
+
+					mugResult mug_innergl_roundrectbuf_fill_v(mug_innergl_vibuf* buf, size_m count, muRoundRect* rects) {
+						glBindVertexArray(buf->vao);
+
+						if (rects != 0)
+						{
+							GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_ROUNDRECTBUF_VELSIZE * count);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							for (size_m i = 0; i < count; i++) {
+								mug_inner_roundrect_fill_f(&vertexes[i*MUG_INNER_ROUNDRECTBUF_VELCOUNT], rects[i]);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_ROUNDRECTBUF_VELSIZE * count, vertexes, GL_DYNAMIC_DRAW);
+
+							mu_free(vertexes);
+						} else {
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_ROUNDRECTBUF_VELSIZE * count, 0, GL_DYNAMIC_DRAW);
+						}
+
+						mug_innergl_roundrect_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_roundrectbuf_subfill_v(mug_innergl_vibuf* buf, size_m offset, size_m count, muRoundRect* rects) {
+						glBindVertexArray(buf->vao);
+
+						GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_ROUNDRECTBUF_VELSIZE * count);
+						if (vertexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_inner_roundrect_fill_f(&vertexes[i*MUG_INNER_ROUNDRECTBUF_VELCOUNT], rects[i]);
+						}
+
+						glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+						glBufferSubData(GL_ARRAY_BUFFER, MUG_INNER_ROUNDRECTBUF_VELSIZE * offset, MUG_INNER_ROUNDRECTBUF_VELSIZE * count, vertexes);
+
+						mu_free(vertexes);
+
+						mug_innergl_roundrect_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_roundrectbuf_fill_i(mug_innergl_vibuf* buf, size_m count) {
+						glBindVertexArray(buf->vao);
+
+						GLuint* indexes = (GLuint*)mu_malloc(MUG_INNER_ROUNDRECTBUF_IELSIZE * count);
+						if (indexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_inner_roundrect_fill_i(&indexes[i*MUG_INNER_ROUNDRECTBUF_IELCOUNT], i, MUG_GL_PRIM_RESTART_32);
+						}
+
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf->ebo);
+						glBufferData(GL_ELEMENT_ARRAY_BUFFER, MUG_INNER_ROUNDRECTBUF_IELSIZE * count, indexes, GL_STATIC_DRAW);
+
+						mu_free(indexes);
+
+						mug_innergl_roundrect_buffer_desc();
+						//glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					void mug_innergl_roundrectbuf_destroy(mug_innergl_vibuf* buf) {
+						glDeleteVertexArrays(1, &buf->vao);
+						glDeleteBuffers(1, &buf->vbo);
+						glDeleteBuffers(1, &buf->ebo);
+					}
+
+					mug_innergl_vibuf* mug_innergl_roundrectbuf_create(mugResult* result, size_m count, muRoundRect* rects) {
+						mug_innergl_vibuf buf;
+						buf.objtype = MUG_OBJECT_ROUND_RECT;
+						buf.vbo = 0;
+						buf.ebo = 0;
+						buf.vao = 0;
+						buf.count = count;
+						mugResult res;
+
+						/* Generate objects */
+						{
+							glGenBuffers(1, &buf.vbo);
+							if (buf.vbo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								return 0;
+							}
+
+							glGenBuffers(1, &buf.ebo);
+							if (buf.ebo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								glDeleteBuffers(1, &buf.vbo);
+								return 0;
+							}
+
+							glGenVertexArrays(1, &buf.vao);
+							if (buf.vao == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_VERTEX_ARRAY)
+								glDeleteBuffers(1, &buf.vbo);
+								glDeleteBuffers(1, &buf.ebo);
+								return 0;
+							}
+						}
+
+						/* Fill buffer */
+						{
+							res = mug_innergl_roundrectbuf_fill_i(&buf, count);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_roundrectbuf_destroy(&buf);
+								return 0;
+							}
+
+							res = mug_innergl_roundrectbuf_fill_v(&buf, count, rects);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_roundrectbuf_destroy(&buf);
+								return 0;
+							}
+						}
+
+						mug_innergl_vibuf* pbuf = (mug_innergl_vibuf*)mu_malloc(sizeof(mug_innergl_vibuf));
+						if (pbuf == 0) {
+							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+							mug_innergl_roundrectbuf_destroy(&buf);
+							return 0;
+						}
+						*pbuf = buf;
+						return pbuf;
+					}
+
+					void mug_innergl_roundrectbuf_resize(mugResult* result, mug_innergl_vibuf* buf, size_m count, muRoundRect* rects) {
+						mugResult res = mug_innergl_roundrectbuf_fill_v(buf, count, rects);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						res = mug_innergl_roundrectbuf_fill_i(buf, count);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						buf->count = count;
+					}
+
+					void mug_innergl_roundrectbuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf) {
+						mugResult res;
+						glEnable(GL_PRIMITIVE_RESTART);
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.round_rect);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.round_rect, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, buf->count * MUG_INNER_ROUNDRECTBUF_IELCOUNT, GL_UNSIGNED_INT, 0);
+						glBindVertexArray(0);
+						glUseProgram(0);
+						glDisable(GL_PRIMITIVE_RESTART);
+					}
+
+					void mug_innergl_roundrectbuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf, size_m offset, size_m count) {
+						mugResult res;
+						glEnable(GL_PRIMITIVE_RESTART);
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.round_rect);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.round_rect, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, count * MUG_INNER_ROUNDRECTBUF_IELCOUNT, GL_UNSIGNED_INT, (const void*)(MUG_INNER_ROUNDRECTBUF_IELSIZE * offset));
+						glBindVertexArray(0);
+						glUseProgram(0);
+						glDisable(GL_PRIMITIVE_RESTART);
+					}
+
+				/* Shader */
+
+					const char* mug_innergl_roundrect_vshader = 
+						"#version 400 core\n"
+
+						"layout(location=0)in vec2 vPos;"
+						"layout(location=1)in vec4 vCol;"
+						"layout(location=2)in float vRot;"
+						"layout(location=3)in vec2 vDim;"
+						"layout(location=4)in float vRd;"
+						"layout(location=5)in vec2 vCen;"
+
+						"out vec4 fCol;"
+						"out float fRot;"
+						"out vec2 fDim;"
+						"out float fRd;"
+						"out vec2 fCen;"
+
+						"uniform vec2 d;"
+
+						"void main(){"
+							"vec2 oPos=vec2((vPos.x-(d.x))/d.x,-(vPos.y-(d.y))/d.y);"
+							"gl_Position=vec4(oPos,0.0,1.0);"
+
+							"fDim=vDim;"
+
+							"fRd=vRd;"
+							"fCol=vCol;"
+							"fRot=vRot;"
+							"fCen=vec2(vCen.x, (d.y*2.0)-vCen.y);"
+						"}"
+					;
+
+					const char* mug_innergl_roundrect_fshader = 
+						"#version 400 core\n"
+
+						"in vec4 fCol;"
+						"in float fRot;" // <-- rotation of the rect
+						"in vec2 fDim;" // <-- dimensions of the rect
+						"in float fRd;" // <-- radius of rounded edges
+						"in vec2 fCen;" // <-- centre of rectangle
+
+						"out vec4 oCol;"
+
+						"uniform vec2 d;"
+
+						"bool tl_is_corner_pixel_excluded(vec2 pix, float rd) {"
+							"return (pix.y > sqrt((rd*rd)-(pix.x*pix.x))) || (pix.x <= -rd);"
+						"}"
+						"bool tr_is_corner_pixel_excluded(vec2 pix, float rd) {"
+							"return (pix.y > sqrt((rd*rd)-(pix.x*pix.x))) || (pix.x >= rd);"
+						"}"
+						"bool bl_is_corner_pixel_excluded(vec2 pix, float rd) {"
+							"return (pix.y < -sqrt((rd*rd)-(pix.x*pix.x))) || (pix.x <= -rd);"
+						"}"
+						"bool br_is_corner_pixel_excluded(vec2 pix, float rd) {"
+							"return (pix.y < -sqrt((rd*rd)-(pix.x*pix.x))) || (pix.x >= rd);"
+						"}"
+
+						"bool is_pixel_excluded(vec2 relPixel, float rd) {"
+							// Left side
+							"if (relPixel.x < (-(fDim.x/2.0)+rd)) {"
+								// Top
+								"if (relPixel.y > ((fDim.y/2.0)-rd)) {"
+									"vec2 corRelPixel = vec2(relPixel.x-(-(fDim.x/2.0)+rd), relPixel.y-((fDim.y/2.0)-rd));"
+									"if (tl_is_corner_pixel_excluded(corRelPixel,rd)) {"
+										"return true;"
+									"}"
+								"}"
+								// Bottom
+								"else if (relPixel.y < (-(fDim.y/2.0)+rd)) {"
+									"vec2 corRelPixel = vec2(relPixel.x-(-(fDim.x/2.0)+rd), relPixel.y-(-(fDim.y/2.0)+rd));"
+									"if (bl_is_corner_pixel_excluded(corRelPixel,rd)) {"
+										"return true;"
+									"}"
+								"}"
+							"}"
+							// Right side
+							"else if (relPixel.x > ((fDim.x/2.0)-rd)) {"
+								// Top
+								"if (relPixel.y > ((fDim.y/2.0)-rd)) {"
+									"vec2 corRelPixel = vec2(relPixel.x-((fDim.x/2.0)-rd), relPixel.y-((fDim.y/2.0)-rd));"
+									"if (tr_is_corner_pixel_excluded(corRelPixel,rd)) {"
+										"return true;"
+									"}"
+								"}"
+								// Bottom
+								"else if (relPixel.y < (-(fDim.y/2.0)+rd)) {"
+									"vec2 corRelPixel = vec2(relPixel.x-((fDim.x/2.0)-rd), relPixel.y-(-(fDim.y/2.0)+rd));"
+									"if (br_is_corner_pixel_excluded(corRelPixel,rd)) {"
+										"return true;"
+									"}"
+								"}"
+							"}"
+							"return false;"
+						"}"
+
+						"vec2 rotate_point(vec2 point, vec2 center, float srot, float crot) {"
+							"vec2 op = point - center;"
+							"return vec2((op.x*crot - op.y*srot) + center.x, (op.x*srot + op.y*crot) + center.y);"
+						"}"
+
+						"vec2 frag_to_pixel(vec2 fragcoord) {"
+							// The position of the pixel from top-left (0,0) to bottom-right (d.x,d.y)
+							"vec2 pixel = vec2(fragcoord.x, fragcoord.y);"
+							// Inverse rotate point to counteract rotation in these calculations
+							"pixel = rotate_point(pixel, fCen, sin(fRot), cos(fRot));"
+							// The position of the pixel relative to the centre of the rect
+							"vec2 relPixel = vec2(pixel.x-fCen.x, pixel.y-fCen.y);"
+							"return relPixel;"
+						"}"
+
+						"bool is_frag_excluded(vec2 fragcoord) {"
+							"return is_pixel_excluded(frag_to_pixel(fragcoord), fRd);"
+						"}"
+
+						// Quick performant test to see if the pixel is surely included
+						"bool is_pixel_included(vec2 relPixel) {"
+							"if (abs(relPixel.x) <= ((fDim.x/2.0)-fRd) || abs(relPixel.y) <= ((fDim.y/2.0)-fRd)) {"
+								"return true;"
+							"}"
+							"if (!is_pixel_excluded(relPixel, fRd+6.0)) {"
+								"return true;"
+							"}"
+							"return false;"
+						"}"
+
+						"void main(){"
+							"if (is_pixel_included(frag_to_pixel(vec2(gl_FragCoord)))) {"
+								"oCol=fCol; return;"
+							"}"
+
+							"bool samples[9];"
+							"samples[0] = is_frag_excluded(vec2(gl_FragCoord.x-0.25, gl_FragCoord.y-0.25));"
+							"samples[1] = is_frag_excluded(vec2(gl_FragCoord.x,      gl_FragCoord.y-0.25));"
+							"samples[2] = is_frag_excluded(vec2(gl_FragCoord.x+0.25, gl_FragCoord.y-0.25));"
+							"samples[3] = is_frag_excluded(vec2(gl_FragCoord.x-0.25, gl_FragCoord.y));"
+							"samples[4] = is_frag_excluded(vec2(gl_FragCoord.x,      gl_FragCoord.y));"
+							"samples[5] = is_frag_excluded(vec2(gl_FragCoord.x+0.25, gl_FragCoord.y));"
+							"samples[6] = is_frag_excluded(vec2(gl_FragCoord.x-0.25, gl_FragCoord.y+0.25));"
+							"samples[7] = is_frag_excluded(vec2(gl_FragCoord.x,      gl_FragCoord.y+0.25));"
+							"samples[8] = is_frag_excluded(vec2(gl_FragCoord.x+0.25, gl_FragCoord.y+0.25));"
+
+							"float confidence = 1.0;"
+							"for (int i = 0; i < 9; i++) {"
+								"if (samples[i]) {"
+									"confidence -= 1.0/9.0;"
+								"}"
+							"}"
+
+							"oCol=fCol*vec4(1.0, 1.0, 1.0, confidence);"
+						"}"
+					;
+
 		/* Shaders */
 
 			mugResult mug_innergl_load_shader(mug_graphic* gfx, mugObjectType objtype) {
@@ -38704,6 +39200,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (gl->shaders.rect == 0) {
 							gl->shaders.rect = mug_innergl_comp_shader_vf(mug_innergl_rect_vshader, mug_innergl_rect_fshader);
 							if (gl->shaders.rect == 0) {
+								return MUG_FAILED_COMPILE_GL_SHADERS;
+							}
+						}
+					} break;
+
+					case MUG_OBJECT_ROUND_RECT: {
+						if (gl->shaders.round_rect == 0) {
+							gl->shaders.round_rect = mug_innergl_comp_shader_vf(mug_innergl_roundrect_vshader, mug_innergl_roundrect_fshader);
+							if (gl->shaders.round_rect == 0) {
 								return MUG_FAILED_COMPILE_GL_SHADERS;
 							}
 						}
@@ -38730,6 +39235,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (gl->shaders.rect == 0) {
 							glDeleteProgram(gl->shaders.rect);
 							gl->shaders.rect = 0;
+						}
+					} break;
+
+					case MUG_OBJECT_ROUND_RECT: {
+						if (gl->shaders.round_rect == 0) {
+							glDeleteProgram(gl->shaders.round_rect);
+							gl->shaders.round_rect = 0;
 						}
 					} break;
 				}
@@ -38766,6 +39278,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 			void mug_innergl_enable_features(void) {
 				glEnable(GL_BLEND);
+				glEnable(GL_MULTISAMPLE);
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 				glPrimitiveRestartIndex(MUG_GL_PRIM_RESTART_32);
 			}
@@ -41865,7 +42378,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				}
 
 				muCOSAResult cosa_res = MUCOSA_SUCCESS;
-				double time = muCOSA_time_get(&context->cosa, &cosa_res);
+				double time = muCOSA_time_get_fixed(&context->cosa, &cosa_res);
 				if (cosa_res == MUCOSA_SUCCESS) {
 					gfx->deltatime = time - gfx->last_time;
 					gfx->last_time = time;
@@ -41971,6 +42484,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							}
 							return (mugObjectBuffer)mug_innergl_rectbuf_create(result, object_count, (muRect*)objects);
 						} break;
+
+						case MUG_OBJECT_ROUND_RECT: {
+							res = mug_innergl_load_shader(gfx, MUG_OBJECT_ROUND_RECT);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								return 0;
+							}
+							return (mugObjectBuffer)mug_innergl_roundrectbuf_create(result, object_count, (muRoundRect*)objects);
+						} break;
 					}
 				} break;
 
@@ -42019,7 +42541,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_tribuf_destroy((mug_innergl_tribuf*)buffer);
 						} break;
 						case MUG_OBJECT_RECT: {
-							mug_innergl_rectbuf_destroy((mug_innergl_rectbuf*)buffer);
+							mug_innergl_rectbuf_destroy((mug_innergl_vibuf*)buffer);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							mug_innergl_roundrectbuf_destroy((mug_innergl_vibuf*)buffer);
 						} break;
 					}
 
@@ -42057,7 +42582,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_tribuf_render(context, gfx, (mug_innergl_tribuf*)buffer);
 						} break;
 						case MUG_OBJECT_RECT: {
-							mug_innergl_rectbuf_render(context, gfx, (mug_innergl_rectbuf*)buffer);
+							mug_innergl_rectbuf_render(context, gfx, (mug_innergl_vibuf*)buffer);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							mug_innergl_roundrectbuf_render(context, gfx, (mug_innergl_vibuf*)buffer);
 						} break;
 					}
 				} break;
@@ -42096,7 +42624,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_tribuf_subrender(context, gfx, (mug_innergl_tribuf*)buffer, object_offset, object_count);
 						} break;
 						case MUG_OBJECT_RECT: {
-							mug_innergl_rectbuf_subrender(context, gfx, (mug_innergl_rectbuf*)buffer, object_offset, object_count);
+							mug_innergl_rectbuf_subrender(context, gfx, (mug_innergl_vibuf*)buffer, object_offset, object_count);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							mug_innergl_roundrectbuf_subrender(context, gfx, (mug_innergl_vibuf*)buffer, object_offset, object_count);
 						} break;
 					}
 				} break;
@@ -42136,8 +42667,12 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_tribuf_fill(tribuf, tribuf->count, (muTriangle*)objects);
 						} break;
 						case MUG_OBJECT_RECT: {
-							mug_innergl_rectbuf* rectbuf = (mug_innergl_rectbuf*)buffer;
+							mug_innergl_vibuf* rectbuf = (mug_innergl_vibuf*)buffer;
 							mug_innergl_rectbuf_fill_v(rectbuf, rectbuf->count, (muRect*)objects);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							mug_innergl_vibuf* rectbuf = (mug_innergl_vibuf*)buffer;
+							mug_innergl_roundrectbuf_fill_v(rectbuf, rectbuf->count, (muRoundRect*)objects);
 						} break;
 					}
 				} break;
@@ -42178,7 +42713,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							res = mug_innergl_tribuf_subfill((mug_innergl_tribuf*)buffer, object_offset, object_count, (muTriangle*)objects);
 						} break;
 						case MUG_OBJECT_RECT: {
-							res = mug_innergl_rectbuf_subfill_v((mug_innergl_rectbuf*)buffer, object_offset, object_count, (muRect*)objects);
+							res = mug_innergl_rectbuf_subfill_v((mug_innergl_vibuf*)buffer, object_offset, object_count, (muRect*)objects);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							res = mug_innergl_roundrectbuf_subfill_v((mug_innergl_vibuf*)buffer, object_offset, object_count, (muRoundRect*)objects);
 						} break;
 					}
 
@@ -42223,7 +42761,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_tribuf_resize(result, (mug_innergl_tribuf*)buffer, object_count, (muTriangle*)objects);
 						} break;
 						case MUG_OBJECT_RECT: {
-							mug_innergl_rectbuf_resize(result, (mug_innergl_rectbuf*)buffer, object_count, (muRect*)objects);
+							mug_innergl_rectbuf_resize(result, (mug_innergl_vibuf*)buffer, object_count, (muRect*)objects);
+						} break;
+						case MUG_OBJECT_ROUND_RECT: {
+							mug_innergl_roundrectbuf_resize(result, (mug_innergl_vibuf*)buffer, object_count, (muRoundRect*)objects);
 						} break;
 					}
 				} break;
