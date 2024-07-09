@@ -18,14 +18,18 @@ More explicit license information at the end of file.
 @TODO Fix non-resizable windows having incorrect dimensions on Win32.
 @TODO Make the "quad" shape.
 @TODO Don't update dimensions each render call.
-@TODO Find a neat way to add 'inverse' shapes to allow outlines of shapes (for example, if a UI wants to have some fancy colors within a squircle, they could use an inverse squircle which would render an outline, under which they can render their objects).
+@TODO Find a neat way to add 'inverse' shapes to allow outlines of shapes (for example, if a UI wants to have some fancy colors within a squircle, they could use an inverse squircle which would render an outline, under which they can render their objects) (maybe not, as a background may already be drawn. Possibly modification masks, I really want stuff like that).
 */
 
 /* @DOCBEGIN
 
 # muGraphics v1.0.0
 
-muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level cross-graphics-API rendering. To use it, download the `muGraphics.h` file, add it to your include path, and include it like so:
+muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level cross-graphics-API rendering.
+
+***WARNING!*** This library is still under heavy development, has no official releases, and won't be stable until its first public release v1.0.0.
+
+To use it, download the `muGraphics.h` file, add it to your include path, and include it like so:
 
 ```c
 #define MUG_IMPLEMENTATION
@@ -2381,9 +2385,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE ### Members
 
 				struct muPosition {
-					// @DOCLINE * `x`: the x-value of the position, defined below: @NLNT
+					// @DOCLINE * `@NLFT x`: the x-value of the position.
 					float x;
-					// @DOCLINE * `y`: the y-value of the position, defined below: @NLNT
+					// @DOCLINE * `@NLFT y`: the y-value of the position.
 					float y;
 				}; typedef struct muPosition muPosition;
 
@@ -2394,13 +2398,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE ### Members
 
 				struct muColor {
-					// @DOCLINE * `r`: the red channel of the color, defined below: @NLNT
+					// @DOCLINE * `@NLFT r`: the red channel of the color.
 					float r;
-					// @DOCLINE * `g`: the green channel of the color, defined below: @NLNT
+					// @DOCLINE * `@NLFT g`: the green channel of the color.
 					float g;
-					// @DOCLINE * `b`: the blue channel of the color, defined below: @NLNT
+					// @DOCLINE * `@NLFT b`: the blue channel of the color.
 					float b;
-					// @DOCLINE * `a`: the alpha channel of the color, defined below: @NLNT
+					// @DOCLINE * `@NLFT a`: the alpha channel of the color.
 					float a;
 				}; typedef struct muColor muColor;
 
@@ -2411,9 +2415,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE ### Members
 
 				struct muPoint {
-					// @DOCLINE * `pos`: the position of the point, defined below: @NLNT
+					// @DOCLINE * `@NLFT pos`: the position of the point.
 					muPosition pos;
-					// @DOCLINE * `col`: the color of the point, defined below: @NLNT
+					// @DOCLINE * `@NLFT col`: the color of the point.
 					muColor col;
 				}; typedef struct muPoint muPoint;
 
@@ -2424,9 +2428,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE ### Members
 
 				struct muDimensions {
-					// @DOCLINE * `width`: the width, defined below: @NLNT
+					// @DOCLINE * `@NLFT width`: the width.
 					float width;
-					// @DOCLINE * `height`: the height, defined below: @NLNT
+					// @DOCLINE * `@NLFT height`: the height.
 					float height;
 				}; typedef struct muDimensions muDimensions;
 
@@ -2439,11 +2443,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE The struct `muTriangle` has several members:
 
 			struct muTriangle {
-				// @DOCLINE * `p0`: the first point of the triangle, defined below: @NLNT
+				// @DOCLINE * `@NLFT p0`: the first point of the triangle.
 				muPoint p0;
-				// @DOCLINE * `p1`: the second point of the triangle, defined below: @NLNT
+				// @DOCLINE * `@NLFT p1`: the second point of the triangle.
 				muPoint p1;
-				// @DOCLINE * `p2`: the third point of the triangle, defined below: @NLNT
+				// @DOCLINE * `@NLFT p2`: the third point of the triangle.
 				muPoint p2;
 			}; typedef struct muTriangle muTriangle;
 
@@ -2458,11 +2462,11 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE The struct `muRect` has several members:
 
 			struct muRect {
-				// @DOCLINE * `center`: the center point of the rect, defined below: @NLNT
+				// @DOCLINE * `@NLFT center`: the center point of the rect.
 				muPoint center;
-				// @DOCLINE * `dim`: the dimensions of the rect, defined below: @NLNT
+				// @DOCLINE * `@NLFT dim`: the dimensions of the rect.
 				muDimensions dim;
-				// @DOCLINE * `rot`: the rotation of the rect in radians, defined below: @NLNT
+				// @DOCLINE * `@NLFT rot`: the rotation of the rect in radians.
 				float rot;
 			}; typedef struct muRect muRect;
 
@@ -2475,17 +2479,17 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			// @DOCLINE The struct `muRoundRect` has several members:
 
 			struct muRoundRect {
-				// @DOCLINE * `center`: the center point of the rect, defined below: @NLNT
+				// @DOCLINE * `@NLFT center`: the center point of the rect.
 				muPoint center;
-				// @DOCLINE * `dim`: the dimensions of the rect, defined below: @NLNT
+				// @DOCLINE * `@NLFT dim`: the dimensions of the rect.
 				muDimensions dim;
-				// @DOCLINE * `rot`: the rotation of the rect in radians, defined below: @NLNT
+				// @DOCLINE * `@NLFT rot`: the rotation of the rect in radians.
 				float rot;
-				// @DOCLINE * `round`: the radius of the circles on the rounded edges, defined below: @NLNT
+				// @DOCLINE * `@NLFT round`: the radius of the circles on the rounded edges.
 				float round;
 			}; typedef struct muRoundRect muRoundRect;
 
-			// @DOCLINE `round` should be at least 0 and less than `dim.width` and `dim.height`.
+			// @DOCLINE `round` should be at least 0 and less than half of `dim.width` and half of `dim.height`.
 
 		// @DOCLINE # Squircle object
 
@@ -2496,13 +2500,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				// @DOCLINE The struct `muSquircle` has several members:
 
 				struct muSquircle {
-					// @DOCLINE * `center`: the center of the squircle, defined below: @NLNT
+					// @DOCLINE * `@NLFT center`: the center of the squircle.
 					muPoint center;
-					// @DOCLINE * `dim`: the dimensions of the squircle, defined below: @NLNT
+					// @DOCLINE * `@NLFT dim`: the dimensions of the squircle.
 					muDimensions dim;
-					// @DOCLINE * `rot`: the rotation of the squircle in radians, defined below: @NLNT
+					// @DOCLINE * `@NLFT rot`: the rotation of the squircle in radians.
 					float rot;
-					// @DOCLINE * `exp`: the exponent of the squircle `(x^exp + y^exp = r^exp)`, defined below: @NLNT
+					// @DOCLINE * `@NLFT exp`: the exponent of the squircle `(x^exp + y^exp = r^exp)`.
 					float exp;
 				}; typedef struct muSquircle muSquircle;
 
@@ -41991,7 +41995,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						/* Render and then end render pass */
 						{
-							vkCmdDrawIndexed(cmd->buffer, count*4, 1, 0, offset*MUG_INNER_RECTBUF_IELCOUNT, 0);
+							vkCmdDrawIndexed(cmd->buffer, count*MUG_INNER_RECTBUF_IELCOUNT, 1, 0, offset*4, 0);
 							vkCmdEndRenderPass(cmd->buffer);
 						}
 
@@ -43493,7 +43497,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 						/* Render and then end render pass */
 						{
-							vkCmdDrawIndexed(cmd->buffer, count*4, 1, 0, offset*MUG_INNER_ROUNDRECTBUF_IELCOUNT, 0);
+							vkCmdDrawIndexed(cmd->buffer, count*MUG_INNER_ROUNDRECTBUF_IELCOUNT, 1, 0, offset*4, 0);
 							vkCmdEndRenderPass(cmd->buffer);
 						}
 
