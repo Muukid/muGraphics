@@ -406,13 +406,15 @@ The primary way that mug renders things is with object buffers (respective type 
 
 The enum `mugObjectType` is used to represent the object type of a buffer. Its possible values are:
 
-* `MUG_OBJECT_TRIANGLE`: a triangle; respective struct `muTriangle`.
+* `MUG_OBJECT_TRIANGLE` - a triangle; respective struct `muTriangle`.
 
-* `MUG_OBJECT_RECT`: a rectangle; respective struct `muRect`.
+* `MUG_OBJECT_RECT` - a rectangle; respective struct `muRect`.
 
-* `MUG_OBJECT_ROUND_RECT`: a rounded rectangle; respective struct `muRoundRect`.
+* `MUG_OBJECT_ROUND_RECT` - a rounded rectangle; respective struct `muRoundRect`.
 
-* `MUG_OBJECT_SQUIRCLE`: a squircle; respective struct `muSquircle`.
+* `MUG_OBJECT_SQUIRCLE` - a squircle; respective struct `muSquircle`.
+
+* `MUG_OBJECT_CIRCLE` - a circle; respective struct `muCircle`.
 
 ## Load object type
 
@@ -671,9 +673,9 @@ mug uses the struct `muPosition` to represent a 2D position, ranging from (0, 0)
 
 ### Members
 
-* `float x`: the x-value of the position.
+* `float x` - the x-value of the position.
 
-* `float y`: the y-value of the position.
+* `float y` - the y-value of the position.
 
 ## Color
 
@@ -681,13 +683,13 @@ mug uses the struct `muColor` to represent a color with its respective red, gree
 
 ### Members
 
-* `float r`: the red channel of the color.
+* `float r` - the red channel of the color.
 
-* `float g`: the green channel of the color.
+* `float g` - the green channel of the color.
 
-* `float b`: the blue channel of the color.
+* `float b` - the blue channel of the color.
 
-* `float a`: the alpha channel of the color.
+* `float a` - the alpha channel of the color.
 
 ## Point
 
@@ -695,9 +697,9 @@ mug uses the struct `muPoint` to represent a renderable point, being defined wit
 
 ### Members
 
-* `muPosition pos`: the position of the point.
+* `muPosition pos` - the position of the point.
 
-* `muColor col`: the color of the point.
+* `muColor col` - the color of the point.
 
 ## Dimensions
 
@@ -705,9 +707,9 @@ mug uses the struct `muDimensions` to represent a width and height.
 
 ### Members
 
-* `float width`: the width.
+* `float width` - the width.
 
-* `float height`: the height.
+* `float height` - the height.
 
 # Triangle object
 
@@ -715,13 +717,13 @@ The triangle object represents a triangle, AKA three points connected as one sha
 
 ## Struct
 
-The struct `muTriangle` has several members:
+The struct `muTriangle` has the following members:
 
-* `muPoint p0`: the first point of the triangle.
+* `muPoint p0` - the first point of the triangle.
 
-* `muPoint p1`: the second point of the triangle.
+* `muPoint p1` - the second point of the triangle.
 
-* `muPoint p2`: the third point of the triangle.
+* `muPoint p2` - the third point of the triangle.
 
 All points are interchangeable and in no particular order; swapping two points with each other will have no visual effect.
 
@@ -731,13 +733,13 @@ The rect object represents a rectangle. Its respective `mugObjectType` enum valu
 
 ## Struct
 
-The struct `muRect` has several members:
+The struct `muRect` has the following members:
 
-* `muPoint center`: the center point of the rect.
+* `muPoint center` - the center point of the rect.
 
-* `muDimensions dim`: the dimensions of the rect.
+* `muDimensions dim` - the dimensions of the rect.
 
-* `float rot`: the rotation of the rect in radians.
+* `float rot` - the rotation of the rect in radians.
 
 # Rounded rect object
 
@@ -745,15 +747,15 @@ The rounded rect object represents a rounded rectangle. Its respective `mugObjec
 
 ## Struct
 
-The struct `muRoundRect` has several members:
+The struct `muRoundRect` has the following members:
 
-* `muPoint center`: the center point of the rect.
+* `muPoint center` - the center point of the rect.
 
-* `muDimensions dim`: the dimensions of the rect.
+* `muDimensions dim` - the dimensions of the rect.
 
-* `float rot`: the rotation of the rect in radians.
+* `float rot` - the rotation of the rect in radians.
 
-* `float round`: the radius of the circles on the rounded edges.
+* `float round` - the radius of the circles on the rounded edges.
 
 `round` should be at least 0 and less than half of `dim.width` and half of `dim.height`.
 
@@ -763,17 +765,29 @@ The squircle object represents a [squircle](https://en.wikipedia.org/wiki/Squirc
 
 ## Struct
 
-The struct `muSquircle` has several members:
+The struct `muSquircle` has the following members:
 
-* `muPoint center`: the center of the squircle.
+* `muPoint center` - the center of the squircle.
 
-* `muDimensions dim`: the dimensions of the squircle.
+* `muDimensions dim` - the dimensions of the squircle.
 
-* `float rot`: the rotation of the squircle in radians.
+* `float rot` - the rotation of the squircle in radians.
 
-* `float exp`: the exponent of the squircle (`(x^exp + y^exp = r^exp)`).
+* `float exp` - the exponent of the squircle (`(x^exp + y^exp = r^exp)`).
 
 The higher `exp` is, the sharper the edges of the squircle become. `exp` should never be below 0.
+
+# Circle object
+
+The circle object represents a [circle](https://en.wikipedia.org/wiki/Circle). Its respective `mugObjectType` enum value is `MUG_OBJECT_CIRCLE` and its respective struct type is `muCircle`.
+
+## Struct
+
+The struct `muCircle` has the following members:
+
+* `muPoint center` - the center of the circle.
+
+* `float radius` - the radius of the circle. The value of this member should always be greater than or equal to 0.
 
 # Graphics API customization
 
