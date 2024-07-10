@@ -771,9 +771,9 @@ The struct `muSquircle` has several members:
 
 * `float rot`: the rotation of the squircle in radians.
 
-* `float exp`: the exponent of the squircle `(x^exp + y^exp = r^exp)`.
+* `float exp`: the exponent of the squircle (`(x^exp + y^exp = r^exp)`).
 
-The higher `exp` is, the sharper the edges of the squircle become.
+The higher `exp` is, the sharper the edges of the squircle become. `exp` should never be below 0.
 
 # Graphics API customization
 
