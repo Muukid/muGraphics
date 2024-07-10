@@ -2,24 +2,21 @@
 ============================================================
                         DEMO INFO
 
-DEMO NAME:          advanced_triangle.c
+DEMO NAME:          squircle.c
 DEMO WRITTEN BY:    Muukid
-CREATION DATE:      2024-06-15
+CREATION DATE:      2024-07-10
 LAST UPDATED:       2024-07-10
 
 ============================================================
                         DEMO PURPOSE
 
-This demo tests if all of the features of a triangle buffer
-in mug work.
+This demo shows how squircle rendering works in mug.
 
 ============================================================
                         DEMO FUNCTION
 
-The demo should render a triangle, which can be toggled into
-a triple triangle by pressing the left and right arrow keys.
-It should also toggle rendering of triangles in the 4
-corners of the screen by pressing space.
+The demo should render a spinning squircle, whose edges can
+be modified using the up/down arrow keys.
 
 ============================================================
                         LICENSE INFO
@@ -34,13 +31,9 @@ More explicit license information at the end of file.
 /* Inclusion */
 
 	// Include mug
-
 	#define MUG_NAMES // For 'mug_result_get_name'
 	#define MUG_IMPLEMENTATION
 	#include "muGraphics.h"
-
-	// Include math (for sin)
-	#include <math.h>
 
 	// Include stdio for printing
 	#include <stdio.h>
@@ -56,144 +49,42 @@ More explicit license information at the end of file.
 	// The API of the graphic
 	muGraphicAPI api = MUG_OPENGL;
 
-	// The triangles to be rendered
-	muTriangle triangles[] = {
-		/* First triangle */
+	// The squircle to be rendered
+	muSquircle squircle = {
+		// Center
 		{
-			{ // Point 0
-				{ 400, 200 }, // (position)
-				{ 1.0, 0.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 1
-				{ 200, 400 }, // (position)
-				{ 0.0, 1.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 2
-				{ 600, 400 }, // (position)
-				{ 0.0, 0.0, 1.0, 1.0 } // (colour)
-			}
+			{ 400, 300 }, // (position)
+			{ 148.0/255.0, 209.0/255.0, 190.0/255.0, 1.0 }, // (color)
 		},
-
-		/* Other three triangles that form a bigger triangle */
-
-		// #1
-		{
-			{ // Point 0
-				{ 400, 200 }, // (position)
-				{ 1.0, 0.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 1
-				{ 300, 300 }, // (position)
-				{ 0.0, 1.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 2
-				{ 500, 300 }, // (position)
-				{ 0.0, 1.0, 0.0, 1.0 } // (colour)
-			}
-		},
-
-		// #2
-		{
-			{ // Point 0
-				{ 300, 300 }, // (position)
-				{ 0.0, 1.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 1
-				{ 200, 400 }, // (position)
-				{ 0.0, 0.0, 1.0, 1.0 } // (colour)
-			},
-			{ // Point 2
-				{ 400, 400 }, // (position)
-				{ 0.0, 0.0, 1.0, 1.0 } // (colour)
-			}
-		},
-
-		// #3
-		{
-			{ // Point 0
-				{ 500, 300 }, // (position)
-				{ 0.0, 1.0, 0.0, 1.0 } // (colour)
-			},
-			{ // Point 1
-				{ 400, 400 }, // (position)
-				{ 0.0, 0.0, 1.0, 1.0 } // (colour)
-			},
-			{ // Point 2
-				{ 600, 400 }, // (position)
-				{ 0.0, 0.0, 1.0, 1.0 } // (colour)
-			}
-		}
+		// Dimensions
+		{ 150, 150 },
+		// Rotation
+		0.0,
+		// Exp
+		4
 	};
 
-	// The corner triangles
-	muTriangle corner_triangles[4] = {
-		// Top-left
-		{
-			{ { 0,   0   }, { 1.0, 0.0, 0.0, 1.0 } },
-			{ { 100, 0   }, { 1.0, 0.0, 0.0, 1.0 } },
-			{ { 0,   100 }, { 1.0, 0.0, 0.0, 1.0 } }
-		},
-		// Top-right
-		{
-			{ { 800, 0   }, { 0.0, 1.0, 0.0, 1.0 } },
-			{ { 700, 0   }, { 0.0, 1.0, 0.0, 1.0 } },
-			{ { 800, 100 }, { 0.0, 1.0, 0.0, 1.0 } }
-		},
-		// Bottom-left
-		{
-			{ { 0,   600 }, { 0.0, 0.0, 1.0, 1.0 } },
-			{ { 100, 600 }, { 0.0, 0.0, 1.0, 1.0 } },
-			{ { 0,   500 }, { 0.0, 0.0, 1.0, 1.0 } }
-		},
-		// Bottom-right
-		{
-			{ { 800, 600 }, { 1.0, 1.0, 1.0, 1.0 } },
-			{ { 700, 600 }, { 1.0, 1.0, 1.0, 1.0 } },
-			{ { 800, 500 }, { 1.0, 1.0, 1.0, 1.0 } }
-		},
-	};
-
-	// The buffer used for rendering the triangle
-	mugObjectBuffer triangle_buffer;
-
-	// The size of the buffer in triangles
-	size_m buffer_size = 4;
-
-	// State for which triangles are being rendered
-	int state = 0; // 0 = 1 triangle, 1 = 3 triangles
-
-	// Boolean for whether or not to render corner triangles
-	muBool corners = MU_FALSE;
+	// The buffer used for rendering the squircle
+	mugObjectBuffer squircle_buffer;
 
 /* Outside functions */
 
-	// Keyboard key callback to handle key press logic
+	// Keyboard key callback for turning up/down exponent
 	void keyboard_key_callback(muWindow win, muKeyboardKey key, muButtonState keystate) {
 		if (keystate != MU_BUTTON_STATE_HELD) {
 			return;
 		}
 
-		// State changing
-		if (key == MU_KEYBOARD_KEY_RIGHT) {
-			state += 1;
-			if (state > 1) {
-				state = 0;
+		if (key == MU_KEYBOARD_KEY_UP) {
+			squircle.exp += 0.075;
+		} else if (key == MU_KEYBOARD_KEY_DOWN) {
+			squircle.exp -= 0.075;
+			if (squircle.exp < 0.0) {
+				squircle.exp = 0.0;
 			}
-			return;
-		}
-		if (key == MU_KEYBOARD_KEY_LEFT) {
-			state -= 1;
-			if (state < 0) {
-				state = 1;
-			}
-			return;
 		}
 
-		// Corner changing
-		if (key == MU_KEYBOARD_KEY_SPACE) {
-			corners = !corners;
-			return;
-		}
+		printf("exp = %f\n", squircle.exp);
 
 		return; if (win) {} // (to avoid parameter warnings)
 	}
@@ -211,58 +102,37 @@ int main(void) {
 		ci.keyboard_key_callback = keyboard_key_callback;
 
 		// Create graphic
-		gfx = mu_graphic_create_via_window(api, "Advanced triangle", 800, 600, ci);
+		gfx = mu_graphic_create_via_window(api, "Squircle", 800, 600, ci);
 
-		// Create triangle buffer
-		triangle_buffer = mu_gobj_buffer_create(gfx, MUG_OBJECT_TRIANGLE, 
-			sizeof(triangles) / sizeof(muTriangle), triangles
-		);
+		// Create squircle buffer
+		squircle_buffer = mu_gobj_buffer_create(gfx, MUG_OBJECT_SQUIRCLE, 1, &squircle);
 
 	/* Main loop */
 
 		while (mu_graphic_exists(gfx)) {
-			// Clear the screen with black
-			mu_graphic_clear(gfx, 0.0, 0.0, 0.0, 1.0);
+			// Clear the graphic
+			mu_graphic_clear(gfx, 218.0/255.0, 240.0/255.0, 238.0/255.0, 1.0);
 
-			// Resize buffer and add corners if needed
-			if (corners == MU_TRUE && buffer_size == 4) {
-				mu_gobj_buffer_resize(gfx, triangle_buffer, 
-					(sizeof(triangles) / sizeof(muTriangle)) + (sizeof(corner_triangles) / sizeof(muTriangle)), 0
-				);
-				buffer_size = 8;
-				mu_gobj_buffer_subfill(gfx, triangle_buffer, 4, 4, corner_triangles);
-			} else if (corners == MU_FALSE && buffer_size == 8) {
-				mu_gobj_buffer_resize(gfx, triangle_buffer, 
-					sizeof(triangles) / sizeof(muTriangle), 0
-				);
-				buffer_size = 4;
-			}
+			// Rotate the squircle over time
+			squircle.rot = mu_time_get();
 
-			// Sub-fill and sub-render portion of triangles based on state
-			if (state == 0) {
-				mu_gobj_buffer_subfill(gfx, triangle_buffer, 0, 1, triangles);
-				mu_gobj_buffer_subrender(gfx, triangle_buffer, 0, 1);
-			} else {
-				mu_gobj_buffer_subfill(gfx, triangle_buffer, 1, 3, &triangles[1]);
-				mu_gobj_buffer_subrender(gfx, triangle_buffer, 1, 3);
-			}
+			// Update the squircle buffer
+			mu_gobj_buffer_fill(gfx, squircle_buffer, &squircle);
 
-			// Sub-render corners if needed
-			if (corners) {
-				mu_gobj_buffer_subrender(gfx, triangle_buffer, 4, 4);
-			}
+			// Render the buffer
+			mu_gobj_buffer_render(gfx, squircle_buffer);
 
 			// Swap graphic buffers (to present image)
 			mu_graphic_swap_buffers(gfx);
 
-			// Update graphic at ~60 fps
-			mu_graphic_update(gfx, 60);
+			// Update graphic at ~100 fps
+			mu_graphic_update(gfx, 100);
 		}
 
 	/* Termination */
 
-		// Destroy triangle buffer
-		triangle_buffer = mu_gobj_buffer_destroy(gfx, triangle_buffer);
+		// Destroy squircle buffer
+		squircle_buffer = mu_gobj_buffer_destroy(gfx, squircle_buffer);
 
 		// Destroy graphic
 		gfx = mu_graphic_destroy(gfx);

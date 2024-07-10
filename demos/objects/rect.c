@@ -5,7 +5,7 @@
 DEMO NAME:          rect.c
 DEMO WRITTEN BY:    Muukid
 CREATION DATE:      2024-06-15
-LAST UPDATED:       2024-07-09
+LAST UPDATED:       2024-07-10
 
 ============================================================
                         DEMO PURPOSE
@@ -29,6 +29,9 @@ More explicit license information at the end of file.
 	#define MUG_NAMES // For 'mug_result_get_name'
 	#define MUG_IMPLEMENTATION
 	#include "muGraphics.h"
+
+	// Include stdio for printing
+	#include <stdio.h>
 
 /* Global variables */
 	
@@ -108,6 +111,9 @@ int main(void) {
 
 		// Destroy global context
 		mug_context_destroy(&mug);
+
+		// Print result
+		printf("%s\n", mug_result_get_name(mug.result));
 
 	return 0;
 }
