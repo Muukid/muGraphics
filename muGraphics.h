@@ -1,26 +1,23 @@
 /*
 muGraphics.h - Muukid
 Public domain* single-file C library for high-level cross-graphics-API rendering.
+https://github.com/Muukid/muGraphics
 No warranty implied; use at your own risk.
 
-Licensed under MIT License or public domain, whichever you prefer.
+Licensed under (MIT License or public domain, whichever you prefer) AND Apache 2.0.
 More explicit license information at the end of file.
 
-@TODO (Vulkan) Make separate image for framebuffers, draw into it, then blit to the swapchain image to avoid swapchain image format issues.
 @TODO (Vulkan) Benchmark performance, especially in regards to vkQueuePresentKHR.
-@TODO (Vulkan) Global loader.
-@TODO Fix loading/terminating (right now, having multiple Vulkan contexts most likely won't work, same with OpenGL).
-@TODO Internally break up vertex data that's too big to allocate all at once.
-@TODO (Vulkan) Make memory optimizer thingamabob.
 @TODO (Vulkan) Abstract shader code more (will need to be done once more shaders are added just to see what's in common and what the best abstractions would be).
-@TODO Add switch statements for different object types in the various buffer-related functions.
 @TODO Add "get buffer size" function.
-@TODO Fix non-resizable windows having incorrect dimensions on Win32.
+@TODO Fix non-resizable windows having incorrect dimensions on Win32. This is a muCOSA issue, I think.
 @TODO Make the "quad" shape.
 @TODO Don't update dimensions each render call.
 @TODO Find a neat way to add 'inverse' shapes to allow outlines of shapes (for example, if a UI wants to have some fancy colors within a squircle, they could use an inverse squircle which would render an outline, under which they can render their objects) (maybe not, as a background may already be drawn. Possibly modification masks, I really want stuff like that).
 @TODO Fix code repetition within the shader sections, possibly with macros.
 @TODO Optimize shaders, particular the round rect shader.
+@TODO Fix non-RGBA textures rendering with alpha 0.
+@TODO Create sideways checkerboard visual demo. Would be cool.
 */
 
 /* @DOCBEGIN
@@ -59,6 +56,30 @@ Demos that quickly show the gist of the library and how it works are available i
 # Licensing
 
 mug is licensed under public domain or MIT, whichever you prefer, as well as [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
+
+# Known issues and limitations
+
+This section covers the known issues and limitations of the libraries.
+
+## Vulkan rendering in weird colors
+
+If you use Vulkan rendering on some devices, the color will be off. This is because mug treats the surface as RGB/RGBA, when the display may use another format (most commonly BGR/BGRA), swapping the blue and red channels and leading to incorrect results. [The solution to this is known](https://www.reddit.com/r/vulkan/comments/p3iy0o/comment/h8rf7dr), but has simply not been implemented yet.
+
+## Vulkan performance
+
+As of right now, Vulkan performs worse than OpenGL based on FPS data provided by the fairly basic demos tested thus far. The reason for this is unknown currently.
+
+## Multiple contexts
+
+As of right now, an application with multiple mug contexts existing on the same thread is not guaranteed to work. This is due to several issues in the creation, destruction, and binding of the contexts for the graphics APIs, and this issue exists in both mug and muCOSA.
+
+## Memory allocation in Vulkan
+
+Efficient (both in terms of speed and memory usage) memory allocation in Vulkan is achieved using an allocator. This has not been implemented yet, and thus, it is considerably easier to reach memory limits in Vulkan compared to OpenGL. Libraries like [VulkanMemoryAllocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) exist to fix this issue, but due to the nature of this library (primarily sticking to minimal dependencies and public-domain* licensing), they cannot be used, and an equivalent must be manually added at some point.
+
+## Mipmapping
+
+Currently, mug provides no way to mipmap textures. This will likely be provided in future versions.
 
 @DOCEND */
 
@@ -2244,6 +2265,8 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				MUG_OBJECT_SQUIRCLE,
 				// @DOCLINE * `@NLFT` - a circle; respective struct `muCircle`.
 				MUG_OBJECT_CIRCLE,
+				// @DOCLINE * `@NLFT` - a single texture; respective struct `muTextureObject`.
+				MUG_OBJECT_TEXTURE,
 			)
 
 		// @DOCLINE ## Load object type
@@ -2531,6 +2554,117 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				float radius;
 			};
 			typedef struct muCircle muCircle;
+
+	// @DOCLINE # Texture loading
+
+		// @DOCLINE mug has the ability to load and render textures. 2-dimensional textures are represent by the macro `mugTexture`.
+		#define mugTexture void*
+
+		// @DOCLINE ## Formats
+
+			// @DOCLINE The enum `mugTextureFormat` is used to represent a texture format. Its possible values are:
+			MU_ENUM(mugTextureFormat,
+				// @DOCLINE * `@NLFT` - single-channel (red) unsigned normalized integer format.
+				MUG_FORMAT_8UNORM_R,
+				// @DOCLINE * `@NLFT` - double-channel (red and green) unsigned normalized integer format.
+				MUG_FORMAT_8UNORM_RG,
+				// @DOCLINE * `@NLFT` - triple-channel (red, green, and blue) unsigned normalized integer format.
+				MUG_FORMAT_8UNORM_RGB,
+				// @DOCLINE * `@NLFT` - quadruple-channel (red, green, blue, and alpha) unsigned normalized integer format.
+				MUG_FORMAT_8UNORM_RGBA,
+			)
+
+		// @DOCLINE ## Filtering
+
+			// @DOCLINE The enum `mugTextureFiltering` is used to represent a texture filtering method. Its possible values are:
+			MU_ENUM(mugTextureFiltering,
+				// @DOCLINE * `@NLFT` - [nearest-neighbor filtering](https://en.wikipedia.org/wiki/Nearest-neighbor_interpolation).
+				MUG_FILTER_NEAREST,
+				// @DOCLINE * `@NLFT` - [bilinear filtering](https://en.wikipedia.org/wiki/Bilinear_interpolation).
+				MUG_FILTER_LINEAR,
+			)
+
+		// @DOCLINE ## Wrapping
+
+			// @DOCLINE The enum `mugTextureWrapping` is used to represent the wrapping of a texture. Its possible values are:
+			MU_ENUM(mugTextureWrapping,
+				// @DOCLINE * `@NLFT` - repeat the contents of the texture.
+				MUG_WRAP_REPEAT,
+				// @DOCLINE * `@NLFT` - repeat the contents of the texture, mirroring its contents whenever it repeats.
+				MUG_WRAP_MIRRORED_REPEAT,
+				// @DOCLINE * `@NLFT` - repeat the nearest texel of the texture.
+				MUG_WRAP_CLAMP_TO_EDGE,
+				// @DOCLINE * `@NLFT` - set all coordinates outside of the range to a border color.
+				MUG_WRAP_CLAMP_TO_BORDER,
+			)
+
+		// @DOCLINE ## Creation
+
+			// @DOCLINE The function `mug_texture_create` creates a texture, defined below: @NLNT
+			MUDEF mugTexture mug_texture_create(mugContext* context, mugResult* result, muGraphic graphic, mugTextureFormat format, mugTextureFiltering upscale_filter, mugTextureFiltering downscale_filter, mugTextureWrapping x_wrapping, mugTextureWrapping y_wrapping, uint32_m width, uint32_m height, void* data);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_create(...) mug_texture_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_create_(result, ...) mug_texture_create(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE A successfully created texture must be destroyed at some point.
+			// @DOCLINE The contents of `data` are expected to be laid out from left-to-right, top-to-bottom.
+
+		// @DOCLINE ## Destruction
+
+			// @DOCLINE The function `mug_texture_destroy` destroys a texture, defined below: @NLNT
+			MUDEF mugTexture mug_texture_destroy(mugContext* context, muGraphic graphic, mugTexture texture);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_destroy(...) mug_texture_destroy(mug_global_context, __VA_ARGS__)
+
+			// @DOCLINE This function must be called on every successfully created texture at some point.
+
+		// @DOCLINE ## Binding
+
+			// @DOCLINE The function `mug_texture_bind` binds a texture to an index, defined below: @NLNT
+			MUDEF void mug_texture_bind(mugContext* context, mugResult* result, muGraphic graphic, mugTexture texture, uint32_m index);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_bind(...) mug_texture_bind(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_bind_(result, ...) mug_texture_bind(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE This function binds the given texture to the given index for every single texture buffer. `index` must be below the value given by `mug_texture_max_binds`.
+
+		// @DOCLINE ## Binding maximum
+
+			// @DOCLINE The function `mug_texture_max_binds` returns the maximum amount of bindings for textures, defined below: @NLNT
+			MUDEF uint32_m mug_texture_max_binds(mugContext* context, mugResult* result, muGraphic graphic);
+
+			// @DOCLINE Its non-result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_max_binds(...) mug_texture_max_binds(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			// @DOCLINE Its result-checking equivalent macro is defined below: @NLNT
+			#define mu_texture_max_binds_(result, ...) mug_texture_max_binds(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE The minimum value returned on a successful call to this function is 8, meaning that at least 8 textures can be binded (and thus, 8 unique textures can be rendered in one render call).
+
+	// @DOCLINE # Texture object
+
+		// @DOCLINE The texture object represents a single texture, with an object buffer of them only being able to render that single texture. Its respective `mugObjectType` enum value is `MUG_OBJECT_TEXTURE` and its respective struct type is `muTextureObject`.
+
+		// @DOCLINE ## Struct
+
+		// @DOCLINE The struct `muTextureObject` has the following members:
+		struct muTextureObject {
+			// @DOCLINE * `@NLFT rect` - the rect that the texture will render over.
+			muRect rect;
+			// @DOCLINE * `@NLFT tex_pos` - the position of the texture cut-out.
+			muPosition tex_pos;
+			// @DOCLINE * `@NLFT tex_dim` - the dimensions of the texture cut-out.
+			muDimensions tex_dim;
+		};
+		typedef struct muTextureObject muTextureObject;
+
+		// @DOCLINE The texture cut-out is what portion of the texture will be rendered with the rect, in texture coordinates. (0, 0) is the top-left of the texture, and (1, 1) is the bottom-right of the texture.
+
+		// @DOCLINE The texture in question being rendered refers to the texture binded to index 0.
 
 	// @DOCLINE # Graphics API customization
 
@@ -38404,6 +38538,71 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				i[4] = prim_restart;
 			}
 
+		/* Texture */
+
+			// Data buf format: { vec2 pos, vec2 tex, vec4 col }
+			// Data structure: vertex/32-index, triangle strip, & primitive restarting.
+
+			#define MUG_INNER_TEXTBUF_VPOINTSIZE (sizeof(GLfloat)*8)
+			#define MUG_INNER_TEXTBUF_VELCOUNT (32)
+			#define MUG_INNER_TEXTBUF_IELCOUNT (5)
+			#define MUG_INNER_TEXTBUF_VELSIZE (MUG_INNER_TEXTBUF_VELCOUNT*sizeof(GLfloat))
+			#define MUG_INNER_TEXTBUF_IELSIZE (MUG_INNER_TEXTBUF_IELCOUNT*sizeof(GLuint))
+
+			void mug_inner_text_fill_f(float* f, muTextureObject tex) {
+				float srot = mu_sin(tex.rect.rot);
+				float crot = mu_cos(tex.rect.rot);
+				float halfw = tex.rect.dim.width / 2.f;
+				float halfh = tex.rect.dim.height / 2.f;
+
+				// Top-left
+				mug_inner_rotate_point_around_point(tex.rect.center.pos.x - halfw, tex.rect.center.pos.y - halfh, tex.rect.center.pos.x, tex.rect.center.pos.y, srot, crot, &f[0], &f[1]);
+				// Top-right
+				mug_inner_rotate_point_around_point(tex.rect.center.pos.x + halfw, tex.rect.center.pos.y - halfh, tex.rect.center.pos.x, tex.rect.center.pos.y, srot, crot, &f[8], &f[9]);
+				// Bottom-left
+				mug_inner_rotate_point_around_point(tex.rect.center.pos.x - halfw, tex.rect.center.pos.y + halfh, tex.rect.center.pos.x, tex.rect.center.pos.y, srot, crot, &f[16], &f[17]);
+				// Bottom-right
+				mug_inner_rotate_point_around_point(tex.rect.center.pos.x + halfw, tex.rect.center.pos.y + halfh, tex.rect.center.pos.x, tex.rect.center.pos.y, srot, crot, &f[24], &f[25]);
+
+				// Top-left
+				f[2]  = tex.tex_pos.x;
+				f[3]  = tex.tex_pos.y;
+				f[4]  = tex.rect.center.col.r;
+				f[5]  = tex.rect.center.col.g;
+				f[6]  = tex.rect.center.col.b;
+				f[7]  = tex.rect.center.col.a;
+				// Top-right
+				f[10] = (tex.tex_pos.x+tex.tex_dim.width);
+				f[11] = tex.tex_pos.y;
+				f[12] = tex.rect.center.col.r;
+				f[13] = tex.rect.center.col.g;
+				f[14] = tex.rect.center.col.b;
+				f[15] = tex.rect.center.col.a;
+				// Bottom-left
+				f[18] = tex.tex_pos.x;
+				f[19] = (tex.tex_pos.y+tex.tex_dim.height);
+				f[20] = tex.rect.center.col.r;
+				f[21] = tex.rect.center.col.g;
+				f[22] = tex.rect.center.col.b;
+				f[23] = tex.rect.center.col.a;
+				// Bottom-right
+				f[26] = (tex.tex_pos.x+tex.tex_dim.width);
+				f[27] = (tex.tex_pos.y+tex.tex_dim.height);
+				f[28] = tex.rect.center.col.r;
+				f[29] = tex.rect.center.col.g;
+				f[30] = tex.rect.center.col.b;
+				f[31] = tex.rect.center.col.a;
+			}
+
+			void mug_inner_text_fill_i(uint32_t* i, size_m index, uint32_t prim_restart) {
+				size_m i4 = index*4;
+				i[0] = i4;
+				i[1] = i4+1;
+				i[2] = i4+2;
+				i[3] = i4+3;
+				i[4] = prim_restart;
+			}
+
 	/* Pre-API graphic (things needed for the next section) */
 
 		union mug_graphic_object {
@@ -38438,6 +38637,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 				GLuint round_rect;
 				GLuint squircle;
 				GLuint circle;
+				GLuint texture;
 			}; typedef struct mug_innergl_shaders mug_innergl_shaders;
 
 			struct mug_innergl_context {
@@ -38464,6 +38664,92 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 				return MUG_SUCCESS;
 			}
+
+		/* Textures */
+
+			struct mug_innergl_texture {
+				GLuint id;
+			};
+			typedef struct mug_innergl_texture mug_innergl_texture;
+
+			/* Enum conversion */
+
+				GLuint mug_innergl_wrap_enum(mugTextureWrapping wrapping) {
+					switch (wrapping) {
+						default: return GL_REPEAT; break;
+						case MUG_WRAP_REPEAT: return GL_REPEAT; break;
+						case MUG_WRAP_MIRRORED_REPEAT: return GL_MIRRORED_REPEAT; break;
+						case MUG_WRAP_CLAMP_TO_EDGE: return GL_CLAMP_TO_EDGE; break;
+						case MUG_WRAP_CLAMP_TO_BORDER: return GL_CLAMP_TO_BORDER; break;
+					}
+				}
+
+				GLuint mug_innergl_filter_enum(mugTextureFiltering filter) {
+					switch (filter) {
+						default: return GL_NEAREST; break;
+						case MUG_FILTER_NEAREST: return GL_NEAREST; break;
+						case MUG_FILTER_LINEAR: return GL_LINEAR; break;
+					}
+				}
+
+				GLuint mug_innergl_format_enum(mugTextureFormat format) {
+					switch (format) {
+						default: return GL_RGB; break;
+						case MUG_FORMAT_8UNORM_R: return GL_RED; break;
+						case MUG_FORMAT_8UNORM_RG: return GL_RG; break;
+						case MUG_FORMAT_8UNORM_RGB: return GL_RGB; break;
+						case MUG_FORMAT_8UNORM_RGBA: return GL_RGBA; break;
+					}
+				}
+
+				GLuint mug_innergl_ftype(mugTextureFormat format) {
+					switch (format) {
+						default: return GL_UNSIGNED_BYTE; break;
+						case MUG_FORMAT_8UNORM_R:
+						case MUG_FORMAT_8UNORM_RG:
+						case MUG_FORMAT_8UNORM_RGB:
+						case MUG_FORMAT_8UNORM_RGBA: return GL_UNSIGNED_BYTE; break;
+					}
+				}
+
+			/* Creation / Destruction */
+
+				void mug_innergl_graphic_bind(mugContext* context, mug_graphic* gfx);
+
+				void* mug_innergl_texture_create(mugContext* context, mugResult* result, mug_graphic* gfx, mugTextureFormat format, mugTextureFiltering upscale_filter, mugTextureFiltering downscale_filter, mugTextureWrapping x_wrapping, mugTextureWrapping y_wrapping, uint32_m width, uint32_m height, void* data) {
+					mug_innergl_graphic_bind(context, gfx);
+
+					mug_innergl_texture* tex = (mug_innergl_texture*)mu_malloc(sizeof(mug_innergl_texture));
+					if (!tex) {
+						MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+						return 0;
+					}
+
+					glGenTextures(1, &tex->id);
+					glBindTexture(GL_TEXTURE_2D, tex->id);
+
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mug_innergl_wrap_enum(x_wrapping));
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, mug_innergl_wrap_enum(y_wrapping));
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mug_innergl_filter_enum(downscale_filter));
+					glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mug_innergl_filter_enum(upscale_filter));
+
+					GLuint gl_format = mug_innergl_format_enum(format);
+					glTexImage2D(GL_TEXTURE_2D, 0, gl_format, width, height, 0, gl_format, mug_innergl_ftype(format), data);
+
+					return tex;
+				}
+
+				void mug_innergl_texture_destroy(mugContext* context, mug_graphic* gfx, mug_innergl_texture* tex) {
+					mug_innergl_graphic_bind(context, gfx);
+					glDeleteTextures(1, &tex->id);
+					mu_free(tex);
+				}
+
+				void mug_innergl_texture_bind(mugContext* context, mug_graphic* gfx, mug_innergl_texture* tex, uint32_m index) {
+					mug_innergl_graphic_bind(context, gfx);
+					glActiveTexture(GL_TEXTURE0+index);
+					glBindTexture(GL_TEXTURE_2D, tex->id);
+				}
 
 		/* Buffers */
 
@@ -39994,6 +40280,252 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						"}"
 					;
 
+			/* Texture */
+
+				/* Buffer */
+
+					void mug_innergl_text_buffer_desc(void) {
+						glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, MUG_INNER_TEXTBUF_VPOINTSIZE, 0);
+						glEnableVertexAttribArray(0);
+						glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, MUG_INNER_TEXTBUF_VPOINTSIZE, (void*)(2*sizeof(GLfloat)));
+						glEnableVertexAttribArray(1);
+						glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, MUG_INNER_TEXTBUF_VPOINTSIZE, (void*)(4*sizeof(GLfloat)));
+						glEnableVertexAttribArray(2);
+					}
+
+					mugResult mug_innergl_textbuf_fill_v(mug_innergl_vibuf* buf, size_m count, muTextureObject* texs) {
+						glBindVertexArray(buf->vao);
+
+						if (texs != 0)
+						{
+							GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_TEXTBUF_VELSIZE * count);
+							if (vertexes == 0) {
+								glBindVertexArray(0);
+								return MUG_ALLOCATION_FAILED;
+							}
+
+							for (size_m i = 0; i < count; i++) {
+								mug_inner_text_fill_f(&vertexes[i*MUG_INNER_TEXTBUF_VELCOUNT], texs[i]);
+							}
+
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_TEXTBUF_VELSIZE * count, vertexes, GL_DYNAMIC_DRAW);
+
+							mu_free(vertexes);
+						} else {
+							glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+							glBufferData(GL_ARRAY_BUFFER, MUG_INNER_TEXTBUF_VELSIZE * count, 0, GL_DYNAMIC_DRAW);
+						}
+
+						mug_innergl_text_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_textbuf_subfill_v(mug_innergl_vibuf* buf, size_m offset, size_m count, muTextureObject* texs) {
+						glBindVertexArray(buf->vao);
+
+						GLfloat* vertexes = (GLfloat*)mu_malloc(MUG_INNER_TEXTBUF_VELSIZE * count);
+						if (vertexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_inner_text_fill_f(&vertexes[i*MUG_INNER_TEXTBUF_VELCOUNT], texs[i]);
+						}
+
+						glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+						glBufferSubData(GL_ARRAY_BUFFER, MUG_INNER_TEXTBUF_VELSIZE * offset, MUG_INNER_TEXTBUF_VELSIZE * count, vertexes);
+
+						mu_free(vertexes);
+
+						mug_innergl_text_buffer_desc();
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					mugResult mug_innergl_textbuf_fill_i(mug_innergl_vibuf* buf, size_m count) {
+						glBindVertexArray(buf->vao);
+
+						GLuint* indexes = (GLuint*)mu_malloc(MUG_INNER_TEXTBUF_IELSIZE * count);
+						if (indexes == 0) {
+							glBindVertexArray(0);
+							return MUG_ALLOCATION_FAILED;
+						}
+
+						for (size_m i = 0; i < count; i++) {
+							mug_inner_text_fill_i(&indexes[i*MUG_INNER_TEXTBUF_IELCOUNT], i, MUG_GL_PRIM_RESTART_32);
+						}
+
+						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf->ebo);
+						glBufferData(GL_ELEMENT_ARRAY_BUFFER, MUG_INNER_TEXTBUF_IELSIZE * count, indexes, GL_STATIC_DRAW);
+
+						mu_free(indexes);
+
+						mug_innergl_text_buffer_desc();
+						//glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_SUCCESS;
+					}
+
+					void mug_innergl_textbuf_destroy(mug_innergl_vibuf* buf) {
+						glDeleteVertexArrays(1, &buf->vao);
+						glDeleteBuffers(1, &buf->vbo);
+						glDeleteBuffers(1, &buf->ebo);
+					}
+
+					mug_innergl_vibuf* mug_innergl_textbuf_create(mugResult* result, size_m count, muTextureObject* texs) {
+						mug_innergl_vibuf buf;
+						buf.objtype = MUG_OBJECT_TEXTURE;
+						buf.vbo = 0;
+						buf.ebo = 0;
+						buf.vao = 0;
+						buf.count = count;
+						mugResult res;
+
+						/* Generate objects */
+						{
+							glGenBuffers(1, &buf.vbo);
+							if (buf.vbo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								return 0;
+							}
+
+							glGenBuffers(1, &buf.ebo);
+							if (buf.ebo == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_BUFFER)
+								glDeleteBuffers(1, &buf.vbo);
+								return 0;
+							}
+
+							glGenVertexArrays(1, &buf.vao);
+							if (buf.vao == 0) {
+								MU_SET_RESULT(result, MUG_FAILED_CREATE_GL_VERTEX_ARRAY)
+								glDeleteBuffers(1, &buf.vbo);
+								glDeleteBuffers(1, &buf.ebo);
+								return 0;
+							}
+						}
+
+						/* Fill buffer */
+						{
+							res = mug_innergl_textbuf_fill_i(&buf, count);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_textbuf_destroy(&buf);
+								return 0;
+							}
+
+							res = mug_innergl_textbuf_fill_v(&buf, count, texs);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								mug_innergl_textbuf_destroy(&buf);
+								return 0;
+							}
+						}
+
+						mug_innergl_vibuf* pbuf = (mug_innergl_vibuf*)mu_malloc(sizeof(mug_innergl_vibuf));
+						if (pbuf == 0) {
+							MU_SET_RESULT(result, MUG_ALLOCATION_FAILED)
+							mug_innergl_textbuf_destroy(&buf);
+							return 0;
+						}
+						*pbuf = buf;
+						return pbuf;
+					}
+
+					void mug_innergl_textbuf_resize(mugResult* result, mug_innergl_vibuf* buf, size_m count, muTextureObject* texs) {
+						mugResult res = mug_innergl_textbuf_fill_v(buf, count, texs);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						res = mug_innergl_textbuf_fill_i(buf, count);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+							return;
+						}
+
+						buf->count = count;
+					}
+
+					void mug_innergl_textbuf_render(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf) {
+						mugResult res;
+						glEnable(GL_PRIMITIVE_RESTART);
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.texture);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.texture, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, buf->count * MUG_INNER_TEXTBUF_IELCOUNT, GL_UNSIGNED_INT, 0);
+						glBindVertexArray(0);
+						glUseProgram(0);
+						glDisable(GL_PRIMITIVE_RESTART);
+					}
+
+					void mug_innergl_textbuf_subrender(mugContext* context, mug_graphic* gfx, mug_innergl_vibuf* buf, size_m offset, size_m count) {
+						mugResult res;
+						glEnable(GL_PRIMITIVE_RESTART);
+
+						mug_innergl_context* gl = (mug_innergl_context*)gfx->papi;
+						glUseProgram(gl->shaders.texture);
+
+						uint32_m w, h;
+						res = mug_innergl_graphic_get_dim(context, gfx, &w, &h);
+						if (res == MUG_SUCCESS) {
+							glUniform2f(glGetUniformLocation(gl->shaders.texture, "d"), ((float)(w))/2.f, ((float)(h))/2.f);
+						}
+
+						glBindVertexArray(buf->vao);
+						glDrawElements(GL_TRIANGLE_STRIP, count * MUG_INNER_TEXTBUF_IELCOUNT, GL_UNSIGNED_INT, (const void*)(MUG_INNER_TEXTBUF_IELSIZE * offset));
+						glBindVertexArray(0);
+						glUseProgram(0);
+						glDisable(GL_PRIMITIVE_RESTART);
+					}
+
+				/* Shader */
+
+					const char* mug_innergl_text_vshader = 
+						"#version 400 core\n"
+
+						"layout(location=0)in vec2 vPos;"
+						"layout(location=1)in vec2 vTex;"
+						"layout(location=2)in vec4 vCol;"
+
+						"out vec2 fTex;"
+						"out vec4 fCol;"
+						"uniform vec2 d;"
+
+						"void main(){"
+							"gl_Position=vec4((vPos.x-(d.x))/d.x,-(vPos.y-(d.y))/d.y,0.0,1.0);"
+							"fTex=vTex;"
+							"fCol=vCol;"
+						"}"
+					;
+
+					const char* mug_innergl_text_fshader = 
+						"#version 400 core\n"
+
+						"in vec2 fTex;"
+						"in vec4 fCol;"
+						"out vec4 oCol;"
+						"uniform sampler2D tex;"
+
+						"void main(){"
+							"oCol=fCol*texture(tex,fTex);"
+						"}"
+					;
+
 		/* Shaders */
 
 			mugResult mug_innergl_load_shader(mug_graphic* gfx, mugObjectType objtype) {
@@ -40046,6 +40578,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							}
 						}
 					} break;
+
+				case MUG_OBJECT_TEXTURE: {
+						if (gl->shaders.texture == 0) {
+							gl->shaders.texture = mug_innergl_comp_shader_vf(mug_innergl_text_vshader, mug_innergl_text_fshader);
+							if (gl->shaders.texture == 0) {
+								return MUG_FAILED_COMPILE_GL_SHADERS;
+							}
+						}
+					} break;
 				}
 
 				return MUG_SUCCESS;
@@ -40089,6 +40630,13 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						if (gl->shaders.circle == 0) {
 							glDeleteProgram(gl->shaders.circle);
 							gl->shaders.circle = 0;
+						}
+					} break;
+
+				case MUG_OBJECT_TEXTURE: {
+						if (gl->shaders.texture == 0) {
+							glDeleteProgram(gl->shaders.texture);
+							gl->shaders.texture = 0;
 						}
 					} break;
 				}
@@ -46900,6 +47448,15 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							}
 							return (mugObjectBuffer)mug_innergl_circle_create(result, object_count, (muCircle*)objects);
 						} break;
+
+						case MUG_OBJECT_TEXTURE: {
+							res = mug_innergl_load_shader(gfx, MUG_OBJECT_TEXTURE);
+							if (res != MUG_SUCCESS) {
+								MU_SET_RESULT(result, res)
+								return 0;
+							}
+							return (mugObjectBuffer)mug_innergl_textbuf_create(result, object_count, (muTextureObject*)objects);
+						} break;
 					}
 				} break;
 
@@ -46968,7 +47525,7 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 			mugObjectType objtype = *(mugObjectType*)buffer;
 
 			switch (gfx->api) {
-				default: mu_free(buffer); break;
+				default: return 0; break;
 
 				case MUG_OPENGL: {
 					mug_innergl_graphic_bind(context, gfx);
@@ -46988,6 +47545,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						} break;
 						case MUG_OBJECT_CIRCLE: {
 							mug_innergl_circle_destroy((mug_innergl_vibuf*)buffer);
+						} break;
+						case MUG_OBJECT_TEXTURE: {
+							mug_innergl_textbuf_destroy((mug_innergl_vibuf*)buffer);
 						} break;
 					}
 
@@ -47041,6 +47601,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						} break;
 						case MUG_OBJECT_CIRCLE: {
 							mug_innergl_circle_render(context, gfx, (mug_innergl_vibuf*)buffer);
+						} break;
+						case MUG_OBJECT_TEXTURE: {
+							mug_innergl_textbuf_render(context, gfx, (mug_innergl_vibuf*)buffer);
 						} break;
 					}
 				} break;
@@ -47098,6 +47661,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						} break;
 						case MUG_OBJECT_CIRCLE: {
 							mug_innergl_circle_subrender(context, gfx, (mug_innergl_vibuf*)buffer, object_offset, object_count);
+						} break;
+						case MUG_OBJECT_TEXTURE: {
+							mug_innergl_textbuf_subrender(context, gfx, (mug_innergl_vibuf*)buffer, object_offset, object_count);
 						} break;
 					}
 				} break;
@@ -47161,6 +47727,10 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 							mug_innergl_vibuf* cibuf = (mug_innergl_vibuf*)buffer;
 							mug_innergl_circle_fill_v(cibuf, cibuf->count, (muCircle*)objects);
 						} break;
+						case MUG_OBJECT_TEXTURE: {
+							mug_innergl_vibuf* cibuf = (mug_innergl_vibuf*)buffer;
+							mug_innergl_textbuf_fill_v(cibuf, cibuf->count, (muTextureObject*)objects);
+						} break;
 					}
 				} break;
 
@@ -47219,6 +47789,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						} break;
 						case MUG_OBJECT_CIRCLE: {
 							res = mug_innergl_circle_subfill_v((mug_innergl_vibuf*)buffer, object_offset, object_count, (muCircle*)objects);
+						} break;
+						case MUG_OBJECT_TEXTURE: {
+							res = mug_innergl_textbuf_subfill_v((mug_innergl_vibuf*)buffer, object_offset, object_count, (muTextureObject*)objects);
 						} break;
 					}
 
@@ -47283,6 +47856,9 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 						case MUG_OBJECT_CIRCLE: {
 							mug_innergl_circle_resize(result, (mug_innergl_vibuf*)buffer, object_count, (muCircle*)objects);
 						} break;
+						case MUG_OBJECT_TEXTURE: {
+							mug_innergl_textbuf_resize(result, (mug_innergl_vibuf*)buffer, object_count, (muTextureObject*)objects);
+						} break;
 					}
 				} break;
 
@@ -47317,6 +47893,50 @@ mug is licensed under public domain or MIT, whichever you prefer, as well as [Ap
 
 		MUDEF mugObjectType mug_gobj_buffer_get_type(mugContext* context, muGraphic graphic, mugObjectBuffer buffer) {
 			return *(mugObjectType*)buffer; if (context) {} if (graphic) {}
+		}
+
+	/* Texture */
+
+		MUDEF mugTexture mug_texture_create(mugContext* context, mugResult* result, muGraphic graphic, mugTextureFormat format, mugTextureFiltering upscale_filter, mugTextureFiltering downscale_filter, mugTextureWrapping x_wrapping, mugTextureWrapping y_wrapping, uint32_m width, uint32_m height, void* data) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return 0; break;
+
+				case MUG_OPENGL: {
+					return mug_innergl_texture_create(context, result, gfx, format, upscale_filter, downscale_filter, x_wrapping, y_wrapping, width, height, data);
+				} break;
+			}
+
+			if (result) {}
+		}
+
+		MUDEF mugTexture mug_texture_destroy(mugContext* context, muGraphic graphic, mugTexture texture) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return 0; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_texture_destroy(context, gfx, (mug_innergl_texture*)texture);
+				} break;
+			}
+
+			return 0;
+		}
+
+		MUDEF void mug_texture_bind(mugContext* context, mugResult* result, muGraphic graphic, mugTexture texture, uint32_m index) {
+			mug_graphic* gfx = (mug_graphic*)graphic;
+
+			switch (gfx->api) {
+				default: return; break;
+
+				case MUG_OPENGL: {
+					mug_innergl_texture_bind(context, gfx, (mug_innergl_texture*)texture, index);
+				} break;
+			}
+
+			return; if (result) {}
 		}
 
 	#ifdef __cplusplus

@@ -35,6 +35,30 @@ Demos that quickly show the gist of the library and how it works are available i
 
 mug is licensed under public domain or MIT, whichever you prefer, as well as [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
 
+# Known issues and limitations
+
+This section covers the known issues and limitations of the libraries.
+
+## Vulkan rendering in weird colors
+
+If you use Vulkan rendering on some devices, the color will be off. This is because mug treats the surface as RGB/RGBA, when the display may use another format (most commonly BGR/BGRA), swapping the blue and red channels and leading to incorrect results. [The solution to this is known](https://www.reddit.com/r/vulkan/comments/p3iy0o/comment/h8rf7dr), but has simply not been implemented yet.
+
+## Vulkan performance
+
+As of right now, Vulkan performs worse than OpenGL based on FPS data provided by the fairly basic demos tested thus far. The reason for this is unknown currently.
+
+## Multiple contexts
+
+As of right now, an application with multiple mug contexts existing on the same thread is not guaranteed to work. This is due to several issues in the creation, destruction, and binding of the contexts for the graphics APIs, and this issue exists in both mug and muCOSA.
+
+## Memory allocation in Vulkan
+
+Efficient (both in terms of speed and memory usage) memory allocation in Vulkan is achieved using an allocator. This has not been implemented yet, and thus, it is considerably easier to reach memory limits in Vulkan compared to OpenGL. Libraries like [VulkanMemoryAllocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) exist to fix this issue, but due to the nature of this library (primarily sticking to minimal dependencies and public-domain* licensing), they cannot be used, and an equivalent must be manually added at some point.
+
+## Mipmapping
+
+Currently, mug provides no way to mipmap textures. This will likely be provided in future versions.
+
 
 # Other library dependencies
 
@@ -416,6 +440,8 @@ The enum `mugObjectType` is used to represent the object type of a buffer. Its p
 
 * `MUG_OBJECT_CIRCLE` - a circle; respective struct `muCircle`.
 
+* `MUG_OBJECT_TEXTURE` - a single texture; respective struct `muTextureObject`.
+
 ## Load object type
 
 The function `mug_gobj_type_load` loads the resources needed for creating object buffers of a given type, defined below: 
@@ -788,6 +814,155 @@ The struct `muCircle` has the following members:
 * `muPoint center` - the center of the circle.
 
 * `float radius` - the radius of the circle. The value of this member should always be greater than or equal to 0.
+
+# Texture loading
+
+mug has the ability to load and render textures. 2-dimensional textures are represent by the macro `mugTexture`.
+
+## Formats
+
+The enum `mugTextureFormat` is used to represent a texture format. Its possible values are:
+
+* `MUG_FORMAT_8UNORM_R` - single-channel (red) unsigned normalized integer format.
+
+* `MUG_FORMAT_8UNORM_RG` - double-channel (red and green) unsigned normalized integer format.
+
+* `MUG_FORMAT_8UNORM_RGB` - triple-channel (red, green, and blue) unsigned normalized integer format.
+
+* `MUG_FORMAT_8UNORM_RGBA` - quadruple-channel (red, green, blue, and alpha) unsigned normalized integer format.
+
+## Filtering
+
+The enum `mugTextureFiltering` is used to represent a texture filtering method. Its possible values are:
+
+* `MUG_FILTER_NEAREST` - [nearest-neighbor filtering](https://en.wikipedia.org/wiki/Nearest-neighbor_interpolation).
+
+* `MUG_FILTER_LINEAR` - [bilinear filtering](https://en.wikipedia.org/wiki/Bilinear_interpolation).
+
+## Wrapping
+
+The enum `mugTextureWrapping` is used to represent the wrapping of a texture. Its possible values are:
+
+* `MUG_WRAP_REPEAT` - repeat the contents of the texture.
+
+* `MUG_WRAP_MIRRORED_REPEAT` - repeat the contents of the texture, mirroring its contents whenever it repeats.
+
+* `MUG_WRAP_CLAMP_TO_EDGE` - repeat the nearest texel of the texture.
+
+* `MUG_WRAP_CLAMP_TO_BORDER` - set all coordinates outside of the range to a border color.
+
+## Creation
+
+The function `mug_texture_create` creates a texture, defined below: 
+
+```c
+MUDEF mugTexture mug_texture_create(mugContext* context, mugResult* result, muGraphic graphic, mugTextureFormat format, mugTextureFiltering upscale_filter, mugTextureFiltering downscale_filter, mugTextureWrapping x_wrapping, mugTextureWrapping y_wrapping, uint32_m width, uint32_m height, void* data);
+```
+
+
+Its non-result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_create(...) mug_texture_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+```
+
+
+Its result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_create_(result, ...) mug_texture_create(mug_global_context, result, __VA_ARGS__)
+```
+
+
+A successfully created texture must be destroyed at some point.
+
+The contents of `data` are expected to be laid out from left-to-right, top-to-bottom.
+
+## Destruction
+
+The function `mug_texture_destroy` destroys a texture, defined below: 
+
+```c
+MUDEF mugTexture mug_texture_destroy(mugContext* context, muGraphic graphic, mugTexture texture);
+```
+
+
+Its non-result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_destroy(...) mug_texture_destroy(mug_global_context, __VA_ARGS__)
+```
+
+
+This function must be called on every successfully created texture at some point.
+
+## Binding
+
+The function `mug_texture_bind` binds a texture to an index, defined below: 
+
+```c
+MUDEF void mug_texture_bind(mugContext* context, mugResult* result, muGraphic graphic, mugTexture texture, uint32_m index);
+```
+
+
+Its non-result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_bind(...) mug_texture_bind(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+```
+
+
+Its result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_bind_(result, ...) mug_texture_bind(mug_global_context, result, __VA_ARGS__)
+```
+
+
+This function binds the given texture to the given index for every single texture buffer. `index` must be below the value given by `mug_texture_max_binds`.
+
+## Binding maximum
+
+The function `mug_texture_max_binds` returns the maximum amount of bindings for textures, defined below: 
+
+```c
+MUDEF uint32_m mug_texture_max_binds(mugContext* context, mugResult* result, muGraphic graphic);
+```
+
+
+Its non-result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_max_binds(...) mug_texture_max_binds(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+```
+
+
+Its result-checking equivalent macro is defined below: 
+
+```c
+#define mu_texture_max_binds_(result, ...) mug_texture_max_binds(mug_global_context, result, __VA_ARGS__)
+```
+
+
+The minimum value returned on a successful call to this function is 8, meaning that at least 8 textures can be binded (and thus, 8 unique textures can be rendered in one render call).
+
+# Texture object
+
+The texture object represents a single texture, with an object buffer of them only being able to render that single texture. Its respective `mugObjectType` enum value is `MUG_OBJECT_TEXTURE` and its respective struct type is `muTextureObject`.
+
+## Struct
+
+The struct `muTextureObject` has the following members:
+
+* `muRect rect` - the rect that the texture will render over.
+
+* `muPosition tex_pos` - the position of the texture cut-out.
+
+* `muDimensions tex_dim` - the dimensions of the texture cut-out.
+
+The texture cut-out is what portion of the texture will be rendered with the rect, in texture coordinates. (0, 0) is the top-left of the texture, and (1, 1) is the bottom-right of the texture.
+
+The texture in question being rendered refers to the texture binded to index 0.
 
 # Graphics API customization
 
