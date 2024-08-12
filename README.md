@@ -2,206 +2,110 @@
 
 # muGraphics v1.0.0
 
-muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level cross-graphics-API rendering.
+muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level 2D cross-graphics-API rendering. Its header is automatically defined upon inclusion if not already included (`MUG_H`), and the source code is defined if `MUG_IMPLEMENTATION` is defined, following the internal structure of:
 
-***WARNING!*** This library is still under heavy development, has no official releases, and won't be stable until its first public release v1.0.0.
+```c
+#ifndef MUG_H
+#define MUG_H
+// (Header code)
+#endif
 
-To use it, download the `muGraphics.h` file, add it to your include path, and include it like so:
+#ifdef MUG_IMPLEMENTATION
+// (Source code)
+#endif
+```
+
+Therefore, a standard inclusion of the file to get all automatic functionality looks like:
 
 ```c
 #define MUG_IMPLEMENTATION
 #include "muGraphics.h"
 ```
 
-More information about the general structure of a mu library is provided at [the mu library information GitHub repository.](https://github.com/Muukid/mu-library-information)
+More information about the general structure of a mu library is provided at [the mu library information GitHub repository](https://github.com/Muukid/mu-library-information).
 
-# System dependencies
-
-The system dependencies for mug are dependent on muCOSA.
-
-## Linker flags
-
-The math library (`-lm`) must be linked.
-
-If the target OS being compiled for is ***Win32***, `user32.dll`, `imm32.dll`, `gdi32.dll`, and `opengl32.dll` must be linked.
-
-If the target OS being compiled for is ***X11*** (Linux), `libX11`, `libpthread`, and `libGL` must be linked.
+> Note that the example inclusion here won't automatically have compatibility with any graphics APIs, as which graphics APIs mug uses needs to be manually defined via macros; see the (graphics API support macros section)[#graphics-API-support-macros] for more details.
 
 # Demos
 
-Demos that quickly show the gist of the library and how it works are available in the `demos` folder.
+Demos are designed for mug to both test its functionality and to allow users to get the basic idea of the structure of the library quickly without having to read the documentation in full. These demos are available in the `demos` folder.
+
+# System dependencies
+
+mug uses muCOSA, which, for the version it uses, has various system dependencies, which are listed below.
+
+## Win32 dependencies
+
+To compile with Windows, you need to link the following files under the given circumstances:
+
+`user32.dll` and `imm32.dll` in any given circumstance.
+
+`gdi32.dll` and `opengl32.dll` if `MU_SUPPORT_OPENGL` is defined by the user.
 
 # Licensing
 
-mug is licensed under public domain or MIT, whichever you prefer, as well as [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
+mug is licensed under public domain or MIT, whichever you prefer, as well as (technically) [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
 
 # Known issues and limitations
 
 This section covers the known issues and limitations of the libraries.
 
-## Vulkan rendering in weird colors
+## Limited support
 
-If you use Vulkan rendering on some devices, the color will be off. This is because mug treats the surface as RGB/RGBA, when the display may use another format (most commonly BGR/BGRA), swapping the blue and red channels and leading to incorrect results. [The solution to this is known](https://www.reddit.com/r/vulkan/comments/p3iy0o/comment/h8rf7dr), but has simply not been implemented yet.
+This version of mug is meant to be very basic and minimal, and thus, it only supports Win32 (via muCOSA) and OpenGL. More support for various other systems (such as other window systems like X11/Wayland, or other graphics APIs such as Vulkan) is planned in the future, but for now, mug's reach in this regard is very limited.
 
-## Vulkan performance
+## 2D rendering
 
-As of right now, Vulkan performs worse than OpenGL based on FPS data provided by the fairly basic demos tested thus far. The reason for this is unknown currently.
+mug is built around a 2D-rendering context, meaning that there's no practical way to get efficient 3D graphics rendering. This is for several reasons, primarily the fact that a full 3D environment would then likely need more advanced rendering methods, such as lighting, which would rather be implemented internally, which wouldn't fully make sense since mug is primarily made for utility applications, or need to be implemented by the user themselves, which would imply shader customization, which brings many complications in terms of just the concept of cross-graphics-API shader code, but also handling compilation on graphics APIs such as Vulkan, which don't have built-in runtime shader compilers.
 
-## Multiple contexts
+This all means that mug is set up to create and render exclusively 2D objects. This doesn't mean that it's impossible to render in 3D, as mug does have depth buffers to make rendering order easier to structure for the user when building GUIs, but it does mean that 3D matrix calculations would need to be handled on the CPU. Additionally, advanced shader effects such as realtime 3D lighting would be practically impossible (unless you wanted to build your own raytracing/CPU-side renderer by creating a pixel grid and setting the values of each pixel manually, knock yourself out!).
 
-As of right now, an application with multiple mug contexts existing on the same thread is not guaranteed to work. This is due to several issues in the creation, destruction, and binding of the contexts for the graphics APIs, and this issue exists in both mug and muCOSA.
+## Multi-texture rendering
 
-## Memory allocation in Vulkan
+Modern graphics APIs are designed to make rendering multiple textures in one shader very difficult and generally discouraged as an option. For example, OpenGL 3.3 doesn't support choosing a sampler based on given vertex data, meaning that you would need to make the jump to OpenGL 4.0+ to get that feature. And, even then, the limits on how many samplers can be stored in a shader (especially in regards to whether or not you're storing them as an array or as separate variables, which, yes, does affect the amount the shader can hold) are not queryable as values (at least as far as I'm aware), making "the amount of sampler2Ds you can hold in a shader" a very hard-to-figure-out amount that needs to be handled at runtime, and can be very small on certain devices, making the handling of texture buffers device-dependent, which makes coding them on the user-side hell, and makes the act of going through the effort very questionable, especially on those lower-end devices; all of this, and you're now having to use a later version of OpenGL, which can harm compatibility.
 
-Efficient (both in terms of speed and memory usage) memory allocation in Vulkan is achieved using an allocator. This has not been implemented yet, and thus, it is considerably easier to reach memory limits in Vulkan compared to OpenGL. Libraries like [VulkanMemoryAllocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) exist to fix this issue, but due to the nature of this library (primarily sticking to minimal dependencies and public-domain* licensing), they cannot be used, and an equivalent must be manually added at some point.
+For all these complications, mug only allows one texture to be used per texture buffer, which forces the user to get creative with how they handle the rendering of multiple textures. It's an unfortunate conundrum, but manufacturers are gonna do what they're gonna do.
 
-## Mipmapping
+## Create graphic with pre-existing window
 
-Currently, mug provides no way to mipmap textures. This will likely be provided in future versions.
+To keep mug code simplistic for now, it is impossible to create a graphic generated from a window that already was created; the window-graphic-creation process must create the window internally. This doesn't realistically limit the user's ability to customize their window, as they still have access to fully customize the window via the `muWindowInfo` parameter, but nevertheless, it would be more flexible to provide support for creating graphics with a muCOSA window that already existed beforehand.
 
 
 # Other library dependencies
 
-mug has a dependency on the following libraries:
+mug has a dependency on:
 
-* [muCOSA commit 1bec97f](https://github.com/Muukid/muCOSA/tree/1bec97fc551e44bed87305ae9f6e188e68ddf617).
+* [muCOSA v2.0.0](https://github.com/Muukid/muCOSA/releases/tag/v2.0.0).
 
-* [vkbind v1.3.283.0](https://github.com/mackron/vkbind/commit/7c136efb8cd6ce3074770c20f4ee5f240ddc114a).
+* [glad 2.0.6 GL v3.3 Core](https://github.com/Dav1dde/glad/releases/tag/v2.0.6). glad is only included in the implementation of mug, meaning that only defining the header of mug won't give the user access to OpenGL.
 
-* [glad 2.0.6 GL v4.0 Core](https://github.com/Dav1dde/glad/releases/tag/v2.0.6).
+> Note that mu libraries store their dependencies within their files, so you don't need to import these dependencies yourself; this section is purely to give more information about the contents that this file defines. The libraries listed may also have other dependencies that they also include that aren't explicitly listed here.
 
-Note that mu libraries store their dependencies within their files, so you don't need to import these dependencies yourself.
+# Graphics API support macros
 
-Note that the libraries listed may also have other dependencies that they also include that aren't listed here.
+Each graphics API needs to have a macro defined to enable support for it. The following macros are defined for the given graphics APIs to be supported:
 
-# Result enumerator
+* OpenGL 3.3 Core - `MU_SUPPORT_OPENGL`.
 
-The enumerator `mugResult` is used to represent how a function went in mug.
-
-## Values
-
-`MUG_SUCCESS`: the task succeeded.
-
-`MUG_ALLOCATION_FAILED`: memory necessary to allocate to perform the task could not be allocated.
-
-`MUG_UNKNOWN_GRAPHIC_API`: a `muGraphicAPI` value passed was an invalid/unknown enumerator value.
-
-`MUG_UNKNOWN_OBJECT_TYPE`: a `mugObjectType` value passed was an invalid/unknown enumerator value.
-
-`MUG_FAILED_CREATE_GL_BUFFER`: a call to `glGenBuffers` failed.
-
-`MUG_FAILED_CREATE_GL_VERTEX_ARRAY`: a call to `glGenVertexArrays` failed.
-
-`MUG_FAILED_COMPILE_GL_SHADERS`: required OpenGL shaders failed to compile. This would be an issue within mug itself regarding its shader code and would need to be fixed internally.
-
-`MUG_FAILED_INITIATE_VULKAN`: a call to `vkbInit` failed.
-
-`MUG_FAILED_CREATE_VK_INSTANCE`: a call to `vkCreateInstance` failed.
-
-`MUG_FAILED_CREATE_VK_SURFACE`: failed to create a valid `VkSurfaceKHR` object.
-
-`MUG_FAILED_FIND_VALID_PHYSICAL_DEVICE`: no `VkPhysicalDevice`s could not be found.
-
-`MUG_FAILED_FIND_COMPATIBLE_PHYSICAL_DEVICE`: a `VkPhysicalDevice` compatible with mug could not be found.
-
-`MUG_FAILED_GET_QUEUE_FAMILY_PROPERTIES`: information about a `VkQueue` family needed by mug could not be retrieved.
-
-`MUG_FAILED_FIND_NECESSARY_QUEUE_FAMILIES`: a `VkQueue` needed by mug could not be found.
-
-`MUG_FAILED_CREATE_VK_DEVICE`: a call to `vkCreateDevice` failed.
-
-`MUG_FAILED_GET_VK_SURFACE_INFO`: information about the `VkSurfaceKHR` object obtained could not be retrieved.
-
-`MUG_FAILED_GET_GRAPHIC_WINDOW_DIMENSIONS`: information about a graphic's window's dimensions could not be retrieved.
-
-`MUG_FAILED_CREATE_VK_SWAPCHAIN`: a call to `vkCreateSwapchainKHR` failed.
-
-`MUG_FAILED_GET_VK_SWAPCHAIN_INFO`: information about the `VkSwapchainKHR` object obtained could not be retrieved.
-
-`MUG_FAILED_CREATE_VK_SWAPCHAIN_IMAGE_VIEWS`: a `VkSwapchainKHR`'s respective `VkImageView`s could not be created.
-
-`MUG_FAILED_CREATE_VK_COMMAND_POOL`: a call to `vkCreateCommandPool` failed.
-
-`MUG_FAILED_ALLOCATE_VK_COMMAND_BUFFERS`: a call to `vkAllocateCommandBuffers` failed.
-
-`MUG_FAILED_CREATE_VK_SEMAPHORE`: a call to `vkCreateSemaphore` failed.
-
-`MUG_FAILED_CREATE_VK_FENCE`: a call to `vkCreateFence` failed.
-
-`MUG_FAILED_WAIT_FOR_VK_FENCE`: a call to `vkWaitForFences` failed.
-
-`MUG_FAILED_GET_NEXT_VK_SWAPCHAIN_IMAGE`: a call to `vkAcquireNextImageKHR` failed.
-
-`MUG_FAILED_RESET_VK_FENCE`: a call to `vkResetFences` failed.
-
-`MUG_FAILED_RESET_VK_COMMAND_BUFFER`: a call to `vkResetCommandBuffer` failed.
-
-`MUG_FAILED_BEGIN_VK_COMMAND_BUFFER`: a call to `vkBeginCommandBuffer` failed.
-
-`MUG_FAILED_END_VK_COMMAND_BUFFER`: a call to `vkEndCommandBuffer` failed.
-
-`MUG_FAILED_SUBMIT_VK_QUEUE`: a call to `vkQueueSubmit` failed.
-
-`MUG_FAILED_PRESENT_VK_QUEUE`: a call to `vkQueuePresentKHR` failed.
-
-`MUG_FAILED_CREATE_VK_RENDER_PASS`: a call to `vkCreateRenderPass` failed.
-
-`MUG_FAILED_CREATE_VK_FRAMEBUFFERS`: a call to `vkCreateFramebuffer` failed.
-
-`MUG_FAILED_CREATE_VK_BUFFER`: a call to `vkCreateBuffer` failed.
-
-`MUG_FAILED_FIND_COMPATIBLE_VK_MEMORY_TYPE`: the memory type needed to perform the task could not be found or is not available.
-
-`MUG_FAILED_ALLOCATE_VK_MEMORY`: a call to `vkAllocateMemory` failed.
-
-`MUG_FAILED_MAP_VK_MEMORY`: a call to `vkMapMemory` failed.
-
-`MUG_FAILED_CREATE_VK_SHADER_MODULE`: a call to `vkCreateShaderModule` failed. This would be an issue within mug itself regarding its shader code and would need to be fixed internally.
-
-`MUG_FAILED_CREATE_VK_DESCRIPTOR_SET_LAYOUT`: a call to `vkCreateDescriptorSetLayout` failed.
-
-`MUG_FAILED_CREATE_VK_DESCRIPTOR_POOL`: a call to `vkCreateDescriptorPool` failed.
-
-`MUG_FAILED_ALLOCATE_VK_DESCRIPTOR_SETS`: a call to `vkAllocateDescriptorSets` failed.
-
-`MUG_FAILED_CREATE_VK_PIPELINE_LAYOUT`: a call to `vkCreatePipelineLayout` failed.
-
-`MUG_FAILED_CREATE_VK_PIPELINE_GRAPHIC`: a call to `vkCreateGraphicsPipelines` failed.
-
-There are also mug result equivalents for each `muCOSAResult` enumerator value, following the format of `MUG_MUCOSA_...` (ie `MUG_MUCOSA_SUCCESS`).
-
-## Get name
-
-The function `mug_result_get_name` returns a `const char*` representation of a `mugResult` value, defined below: 
+So, for example, an inclusion of mug with OpenGL 3.3 Core would look like:
 
 ```c
-MUDEF const char* mug_result_get_name(mugResult result);
+#define MU_SUPPORT_OPENGL
+#define MUG_IMPLEMENTATION
+#include "muGraphics.h"
 ```
 
+# Version
 
-Note that this function is ***not defined*** unless `MUG_NAMES` is defined before the inclusion of the header file.
+The macros `MUG_VERSION_MAJOR`, `MUG_VERSION_MINOR`, and `MUG_VERSION_PATCH` are defined to match its respective release version, following the formatting of `MAJOR.MINOR.PATCH`.
 
-# Context
+# mug context
 
-The mug context is the storage container that mug stores its context in.
+mug operates in a context, encapsulated by the type `mugContext`, which has the following members:
 
-## Struct
+* `mugResult result` - the result of the latest non-successful non-result-checking function call regarding the context; starting value upon context creation is `MUG_SUCCESS`, and is set to another value if a function whose result is not set manually by the user doesn't return a success result value.
 
-mug stores all of its inner data in a context, using a struct called `mugContext`. It has two important members:
-
-* `result`: the result of the latest non-explicit result-checking function call, defined below: 
-
-```c
-mugResult result;
-```
-
-
-* `cosa`: the muCOSA context used by the mug context, defined below: 
-
-```c
-muCOSAContext cosa;
-```
-
+* `muCOSAContext cosa` - the muCOSA context used by the mug context.
 
 ## Creation and destruction
 
@@ -212,794 +116,241 @@ MUDEF void mug_context_create(mugContext* context, muWindowSystem system, muBool
 ```
 
 
-Note that the result of this function is stored within `context->result`.
+The result of this function is stored within `context->result`. Upon success, this function automatically calls `mug_context_set` on the created context, as well as `muCOSA_context_set` on the created muCOSA context, unless `set_context` is equal to `MU_FALSE`.
 
-Note that, upon success, this function automatically calls `mug_context_set` on the created context (as well as `muCOSA_context_set` on `context->cosa`) unless `set_context` is equal to `MU_FALSE`.
+> It is valid for `system` to be `MU_WINDOW_NULL` for this function, in which case, the best currently available window system will be automatically chosen by muCOSA. More information about the window system is available via muCOSA's documentation.
 
-The function `mug_context_destroy` destroys a mug context, defined below: 
+For every successfully created context, it must be destroyed, which is done with the function `mug_context_destroy`, defined below: 
 
 ```c
 MUDEF void mug_context_destroy(mugContext* context);
 ```
 
 
-## Set context
+This function cannot fail if given a valid pointer to an active context (otherwise, a crash is likely), so no result value is ever indicated by this function via any means.
 
-The function `mug_context_set` sets the global context to the given context, defined below: 
+## Global context
+
+mug uses a global variable to reference the currently "set" context whenever a function is called that assumes a context (ie it doesn't take a parameter for context). This global variable can be changed to reference a certain context via the function `mug_context_set`, defined below: 
 
 ```c
 MUDEF void mug_context_set(mugContext* context);
 ```
 
 
-Note that this function can be automatically called on a created context with the function `mug_context_create`.
+## Non-result/context-checking functions
 
-Note that the global context can also be accessed manually via the global variable `mug_global_context`, although this is not recommended.
+If a function takes a `mugContext` and `mugResult` parameter, there will likely be two defined macros for calling the function without explicitly passing those parameters, with the current global context being assumed for both parameters.
 
+Non-result-checking functions are functions that assume the `mugContext` parameter to be the current global context, and assume the `mugResult` parameter to be the current global context's result member. These functions' parameters are simply the normal function's parameters, but without the context or result parameter, instead being routed to the current global context. The name of these functions are simply the normal name, but `mug_...` is replaced with just `mu_...`.
+
+Result-checking functions are functions that also assume (and thus don't make you specify) the `mugContext` parameter to be the current global context, but they still make you specify the `mugResult` parameter, and the global context's result member goes unreferenced. The name of these functions is the same as the non-result-checking functions, but with an underscore appended at the end.
+
+For example, if you the function `mug_graphic_do_something` existed with these parameters:
+```c
+MUDEF void mug_graphic_do_something(mugContext* context, mugResult* result, int a, int b);
+```
+
+then the function `mu_graphic_do_something`, the "non-result-checking function", exists with these parameters:
+```c
+MUDEF void mu_graphic_do_something(int a, int b);
+// Calls mug_graphic_do_something with the global context
+// and its respective result member.
+```
+
+and the function `mu_graphic_do_something_`, the "result-checking function", exists with these parameters:
+```c
+MUDEF void mu_graphic_do_something_(mugResult* result, int a, int b);
+// Calls mug_graphic_do_something with the global context
+// and the given result pointer.
+```
+
+// 
+> Note that, in reality, the non-result and result-checking functions aren't defined as actual independent functions, but instead, as macros to the original function. More information about the type `mugResult` can be found in the [result section](#result).
+			
 # Graphic
 
-The "graphic" (respective type `muGraphic`) is a surface being rendered to by some graphics API. Since a graphic is just a reference to a rendering surface, it must be created via some other object that encapsulates a rendering surface. This is why muCOSA is included in mug, as it is able to create objects that have these surfaces, such as a window.
+The "graphic" (respective type `muGraphic`; typedef for `void*`) is a surface being rendered to by some graphics API. Since a graphic is just a reference to a rendering surface, it must be created via some other object that encapsulates a rendering surface. This is why muCOSA is included in mug, as it is able to create objects that have these surfaces, such as a window.
 
-## Graphic API
+## Graphic system
 
-The enumerator `muGraphicAPI` is used to represent the graphics API associated with a graphic. Its possible values are:
+The "graphic system" (respective type `muGraphicSystem`; typedef for `uint8_m`) is a value representing which supported system is being used to render to a given graphic. It has the following supported values:
 
-`MUG_OPENGL`: [OpenGL v4.0 Core](https://registry.khronos.org/OpenGL/specs/gl/glspec40.core.pdf).
-
-`MUG_VULKAN`: Vulkan 1.3.283.0.
+* `MU_GRAPHIC_OPENGL` - OpenGL 3.3 Core.
 
 ## Destroy graphic
 
-The function `mug_graphic_destroy` destroys any graphic, defined below: 
+The function `mug_graphic_destroy` destroys a given graphic, defined below: 
 
 ```c
-MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic graphic);
+MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic gfx);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
+This function must be called on every successfully-created graphic before the destruction of the context used to create it.
 
-```c
-#define mu_graphic_destroy(...) mug_graphic_destroy(mug_global_context, __VA_ARGS__)
-```
-
-
-Note that `mug_graphic_destroy` *must* be called at some point on every successfully-created graphic.
+> The macro `mu_graphic_destroy` is the non-result-checking equivalent.
 
 ## Window graphic
 
+A "window graphic" is a graphic created via a muCOSA window.
+
 ### Creation
 
-The function `mug_graphic_create_via_window` creates a `muWindow` and creates a `muGraphic` from it, defined below: 
+The function `mug_graphic_create_window` creates a `muGraphic` by creating a `muWindow` object, defined below: 
 
 ```c
-MUDEF muGraphic mug_graphic_create_via_window(mugContext* context, mugResult* result, muGraphicAPI api, const char* name, uint16_m width, uint16_m height, muWindowCreateInfo create_info);
+MUDEF muGraphic mug_graphic_create_window(mugContext* context, mugResult* result, muGraphicSystem system, muWindowInfo* info);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_create_via_window(...) mug_graphic_create_via_window(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_create_via_window_(result, ...) mug_graphic_create_via_window(mug_global_context, result, __VA_ARGS__)
-```
-
+> The macro `mu_graphic_create_window` is the non-result-checking equivalent, and the macro `mu_graphic_create_window_` is the result-checking equivalent.
 
 ### Get window
 
-The function `mug_graphic_get_window` gets the window from a graphic created using a `muWindow`, defined below: 
+The function `mug_graphic_get_window` retrieves the window handle generated from a successfully-created graphic that was created using a muCOSA window, defined below: 
 
 ```c
-MUDEF muWindow mug_graphic_get_window(mugContext* context, mugResult* result, muGraphic graphic);
+MUDEF muWindow mug_graphic_get_window(mugContext* context, muGraphic gfx);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_get_window(...) mug_graphic_get_window(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_get_window_(result, ...) mug_graphic_get_window(mug_global_context, result, __VA_ARGS__)
-```
-
+> The macro `mu_graphic_get_window` is the non-result-checking equivalent.
 
 ## Main loop graphic functions
 
-There are several graphic functions that are used virtually every frame. This is a list of those functions.
+There are four primary functions that must be called every single frame in a particular manner; these functions are `mug_graphic_exists`, `mug_graphic_clear`, `mug_graphic_swap_buffers`, and `mug_graphic_update`. A valid mug frame loop is formatted like so:
+
+```c
+// Loop frame-by-frame while the graphic exists:
+while (mu_graphic_exists(gfx)) {
+// Clear the graphic with black
+mu_graphic_clear(gfx, 0.f, 0.f, 0.f);
+
+// ...Frame-by-frame logic and rendering should occur here...
+
+// Swap graphic buffers (to present image)
+mu_graphic_swap_buffers(gfx);
+
+// Update graphic at ~100 FPS
+mu_graphic_update(gfx, 100.f);
+}
+```
+
+All of the functions demonstrated in this section should only be called once each frame, and in the order given. Explicit documentation on these functions and what they do is provided below.
 
 ### Get graphic existence status
 
-The function `mug_graphic_exists` returns whether or not a given graphic exists anymore (such as if the graphic is spawned from a window and the window is closed or not), defined below: 
+The graphic can stop existing for several reasons, such as in the case of it coming from a window and the user closing the window. For this, the function `mug_graphic_exists` exists, which returns whether or not the graphic exists at any given, and is used to establish a loop for as long as the graphic is alive, defined below: 
 
 ```c
-MUDEF muBool mug_graphic_exists(mugContext* context, mugResult* result, muGraphic graphic);
+MUDEF muBool mug_graphic_exists(mugContext* context, muGraphic gfx);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
+The status of this function is updated every time `mug_graphic_update` is called, meaning that the two should always be called consecutively. For this reason, `mug_graphic_update` should be called at the end of the `mug_graphic_exists` loop, so that upon the existence check being called, the graphic's state for this has been updated directly beforehand.
 
-```c
-#define mu_graphic_exists(...) mug_graphic_exists(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_exists_(result, ...) mug_graphic_exists(mug_global_context, result, __VA_ARGS__)
-```
-
-
-Note that a graphic not existing still means that it needs to be destroyed with `mu_graphic_destroy`.
+> The macro `mu_graphic_exists` is the non-result-checking equivalent.
 
 ### Clear graphic
 
-The function `mug_graphic_clear` clears the graphical contents of a graphic with a certain color, defined below: 
+Once the current frame has started, the contents of the graphic are undefined (both in the case of the current frame being the first frame or it not being the first frame). To resolve this, the graphic must be cleared with the function `mug_graphic_clear`, defined below: 
 
 ```c
-MUDEF void mug_graphic_clear(mugContext* context, mugResult* result, muGraphic graphic, float r, float g, float b, float a);
+MUDEF void mug_graphic_clear(mugContext* context, mugResult* result, muGraphic gfx, float r, float g, float b);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
+This function clears the color of each pixel in the graphic with the given RGB values (each value must range between `0.f` and `1.f`). It also clears the depth-buffer of the graphic. Not calling this function before calling any rendering function, `mug_graphic_swap_buffers`, or `mug_graphic_update`, will result in undefined behavior, as the contents of the graphic are unknown in the state between the beginning of the frame and the execution of the function `mug_graphic_clear`.
 
-```c
-#define mu_graphic_clear(...) mug_graphic_clear(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_clear_(result, ...) mug_graphic_clear(mug_global_context, result, __VA_ARGS__)
-```
-
-
-This function *must* be called before calling any rendering functions.
-
-Note that the `r`, `g`, `b`, and `a` parameters should range between 0.0 and 1.0.
-
-Note that the `a` value has no effect for now, and should be set to 1.0.
+> The macro `mu_graphic_clear` is the non-result-checking equivalent, and the macro `mu_graphic_clear_` is the result-checking equivalent.
 
 ### Swap graphic buffers
 
+One all rendering calls for a given frame have been executed, it must be presented to the screen, which is what `mug_graphic_swap_buffers` does, defined below: 
 
 ```c
-MUDEF void mug_graphic_swap_buffers(mugContext* context, mugResult* result, muGraphic graphic);
-```
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_swap_buffers(...) mug_graphic_swap_buffers(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+MUDEF void mug_graphic_swap_buffers(mugContext* context, mugResult* result, muGraphic gfx);
 ```
 
 
-Its result-checking equivalent macro is defined below: 
+This function should be called after all rendering functions have been called for a given frame, and no rendering functions should be called after this function for the given frame.
 
-```c
-#define mu_graphic_swap_buffers_(result, ...) mug_graphic_swap_buffers(mug_global_context, result, __VA_ARGS__)
-```
-
-
-This function should be called near the end of the frame and *before* `mug_graphic_update`.
-
-Before this function is called, `mug_graphic_clear` must have been called at least once.
+> The macro `mu_graphic_swap_buffers` is the non-result-checking equivalent, and the macro `mu_graphic_swap_buffers_` is the result-checking equivalent.
 
 ### Update graphic
 
+Once the graphic has been presented, before the next frame potentially starts, the graphic's state needs to be internally updated; this is performed with the function `mug_graphic_update`, defined below: 
 
 ```c
-MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic graphic, double target_fps);
-```
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_graphic_update(...) mug_graphic_update(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+MUDEF void mug_graphic_update(mugContext* context, mugResult* result, muGraphic gfx, float target_fps);
 ```
 
 
-Its result-checking equivalent macro is defined below: 
+The parameter `target_fps` specifies the desired amount of frames that the user wants to be processed each second, given as a rate of frames per second. `mug_graphic_update` accomplishes this by sleeping for the time required to reach this desired FPS, keeping track internally of the approximate time it has taken for each frame to be processed. This does mean that no compensation is performed if the approximate time is at or above the time needed to reach the desired FPS rate. This functionality is not performed if `target_fps` is less than or equal to `0.f`.
+
+> The macro `mu_graphic_update` is the non-result-checking equivalent, and the macro `mu_graphic_update_` is the result-checking equivalent.
+
+# Result
+
+The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in mug went. It has the following defined values:
+
+* `MUG_SUCCESS` - the task succeeded; real value 0.
+
+* `MUG_FAILED_MALLOC` - `mu_malloc` returned a failure value, and the task was unable to be completed.
+
+* `MUG_FAILED_REALLOC` - `mu_realloc` returned a failure value, and the task was unable to be completed.
+
+* `MUG_UNKNOWN_GRAPHIC_SYSTEM` - a `muGraphicSystem` value given by a user was unrecognized. This could happen because support for the requested graphics API was not defined by the user, such as passing `MU_GRAPHIC_OPENGL` without defining `MU_SUPPORT_OPENGL`.
+
+* `MUG_MUCOSA_...` - a muCOSA function was called, which gave a non-success result value, which has been converted to a `mugResult` equivalent. There is a `mugResult` equivalent for any `muCOSAResult` value (besides `MUCOSA_SUCCESS`), and the conditions of the given `muCOSAResult` value apply based on the muCOSA documentation. Note that the value of the muCOSA-equivalent does not necessarily match the value of the mug version.
+
+* `MUG_GL_FAILED_LOAD` - the required OpenGL functionality failed to load from the function call to `gladLoadGL`.
+
+All non-success values (unless explicitly stated otherwise) mean that the function fully failed; AKA, it was "fatal", and the library continues as if the function had never been called. So, for example, if something was supposed to be allocated, but the function fatally failed, nothing was allocated.
+
+There are non-fatal failure values, which mean that the function still executed, but not fully to the extent that the user would expect from the function. The function `mug_result_is_fatal` returns whether or not a given result function value is fatal, defined below: 
 
 ```c
-#define mu_graphic_update_(result, ...) mug_graphic_update(mug_global_context, result, __VA_ARGS__)
+MUDEF muBool mug_result_is_fatal(mugResult result);
 ```
 
 
-`target_fps` describes the amount of frames per second that mug should attempt to cap at, sleeping for an amount of time to do so. To unlock the FPS, simply set this value to 0.
+This function also considers the fatal status of `mugResult` values representing `muCOSAResult` values.
 
-This function should be called near the end of the frame and *after* `mug_graphic_swap_buffers`, preferably as the last function call of the frame.
+> This function returns `MU_TRUE` if the value of `result` is invalid. It returns `MU_FALSE` if `result` is equal to `MUG_SUCCESS`.
 
-# Object buffers
+## Result names
 
-The primary way that mug renders things is with object buffers (respective type `mugObjectBuffer`). There are different object buffer types that are capable of rendering different types of objects.
-
-## Object types
-
-The enum `mugObjectType` is used to represent the object type of a buffer. Its possible values are:
-
-* `MUG_OBJECT_TRIANGLE` - a triangle; respective struct `muTriangle`.
-
-* `MUG_OBJECT_RECT` - a rectangle; respective struct `muRect`.
-
-* `MUG_OBJECT_ROUND_RECT` - a rounded rectangle; respective struct `muRoundRect`.
-
-* `MUG_OBJECT_SQUIRCLE` - a squircle; respective struct `muSquircle`.
-
-* `MUG_OBJECT_CIRCLE` - a circle; respective struct `muCircle`.
-
-* `MUG_OBJECT_TEXTURE` - a single texture; respective struct `muTextureObject`.
-
-## Load object type
-
-The function `mug_gobj_type_load` loads the resources needed for creating object buffers of a given type, defined below: 
+The name function `mug_result_get_name` returns a `const char*` representation of the given result value (for example, `MUG_SUCCESS` returns "MUG_SUCCESS"), defined below: 
 
 ```c
-MUDEF void mug_gobj_type_load(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type);
+MUDEF const char* mug_result_get_name(mugResult result);
 ```
 
 
-Its non-result-checking equivalent macro is defined below: 
+It will return "MU_UNKNOWN" in the case that `result` is an invalid result value.
+
+> This function is a "name" function, and therefore is only defined if `MUG_NAMES` is also defined by the user.
+
+## muCOSA-mug result to muCOSA result
+
+The function `mug_to_muCOSA_result` returns the muCOSA-equivalent of a mug result that represents a `muCOSAResult` value (for example, `MUG_MUCOSA_FAILED_MALLOC` returns `MUCOSA_FAILED_MALLOC`), defined below: 
 
 ```c
-#define mu_gobj_type_load(...) mug_gobj_type_load(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+MUDEF muCOSAResult mug_to_muCOSA_result(mugResult result);
 ```
 
 
-Its result-checking equivalent macro is defined below: 
+This function returns `MUG_SUCCESS`/`MUCOSA_SUCCESS` (same value) if no muCOSA equivalent exists for the given `mugResult` value.
+
+## muCOSA result to mug result
+
+The function `muCOSA_to_mug_result` returns the mug-equivalent of a muCOSA result value (for example, `MUCOSA_FAILED_MALLOC` returns `MUG_MUCOSA_FAILED_MALLOC`), defined below: 
 
 ```c
-#define mu_gobj_type_load_(result, ...) mug_gobj_type_load(mug_global_context, result, __VA_ARGS__)
+MUDEF mugResult muCOSA_to_mug_result(muCOSAResult result);
 ```
 
 
-This function is automatically called upon creation of an object buffer of type `object_type`, but can also be done manually with this function.
-
-Note that this function will not throw an error if the object type is already loaded.
-
-## Unload object type
-
-The function `mug_gobj_type_unload` unloads the resources needed for creating object buffers of a given type, defined below: 
-
-```c
-MUDEF void mug_gobj_type_unload(mugContext* context, muGraphic graphic, mugObjectType object_type);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_type_unload(...) mug_gobj_type_unload(mug_global_context, __VA_ARGS__)
-```
-
-
-This function should not be called if there are buffers of the given type still in existence.
-
-This function is not required to be called on all loaded object types; it is automatically handled.
-
-## Creation
-
-The function `mug_gobj_buffer_create` creates an object buffer, defined below: 
-
-```c
-MUDEF mugObjectBuffer mug_gobj_buffer_create(mugContext* context, mugResult* result, muGraphic graphic, mugObjectType object_type, size_m object_count, void* objects);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_create(...) mug_gobj_buffer_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_create_(result, ...) mug_gobj_buffer_create(mug_global_context, result, __VA_ARGS__)
-```
-
-
-`objects` is rather a pointer to an `object_count`-length array of objects whose type matches the respective type of the enum value of `object_type` ***or*** 0, which creates the buffer without any data. Calling any function that relies on a buffer's data being filled (such as a render function) when the data isn't initialized will result in undefined behaviour.
-
-`object_count` must be at least 1.
-
-Note that a successfully-created object buffer must be destroyed by the user at some point.
-
-## Destruction
-
-The function `mug_gobj_buffer_destroy` destroys an object buffer, defined below: 
-
-```c
-MUDEF mugObjectBuffer mug_gobj_buffer_destroy(mugContext* context, muGraphic graphic, mugObjectBuffer buffer);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_destroy(...) mug_gobj_buffer_destroy(mug_global_context, __VA_ARGS__)
-```
-
-
-Note that this function must be called on each successfully-created `mugObjectBuffer` object at some point.
-
-## Render
-
-The function `mug_gobj_buffer_render` renders an object buffer's contents, defined below: 
-
-```c
-MUDEF void mug_gobj_buffer_render(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_render(...) mug_gobj_buffer_render(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_render_(result, ...) mug_gobj_buffer_render(mug_global_context, result, __VA_ARGS__)
-```
-
-
-Once this function is called, the contents of the buffer should not be modified for the rest of the current frame.
-
-## Sub-render
-
-The function `mug_gobj_buffer_subrender` renders a portion of an object buffer's contents, defined below: 
-
-```c
-MUDEF void mug_gobj_buffer_subrender(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_subrender(...) mug_gobj_buffer_subrender(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_subrender_(result, ...) mug_gobj_buffer_subrender(mug_global_context, result, __VA_ARGS__)
-```
-
-
-Once this function is called, the buffer should not be destroyed or resized for the rest of the current frame, and the portion of the buffer rendered should not be modified.
-
-## Fill
-
-The function `mug_gobj_buffer_fill` fills an object buffer's contents, defined below: 
-
-```c
-MUDEF void mug_gobj_buffer_fill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, void* objects);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_fill(...) mug_gobj_buffer_fill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_fill_(result, ...) mug_gobj_buffer_fill(mug_global_context, result, __VA_ARGS__)
-```
-
-
-`objects` is a pointer to an array whose length matches the object length of `buffer` and whose type matches the struct associated with the type of `buffer`.
-
-Note that this function should not be called once the buffer's contents have been rendered for the current frame.
-
-Note that `objects` is not safe to be 0.
-
-## Sub-fill
-
-The function `mug_gobj_buffer_subfill` fills a portion of an object buffer's contents, defined below: 
-
-```c
-MUDEF void mug_gobj_buffer_subfill(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_offset, size_m object_count, void* objects);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_subfill(...) mug_gobj_buffer_subfill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_subfill_(result, ...) mug_gobj_buffer_subfill(mug_global_context, result, __VA_ARGS__)
-```
-
-
-`objects` is a pointer to an array of length `object_count` whose type matches the struct associated with the type of `buffer`.
-
-Note that this function should not be called once the buffer's contents being referenced have been rendered for the current frame.
-
-Note that `objects` is not safe to be 0.
-
-## Resize
-
-The function `mug_gobj_buffer_resize` resizes an object buffer and clears its prior contents, defined below: 
-
-```c
-MUDEF void mug_gobj_buffer_resize(mugContext* context, mugResult* result, muGraphic graphic, mugObjectBuffer buffer, size_m object_count, void* objects);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_resize(...) mug_gobj_buffer_resize(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_resize_(result, ...) mug_gobj_buffer_resize(mug_global_context, result, __VA_ARGS__)
-```
-
-
-Note that this function completely clears whatever contents were in the buffer. This function is primarily used to resize a buffer whilst still maintaining the same handle.
-
-Note that this function should not be called once any portion of the buffer's contents have been rendered for the current frame.
-
-Note that `objects` is safe to be 0.
-
-## Get type
-
-The function `mug_gobj_buffer_get_type` returns the `mugObjectType` the buffer was originally created with, defined below: 
-
-```c
-MUDEF mugObjectType mug_gobj_buffer_get_type(mugContext* context, muGraphic graphic, mugObjectBuffer buffer);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_gobj_buffer_get_type(...) mug_gobj_buffer_get_type(mug_global_context, __VA_ARGS__)
-```
-
-
-# Common structs
-
-mug defines several structs used to define shapes. The following is a list of those structs.
-
-## Position
-
-mug uses the struct `muPosition` to represent a 2D position, ranging from (0, 0) being the top-left of the graphic to (width, height) being the bottom-right of the graphic, where width and height are the dimensions of the graphic.
-
-### Members
-
-* `float x` - the x-value of the position.
-
-* `float y` - the y-value of the position.
-
-## Color
-
-mug uses the struct `muColor` to represent a color with its respective red, green, blue, and alpha channels. The channels range from 0.0 to 1.0.
-
-### Members
-
-* `float r` - the red channel of the color.
-
-* `float g` - the green channel of the color.
-
-* `float b` - the blue channel of the color.
-
-* `float a` - the alpha channel of the color.
-
-## Point
-
-mug uses the struct `muPoint` to represent a renderable point, being defined with a position and color.
-
-### Members
-
-* `muPosition pos` - the position of the point.
-
-* `muColor col` - the color of the point.
-
-## Dimensions
-
-mug uses the struct `muDimensions` to represent a width and height.
-
-### Members
-
-* `float width` - the width.
-
-* `float height` - the height.
-
-# Triangle object
-
-The triangle object represents a triangle, AKA three points connected as one shape. Its respective `mugObjectType` enum value is `MUG_OBJECT_TRIANGLE` and its respective struct type is `muTriangle`.
-
-## Struct
-
-The struct `muTriangle` has the following members:
-
-* `muPoint p0` - the first point of the triangle.
-
-* `muPoint p1` - the second point of the triangle.
-
-* `muPoint p2` - the third point of the triangle.
-
-All points are interchangeable and in no particular order; swapping two points with each other will have no visual effect.
-
-# Rect object
-
-The rect object represents a rectangle. Its respective `mugObjectType` enum value is `MUG_OBJECT_RECT` and its respective struct type is `muRect`.
-
-## Struct
-
-The struct `muRect` has the following members:
-
-* `muPoint center` - the center point of the rect.
-
-* `muDimensions dim` - the dimensions of the rect.
-
-* `float rot` - the rotation of the rect in radians.
-
-# Rounded rect object
-
-The rounded rect object represents a rounded rectangle. Its respective `mugObjectType` enum value is `MUG_OBJECT_ROUND_RECT` and its respective struct type is `muRoundRect`.
-
-## Struct
-
-The struct `muRoundRect` has the following members:
-
-* `muPoint center` - the center point of the rect.
-
-* `muDimensions dim` - the dimensions of the rect.
-
-* `float rot` - the rotation of the rect in radians.
-
-* `float round` - the radius of the circles on the rounded edges.
-
-`round` should be at least 0 and less than half of `dim.width` and half of `dim.height`.
-
-# Squircle object
-
-The squircle object represents a [squircle](https://en.wikipedia.org/wiki/Squircle). Its respective `mugObjectType` enum value is `MUG_OBJECT_SQUIRCLE` and its respective struct type is `muSquircle`.
-
-## Struct
-
-The struct `muSquircle` has the following members:
-
-* `muPoint center` - the center of the squircle.
-
-* `muDimensions dim` - the dimensions of the squircle.
-
-* `float rot` - the rotation of the squircle in radians.
-
-* `float exp` - the exponent of the squircle (`(x^exp + y^exp = r^exp)`).
-
-The higher `exp` is, the sharper the edges of the squircle become. `exp` should never be below 0.
-
-# Circle object
-
-The circle object represents a [circle](https://en.wikipedia.org/wiki/Circle). Its respective `mugObjectType` enum value is `MUG_OBJECT_CIRCLE` and its respective struct type is `muCircle`.
-
-## Struct
-
-The struct `muCircle` has the following members:
-
-* `muPoint center` - the center of the circle.
-
-* `float radius` - the radius of the circle. The value of this member should always be greater than or equal to 0.
-
-# Texture loading
-
-mug has the ability to load and render textures. 2-dimensional textures are represent by the macro `mugTexture`.
-
-## Formats
-
-The enum `mugTextureFormat` is used to represent a texture format. Its possible values are:
-
-* `MUG_FORMAT_8UNORM_R` - single-channel (red) unsigned normalized integer format.
-
-* `MUG_FORMAT_8UNORM_RG` - double-channel (red and green) unsigned normalized integer format.
-
-* `MUG_FORMAT_8UNORM_RGB` - triple-channel (red, green, and blue) unsigned normalized integer format.
-
-* `MUG_FORMAT_8UNORM_RGBA` - quadruple-channel (red, green, blue, and alpha) unsigned normalized integer format.
-
-## Filtering
-
-The enum `mugTextureFiltering` is used to represent a texture filtering method. Its possible values are:
-
-* `MUG_FILTER_NEAREST` - [nearest-neighbor filtering](https://en.wikipedia.org/wiki/Nearest-neighbor_interpolation).
-
-* `MUG_FILTER_LINEAR` - [bilinear filtering](https://en.wikipedia.org/wiki/Bilinear_interpolation).
-
-## Wrapping
-
-The enum `mugTextureWrapping` is used to represent the wrapping of a texture. Its possible values are:
-
-* `MUG_WRAP_REPEAT` - repeat the contents of the texture.
-
-* `MUG_WRAP_MIRRORED_REPEAT` - repeat the contents of the texture, mirroring its contents whenever it repeats.
-
-* `MUG_WRAP_CLAMP_TO_EDGE` - repeat the nearest texel of the texture.
-
-* `MUG_WRAP_CLAMP_TO_BORDER` - set all coordinates outside of the range to a border color.
-
-## Creation
-
-The function `mug_texture_create` creates a texture, defined below: 
-
-```c
-MUDEF mugTexture mug_texture_create(mugContext* context, mugResult* result, muGraphic graphic, mugTextureFormat format, mugTextureFiltering upscale_filter, mugTextureFiltering downscale_filter, mugTextureWrapping x_wrapping, mugTextureWrapping y_wrapping, uint32_m width, uint32_m height, void* data);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_create(...) mug_texture_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_create_(result, ...) mug_texture_create(mug_global_context, result, __VA_ARGS__)
-```
-
-
-A successfully created texture must be destroyed at some point.
-
-The contents of `data` are expected to be laid out from left-to-right, top-to-bottom.
-
-## Destruction
-
-The function `mug_texture_destroy` destroys a texture, defined below: 
-
-```c
-MUDEF mugTexture mug_texture_destroy(mugContext* context, muGraphic graphic, mugTexture texture);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_destroy(...) mug_texture_destroy(mug_global_context, __VA_ARGS__)
-```
-
-
-This function must be called on every successfully created texture at some point.
-
-## Binding
-
-The function `mug_texture_bind` binds a texture to an index, defined below: 
-
-```c
-MUDEF void mug_texture_bind(mugContext* context, mugResult* result, muGraphic graphic, mugTexture texture, uint32_m index);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_bind(...) mug_texture_bind(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_bind_(result, ...) mug_texture_bind(mug_global_context, result, __VA_ARGS__)
-```
-
-
-This function binds the given texture to the given index for every single texture buffer. `index` must be below the value given by `mug_texture_max_binds`.
-
-## Binding maximum
-
-The function `mug_texture_max_binds` returns the maximum amount of bindings for textures, defined below: 
-
-```c
-MUDEF uint32_m mug_texture_max_binds(mugContext* context, mugResult* result, muGraphic graphic);
-```
-
-
-Its non-result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_max_binds(...) mug_texture_max_binds(mug_global_context, &mug_global_context->result, __VA_ARGS__)
-```
-
-
-Its result-checking equivalent macro is defined below: 
-
-```c
-#define mu_texture_max_binds_(result, ...) mug_texture_max_binds(mug_global_context, result, __VA_ARGS__)
-```
-
-
-The minimum value returned on a successful call to this function is 8, meaning that at least 8 textures can be binded (and thus, 8 unique textures can be rendered in one render call).
-
-# Texture object
-
-The texture object represents a single texture, with an object buffer of them only being able to render that single texture. Its respective `mugObjectType` enum value is `MUG_OBJECT_TEXTURE` and its respective struct type is `muTextureObject`.
-
-## Struct
-
-The struct `muTextureObject` has the following members:
-
-* `muRect rect` - the rect that the texture will render over.
-
-* `muPosition tex_pos` - the position of the texture cut-out.
-
-* `muDimensions tex_dim` - the dimensions of the texture cut-out.
-
-The texture cut-out is what portion of the texture will be rendered with the rect, in texture coordinates. (0, 0) is the top-left of the texture, and (1, 1) is the bottom-right of the texture.
-
-The texture in question being rendered refers to the texture binded to index 0.
-
-# Graphics API customization
-
-There are certain things that can be done in mug to customize how a particular graphics API functions. This section covers those.
-
-## Vulkan
-
-### Frame buffering
-
-Vulkan allows frames to be buffered, which means that multiple frames can be used for drawing, which wastes less time waiting for the previous frame to be finished. The amount of these frames is controllable by the macro `MUG_VK_FRAME_BUFFERS`, whose default value is 3.
-
-### Debug messages
-
-Vulkan has a built-in system for printing debug information, but requires the Vulkan SDK to be manually installed on the machine to work. As such, this system is, on default, not used, but can be manually turned on by defining `MUG_VK_DEBUG` before the inclusion of the header file.
-
-Note that defining `MUG_VK_DEBUG` without having the Vulkan SDK is safe, the feature just won't work.
-
-# Version macro
-
-mug defines three macros to define the version of mug: `MUG_VERSION_MAJOR`, `MUG_VERSION_MINOR`, and `MUG_VERSION_PATCH`, following the format of `vMAJOR.MINOR.PATCH`.
-
-# C standard library dependencies
-
-mug has several C standard library dependencies not provided by its other library dependencies, all of which are overridable by defining them before the inclusion of its header. This is a list of all of those dependencies.
-
-## `stdint.h` dependencies
-
-`MU_UINT32_MAX`: equivalent to `UINT32_MAX`
-
-`MU_UINT64_MAX`: equivalent to `UINT64_MAX`
-
-## `stdio.h` dependencies
-
-`mu_printf`: equivalent to `printf`; only defined if `MUG_VK_DEBUG` is defined before the inclusion of the header file.
-
-## `math.h` dependencies
-
-`mu_sin`: equivalent to `sin`
-
-`mu_cos`: equivalent to `cos`
+This function returns `MUG_SUCCESS`/`MUCOSA_SUCCESS` (same value) if no mug equivalent exists for the given `muCOSAResult` value, rather because the given `muCOSAResult` value is invalid or is equal to `MUCOSA_SUCCESS`.
