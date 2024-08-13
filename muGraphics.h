@@ -56,6 +56,22 @@ To compile with Windows, you need to link the following files under the given ci
 
 mug is licensed under public domain or MIT, whichever you prefer, as well as (technically) [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
 
+# Multi-threading
+
+mug does not directly support thread safety, and must be implemented by the user themselves. Thread safety in mug can be generally achieved by locking each object within a mug context (ie `muGraphic` for example), making sure that only one thread ever interacts with the given object at once. This includes render calls, buffer creation, etc. There are a few known exceptions to this to achieve total thread safety, which are detailed below, but multi-threading with mug is not thoroughly tested.
+
+## Context creation
+
+If `MU_SUPPORT_OPENGL` is defined, two contexts cannot be created at the same time.
+
+## Graphic updating
+
+Due to limitations with the handling of messages on Win32, no more than one graphic can be updated safely at any given time across threads.
+
+## Window resizing/moving
+
+Due to the way that Win32 handles messages when the window is being resized or moved, a call to `mug_graphic_update` on a graphic created via a muCOSA window will hang for the entire duration of the window being dragged/moved. Handling implemented by users of mug should expect this, and handle vital functionality that needs to be executed over this time on a separate thread.
+
 # Known issues and limitations
 
 This section covers the known issues and limitations of the libraries.
@@ -79,6 +95,14 @@ For all these complications, mug only allows one texture to be used per texture 
 ## Create graphic with pre-existing window
 
 To keep mug code simplistic for now, it is impossible to create a graphic generated from a window that already was created; the window-graphic-creation process must create the window internally. This doesn't realistically limit the user's ability to customize their window, as they still have access to fully customize the window via the `muWindowInfo` parameter, but nevertheless, it would be more flexible to provide support for creating graphics with a muCOSA window that already existed beforehand.
+
+## Vertex data up front
+
+When vertex data (as well as index data) needs to be generated and a buffer needs to be filled with it, it is first allocated in its entirety on the CPU side. This may be too much for the CPU to allocate at the moment, at which case it would be more appropriate to cut it up into smaller pieces and subfill the data, but this system has yet to be implemented. This means that if the vertex/index data needed to create a given object buffer cannot be allocated up front on the CPU's side, the buffer will fail to create despite there being a way to still accomplish the task with less memory needed.
+
+## Stability with large object counts
+
+There are no checks performed on buffers so large that they cause integer overflow, meaning that the usage of too many objects will likely just result in a crash. There is no way to check for buffer size limits with mug's provided API; a buffer will simply fail to create if too large and give a non-successful result value.
 
 @DOCEND */
 
@@ -2116,7 +2140,7 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 			// and the given result pointer.
 			```
 
-			// @DOCLINE > Note that, in reality, the non-result and result-checking functions aren't defined as actual independent functions, but instead, as macros to the original function. More information about the type `mugResult` can be found in the [result section](#result).
+			> Note that, in reality, the non-result and result-checking functions aren't defined as actual independent functions, but instead, as macros to the original function. More information about the type `mugResult` can be found in the [result section](#result).
 			@DOCEND */
 
 	// @DOCLINE # Graphic
@@ -2139,7 +2163,7 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 			// @DOCLINE The function `mug_graphic_destroy` destroys a given graphic, defined below: @NLNT
 			MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic gfx);
 
-			// @DOCLINE This function must be called on every successfully-created graphic before the destruction of the context used to create it.
+			// @DOCLINE This function must be called on every successfully-created graphic before the destruction of the context used to create it. This function returns 0.
 
 			// @DOCLINE > The macro `mu_graphic_destroy` is the non-result-checking equivalent.
 			#define mu_graphic_destroy(...) mug_graphic_destroy(mug_global_context, __VA_ARGS__)
@@ -2172,7 +2196,8 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 			/* @DOCBEGIN
 			```c
 			// Loop frame-by-frame while the graphic exists:
-			while (mu_graphic_exists(gfx)) {
+			while (mu_graphic_exists(gfx))
+			{
 				// Clear the graphic with black
 				mu_graphic_clear(gfx, 0.f, 0.f, 0.f);
 
@@ -2232,6 +2257,155 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 				#define mu_graphic_update(...) mug_graphic_update(mug_global_context, &mug_global_context->result, __VA_ARGS__)
 				#define mu_graphic_update_(result, ...) mug_graphic_update(mug_global_context, result, __VA_ARGS__)
 
+	// @DOCLINE # Objects
+
+		// @DOCLINE An ***object*** in mug (commonly called a "gobject" in the API) is something that is rendered to the screen. Its ***type*** defines what type of object it is, such as a triangle object.
+
+		// @DOCLINE ## Object types
+
+			typedef uint16_m mugObjectType;
+
+			// @DOCLINE All object types defined by mug are represented by the type `mugObjectType` (typedef for `uint16_m`). It has the following defined values:
+
+			// @DOCLINE * `MUG_OBJECT_POINT` - a [point object](#point).
+			#define MUG_OBJECT_POINT 1
+
+			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
+			#define MUG_OBJECT_LAST MUG_OBJECT_POINT
+
+		// @DOCLINE ## Load object type
+
+			// @DOCLINE The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: @NLNT
+			MUDEF void mug_gobject_load(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType obj_type);
+
+			// @DOCLINE > The macro `mu_gobject_load` is the non-result-checking equivalent, and the macro `mu_gobject_load_` is the result-checking equivalent.
+			#define mu_gobject_load(...) mug_gobject_load(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobject_load_(result, ...) mug_gobject_load(mug_global_context, result, __VA_ARGS__)
+
+			// @DOCLINE Object types are also loaded automatically when an object buffer is created with the type, so this function doesn't need to be called. This function just gives a successful result if the object type was already loaded.
+
+		// @DOCLINE ## Deload object type
+
+			// @DOCLINE No object types are automatically loaded upon context creation. However, once an object type is loaded in mug, rather via an explicit call to `mug_gobject_load` or automatically loaded via the creation of an object buffer of the given type, it is never automatically deloaded until the graphic is destroyed. An object type can be manually deloaded via the function `mug_gobject_deload`, defined below: @NLNT
+			MUDEF void mug_gobject_deload(mugContext* context, muGraphic gfx, mugObjectType obj_type);
+
+			// @DOCLINE Calling this function with an object type who has currently active buffers will result in undefined behavior.
+
+			// @DOCLINE > The macro `mu_gobject_deload` is the non-result-checking equivalent.
+			#define mu_gobject_deload(...) mug_gobject_deload(mug_global_context, __VA_ARGS__)
+
+		// @DOCLINE ## Object type modifiers
+
+			typedef uint8_m mugObjectMod;
+
+			// @DOCLINE There are certain attributes about each object type can be universally (per mug context) changed for each object of that given type. These attributes are represented by the type `mugObjectMod` (typedef for `uint8_m`), and has the following defined values:
+
+			// @DOCLINE * `MUG_OBJECT_ADD_POS` - an array of three floats representing an x-, y-, and z-offset (respectively) added to the position of every object of a given type. The default values of all three offsets are 0.
+			#define MUG_OBJECT_ADD_POS 1
+			// @DOCLINE * `MUG_OBJECT_MUL_POS` - an array of three floats representing an x-, y-, and z-scale (respectively) multiplied to the position of every object of a given type. The default values of all three scales are 1.
+			#define MUG_OBJECT_MUL_POS 2
+			// @DOCLINE * `MUG_OBJECT_ADD_COL` - an array of four floats representing an r-, g-, b-, and a-offset (respectively) added to the color channels of every object of a given type. The default values of all four offsets are 0.
+			#define MUG_OBJECT_ADD_COL 3
+			// @DOCLINE * `MUG_OBJECT_MUL_COL` - an array of four floats representing an r-, g-, b-, and a-scale (respectively) multiplied to the color channels of every object of a given type. The default values of all four scales are 1.
+			#define MUG_OBJECT_MUL_COL 4
+
+			// @DOCLINE Multiplication is performed first, followed by addition.
+
+			// @DOCLINE ### Set object type modifier
+
+				// @DOCLINE The values of an object type modifier can be modified using the function `mug_gobject_mod`, defined below: @NLNT
+				MUDEF void mug_gobject_mod(mugContext* context, muGraphic gfx, mugObjectType type, mugObjectMod mod, float* data);
+
+				// @DOCLINE This function must only be called on an object type that is currently loaded. Once an object type is deloaded and loaded again, the values of an attribute go back to their defaults.
+
+				// @DOCLINE > The macro `mu_gobject_mod` is the non-result-checking equivalent.
+				#define mu_gobject_mod(...) mug_gobject_mod(mug_global_context, __VA_ARGS__)
+
+		// @DOCLINE ## Point
+
+			// @DOCLINE A "point" in mug is a single-pixel point. Its respective struct is `mugPoint`, and has the following members:
+
+			struct mugPoint {
+				// @DOCLINE * `@NLFT pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly.
+				float pos[3];
+				// @DOCLINE * `@NLFT col[4]` - the colors of the point, with indexes 0, 1, 2, and 3 being the red, green, blue, and alpha channels respectively. All channels' values should range between 0 and 1; any other value is not guaranteed to render properly. A value of 0 means none of the channel, and a value of 1 means the maximum intensity of the channel.
+				float col[4];
+			};
+			typedef struct mugPoint mugPoint;
+
+	// @DOCLINE # Object buffers
+
+		typedef void* mugObjects;
+
+		// @DOCLINE Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored GPU-side. The type for an object buffer is `mugObjects` (typedef for `void*`).
+
+		// @DOCLINE ## Create object buffer
+
+			// @DOCLINE An object buffer can be created via the function `mug_gobjects_create`, defined below: @NLNT
+			MUDEF mugObjects mug_gobjects_create(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType type, uint32_m obj_count, void* objs);
+
+			// @DOCLINE If `objs` is 0, the buffer is simply allocated, but filled with undefined data. If `objs` is not 0, it should be a pointer to an array of objects whose type matches the object type indicated by `type`, and whose length (in objects) should match `obj_count`.
+
+			// @DOCLINE Every object buffer that is created must be destroyed before the graphic that was used to create it is destroyed.
+
+			// @DOCLINE > The macro `mu_gobjects_create` is the non-result-checking equivalent, and the macro `mu_gobjects_create_` is the result-checking equivalent.
+			#define mu_gobjects_create(...) mug_gobjects_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobjects_create_(result, ...) mug_gobjects_create(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Destroy object buffer
+
+			// @DOCLINE Every successfully created object buffer must be destroyed at some point with the function `mug_gobjects_destroy`, defined below: @NLNT
+			MUDEF mugObjects mug_gobjects_destroy(mugContext* context, muGraphic gfx, mugObjects objs);
+
+			// @DOCLINE If any portion of the object buffer has been rendered during the current frame, it should not be destroyed until the entire frame has passed (AKA after `mug_graphic_update` has been called). This function returns 0.
+
+			// @DOCLINE > The macro `mu_gobjects_destroy` is the non-result-checking equivalent.
+			#define mu_gobjects_destroy(...) mug_gobjects_destroy(mug_global_context, __VA_ARGS__)
+
+		// @DOCLINE ## Render object buffer
+
+			// @DOCLINE An object buffer can be rendered to a graphic using the function `mug_gobjects_render`, defined below: @NLNT
+			MUDEF void mug_gobjects_render(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs);
+
+			// @DOCLINE Once an object buffer has been rendered, no fill/subfill/destroy actions should be performed on the object buffer.
+
+			// @DOCLINE > The macro `mu_gobjects_render` is the non-result-checking equivalent, and the macro `mu_gobjects_render_` is the result-checking equivalent.
+			#define mu_gobjects_render(...) mug_gobjects_render(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobjects_render_(result, ...) mug_gobjects_render(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Subrender object buffer
+
+			// @DOCLINE An object buffer can be rendered like normal, except for with a specified offset (by an amount of objects) into the buffer and a specified length (also in amount of objects) using the function `mug_gobjects_subrender`, defined below: @NLNT
+			MUDEF void mug_gobjects_subrender(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count);
+
+			// @DOCLINE Rules about buffer rendering from `mug_gobjects_render` apply here as well.
+
+			// @DOCLINE > The macro `mu_gobjects_subrender` is the non-result-checking equivalent, and the macro `mu_gobjects_subrender_` is the result-checking equivalent.
+			#define mu_gobjects_subrender(...) mug_gobjects_subrender(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobjects_subrender_(result, ...) mug_gobjects_subrender(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Fill
+
+			// @DOCLINE An object buffer's contents can be replaced using the function `mug_gobjects_fill`, defined below: @NLNT
+			MUDEF void mug_gobjects_fill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, void* data);
+
+			// @DOCLINE `data` must be a valid pointer to an array of objects whose type matches the object type of the object buffer, and whose length matches the object count of the buffer.
+
+			// @DOCLINE > The macro `mu_gobjects_fill` is the non-result-checking equivalent, and the macro `mu_gobjects_fill_` is the result-checking equivalent.
+			#define mu_gobjects_fill(...) mug_gobjects_fill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobjects_fill_(result, ...) mug_gobjects_fill(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Subfill
+
+			// @DOCLINE An object buffer's contents can be partially filled via specifying an offset and length (both in units of objects) into the buffer using the function `mug_gobjects_subfill`, defined below: @NLNT
+			MUDEF void mug_gobjects_subfill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count, void* data);
+
+			// @DOCLINE `data` must be a valid pointer to an array of objects whose type matches the object type of the object buffer, and whose length matches the length specified by `count`.
+
+			// @DOCLINE > The macro `mu_gobjects_subfill` is the non-result-checking equivalent, and the macro `mu_gobjects_subfill_` is the result-checking equivalent.
+			#define mu_gobjects_subfill(...) mug_gobjects_subfill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gobjects_subfill_(result, ...) mug_gobjects_subfill(mug_global_context, result, __VA_ARGS__)
+
 	// @DOCLINE # Result
 
 		// @DOCLINE The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in mug went. It has the following defined values:
@@ -2246,8 +2420,13 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 		// @DOCLINE * `MUG_FAILED_REALLOC` - `mu_realloc` returned a failure value, and the task was unable to be completed.
 		#define MUG_FAILED_REALLOC 2
 
-		// @DOCLINE * `MUG_UNKNOWN_GRAPHIC_SYSTEM` - a `muGraphicSystem` value given by a user was unrecognized. This could happen because support for the requested graphics API was not defined by the user, such as passing `MU_GRAPHIC_OPENGL` without defining `MU_SUPPORT_OPENGL`.
+		// @DOCLINE * `MUG_UNKNOWN_GRAPHIC_SYSTEM` - a `muGraphicSystem` value given by the user was unrecognized. This could happen because support for the requested graphics API was not defined by the user, such as passing `MU_GRAPHIC_OPENGL` without defining `MU_SUPPORT_OPENGL`.
 		#define MUG_UNKNOWN_GRAPHIC_SYSTEM 3
+
+		// @DOCLINE * `MUG_UNKNOWN_OBJECT_TYPE` - a `mugObjectType` value given by the user was unrecognized.
+		#define MUG_UNKNOWN_OBJECT_TYPE 4
+		// @DOCLINE * `MUG_UNKNOWN_OBJECT_MOD` - a `mugObjectMod` value given by the user was unrecognized.
+		#define MUG_UNKNOWN_OBJECT_MOD 5
 
 		// == MUG_MUCOSA_... 4096-8191 ==
 
@@ -2292,6 +2471,20 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 
 		// @DOCLINE * `MUG_GL_FAILED_LOAD` - the required OpenGL functionality failed to load from the function call to `gladLoadGL`.
 		#define MUG_GL_FAILED_LOAD 8192
+
+		// @DOCLINE * `MUG_GL_FAILED_COMPILE_VERTEX_SHADER` - a vertex shader in OpenGL necessary to perform the task failed to compile.
+		#define MUG_GL_FAILED_COMPILE_VERTEX_SHADER 8193
+		// @DOCLINE * `MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER` - a fragment shader in OpenGL necessary to perform the task failed to compile.
+		#define MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER 8194
+		// @DOCLINE * `MUG_GL_FAILED_LINK_SHADERS` - shaders necessary to be linked to a shader program in OpenGL to perform the task failed to link.
+		#define MUG_GL_FAILED_LINK_SHADERS 8195
+
+		// @DOCLINE * `MUG_GL_FAILED_ALLOCATE_BUFFER` - an internal OpenGL buffer needed to perform the task was unable to be allocated to the correct size.
+		#define MUG_GL_FAILED_ALLOCATE_BUFFER 8196
+		// @DOCLINE * `MUG_GL_FAILED_CREATE_BUFFER` - a necessary call to create an OpenGL buffer failed.
+		#define MUG_GL_FAILED_CREATE_BUFFER 8197
+		// @DOCLINE * `MUG_GL_FAILED_CREATE_VERTEX_ARRAY` - a necessary call to create an OpenGL vertex array failed.
+		#define MUG_GL_FAILED_CREATE_VERTEX_ARRAY 8198
 
 		// @DOCLINE All non-success values (unless explicitly stated otherwise) mean that the function fully failed; AKA, it was "fatal", and the library continues as if the function had never been called. So, for example, if something was supposed to be allocated, but the function fatally failed, nothing was allocated.
 
@@ -9431,12 +9624,436 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 			// Index used for 32-bit primitive restarting
 			#define MUG_GL_PRIM_RESTART_32 0xFFFFFFFF
 
-		/* OpenGL context setup */
+		/* General shader logic */
+
+			// Struct for a shader
+			struct mugGL_Shader {
+				// Shader program
+				GLuint program;
+			};
+			typedef struct mugGL_Shader mugGL_Shader;
+
+			// Creates a vertex/fragment shader
+			mugResult mugGL_shader_create_vf(mug_Graphic* gfx, mugGL_Shader* shader, const char* vsm, const char* fsm) {
+				GLint success;
+
+				// Compile vertex shader
+				GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+				glShaderSource(vs, 1, &vsm, 0);
+				glCompileShader(vs);
+				// Make sure it succeeded
+				glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
+				if (!success) {
+					return MUG_GL_FAILED_COMPILE_VERTEX_SHADER;
+				}
+
+				// Compile fragment shader
+				GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+				glShaderSource(fs, 1, &fsm, 0);
+				glCompileShader(fs);
+				// Make sure it succeeded
+				glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+				if (!success) {
+					glDeleteShader(vs);
+					return MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER;
+				}
+
+				// Create and link shader program
+				shader->program = glCreateProgram();
+				glAttachShader(shader->program, vs);
+				glAttachShader(shader->program, fs);
+				glLinkProgram(shader->program);
+				// Make sure it succeeded
+				glGetProgramiv(shader->program, GL_LINK_STATUS, &success);
+				if (!success) {
+					glDeleteShader(fs);
+					glDeleteShader(vs);
+					return MUG_GL_FAILED_LINK_SHADERS;
+				}
+
+				// Delete shaders
+				glDeleteShader(fs);
+				glDeleteShader(vs);
+
+				glUseProgram(shader->program);
+				// Set default add/mul pos/col uniform values
+				glUniform3f(glGetUniformLocation(shader->program, "aP"), 0.f, 0.f, 0.f);
+				glUniform3f(glGetUniformLocation(shader->program, "mP"), 1.f, 1.f, 1.f);
+				glUniform4f(glGetUniformLocation(shader->program, "aC"), 0.f, 0.f, 0.f, 0.f);
+				glUniform4f(glGetUniformLocation(shader->program, "mC"), 1.f, 1.f, 1.f, 1.f);
+
+				// Set dimensions uniform
+				glUniform2f(glGetUniformLocation(shader->program, "d"), ((float)gfx->dim[0])/2.f, ((float)gfx->dim[1])/2.f);
+				glUseProgram(0);
+
+				return MUG_SUCCESS;
+			}
+
+			// Destroys a shader (safe to call if null)
+			void mugGL_shader_destroy(mugGL_Shader* shader) {
+				// If program exists:
+				if (shader->program) {
+					// Destroy program and set to 0
+					glDeleteProgram(shader->program);
+					shader->program = 0;
+				}
+			}
+
+			// Binds a shader
+			void mugGL_shader_bind(mugGL_Shader* shader) {
+				// Bind shader program
+				glUseProgram(shader->program);
+			}
+
+			// Unbinds a shader
+			void mugGL_shader_unbind(mugGL_Shader* shader) {
+				// Unbind shader program
+				glUseProgram(shader->program);
+			}
+
+		/* General buffer logic */
+
+			// Struct for an object buffer
+			typedef struct mugGL_ObjBuffer mugGL_ObjBuffer;
+			struct mugGL_ObjBuffer {
+				// Vertex buffer object
+				GLuint vbo;
+				// Vertex array object
+				GLuint vao;
+
+				// Object type
+				mugObjectType obj_type;
+				// Amount of objects stored
+				uint32_m obj_count;
+
+				// Amount of bytes used for each object on vertexes
+				uint32_m bv_per_obj;
+				// Corresponding vertex buffer size (obj_count*bv_per_obj)
+				uint32_m vbuf_size;
+
+				// Function used to fill all vertex data
+				void (*fill_vertexes)(GLfloat* v, void* obj, uint32_m c);
+				// Function used to describe data
+				void (*desc)(void);
+				// Function that renders with all relevant objects already binded
+				void (*render)(mugGL_ObjBuffer*);
+				// Same but subrenders
+				void (*subrender)(uint32_m o, uint32_m c);
+			};
+
+			// Checks if a given buffer is the expected size
+			muBool mugGL_buffer_size_check(int buftype, uint32_m size) {
+				// Get size
+				GLint realsize = 0;
+				glGetBufferParameteriv(buftype, GL_BUFFER_SIZE, &realsize);
+
+				// Return if buffer size given is valid
+				return realsize == (GLint)(size);
+			}
+
+			// Fills a buffer; obj can be null to just size buffer
+			mugResult mugGL_objects_fill(mugGL_ObjBuffer* buf, void* obj) {
+				// Bind VAO
+				glBindVertexArray(buf->vao);
+
+				// Vertexes
+				if (obj)
+				{
+					// Allocate vertexes
+					GLfloat* vertexes = (GLfloat*)mu_malloc(buf->vbuf_size);
+					if (!vertexes) {
+						glBindVertexArray(0);
+						return MUG_FAILED_MALLOC;
+					}
+
+					// Fill vertex data
+					buf->fill_vertexes(vertexes, obj, buf->obj_count);
+
+					// Send data to GPU
+					glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+					glBufferData(GL_ARRAY_BUFFER, buf->vbuf_size, vertexes, GL_DYNAMIC_DRAW);
+
+					// Free vertex data
+					mu_free(vertexes);
+
+					// Ensure buffer is expected size
+					if (!mugGL_buffer_size_check(GL_ARRAY_BUFFER, buf->vbuf_size)) {
+						return MUG_GL_FAILED_ALLOCATE_BUFFER;
+					}
+				}
+				// No vertexes
+				else {
+					glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+					glBufferData(GL_ARRAY_BUFFER, buf->vbuf_size, 0, GL_DYNAMIC_DRAW);
+				}
+
+				// Describe data
+				buf->desc();
+				// Unbind and return success
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				glBindVertexArray(0);
+				return MUG_SUCCESS;
+			}
+
+			// Fills a portion of a buffer; obj cannot be null
+			mugResult mugGL_objects_subfill(mugGL_ObjBuffer* buf, uint32_m obj_offset, uint32_m obj_count, void* obj) {
+				// Bind VAO
+				glBindVertexArray(buf->vao);
+
+				// Vertex data
+				{
+					// Byte amount calcluations
+					uint32_m data_size = obj_count*buf->bv_per_obj;
+					uint32_m data_offset = obj_offset*buf->bv_per_obj;
+
+					// Allocate vertexes
+					GLfloat* vertexes = (GLfloat*)mu_malloc(data_size);
+					if (!vertexes) {
+						glBindVertexArray(0);
+						return MUG_FAILED_MALLOC;
+					}
+
+					// Fill vertex data
+					buf->fill_vertexes(vertexes, obj, buf->obj_count);
+
+					// Send data to GPU
+					glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
+					glBufferSubData(GL_ARRAY_BUFFER, data_offset, data_size, vertexes);
+				}
+
+				// Descrieb data
+				buf->desc();
+				// Unbind and return success
+				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				glBindVertexArray(0);
+				return MUG_SUCCESS;
+			}
+
+			// Destroys a given buffer
+			void mugGL_objects_destroy(mugGL_ObjBuffer* buf) {
+				// Destroy VAO and VBO
+				glDeleteVertexArrays(1, &buf->vao);
+				glDeleteBuffers(1, &buf->vbo);
+			}
+
+			// Creates a given buffer
+			// All fields besides OpenGL objects should be set within buf by now
+			mugResult mugGL_objects_create(mugGL_ObjBuffer* buf, void* obj) {
+				// Generate VBO
+				glGenBuffers(1, &buf->vbo);
+				if (!buf->vbo) {
+					return MUG_GL_FAILED_CREATE_BUFFER;
+				}
+				// Generate VAO
+				glGenVertexArrays(1, &buf->vao);
+				if (!buf->vao) {
+					glDeleteBuffers(1, &buf->vbo);
+					return MUG_GL_FAILED_CREATE_VERTEX_ARRAY;
+				}
+
+				// Fill buffer
+				mugResult res = mugGL_objects_fill(buf, obj);
+				if (mug_result_is_fatal(res)) {
+					mugGL_objects_destroy(buf);
+					return res;
+				}
+
+				return MUG_SUCCESS;
+			}
+
+			// Resizes a given buffer
+			// Buffer's contents are unknown after this if data is NULL
+			mugResult mugGL_objects_resize(mugGL_ObjBuffer* buf, uint32_m obj_count, void* obj) {
+				// Set count + other related variables
+				uint32_m prev_count = buf->obj_count;
+				buf->obj_count = obj_count;
+				buf->vbuf_size = obj_count*buf->bv_per_obj;
+
+				// Perform a fill
+				mugResult res = mugGL_objects_fill(buf, obj);
+				// If fatally failed, set things back to what they were
+				if (mug_result_is_fatal(res)) {
+					buf->obj_count = prev_count;
+					buf->vbuf_size = prev_count*buf->bv_per_obj;
+				}
+
+				return res;
+			}
+
+			void mugGL_objects_render(mugGL_ObjBuffer* buf) {
+				// Bind VAO
+				glBindVertexArray(buf->vao);
+				// Call render function
+				buf->render(buf);
+				// Unbind VAO
+				glBindVertexArray(0);
+			}
+
+			void mugGL_objects_subrender(mugGL_ObjBuffer* buf, uint32_m obj_offset, uint32_m obj_count) {
+				// Bind VAO
+				glBindVertexArray(buf->vao);
+				// Call subrender function
+				buf->subrender(obj_offset, obj_count);
+				// Unbind VAO
+				glBindVertexArray(0);
+			}
+
+		/* Objects */
+
+			/* Points */
+
+				// Data format: { vec3 pos, vec4 col }
+				// Rendered as GL_POINTS
+
+				/* Shaders */
+
+					// Vertex shader
+					const char* mugGL_pointVS = 
+						// Version
+						"#version 330 core\n"
+
+						// Input { vec3 pos, vec4 col }
+						"layout(location=0)in vec3 vPos;"
+						"layout(location=1)in vec4 vCol;"
+
+						// Output { vec4 col }
+						"out vec4 fCol;"
+
+						// Dimensions of graphic divided by 2
+						"uniform vec2 d;"
+						// Modifiers
+						"uniform vec3 aP;" // addPos
+						"uniform vec3 mP;" // mulPos
+
+						// Main
+						"void main(){"
+							// Set position
+							"gl_Position=vec4("
+								// X
+								"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
+								// Y
+								"-(((vPos.y*mP.x)+aP.y)-(d.y))/d.y,"
+								// Z
+								"((vPos.z*mP.z)+aP.z),"
+								// W
+								"1.0"
+							");"
+							// Transfer color to fragment
+							"fCol=vCol;"
+						"}"
+					;
+
+					// Fragment shader
+					const char* mugGL_pointFS =
+						// Version
+						"#version 330 core\n"
+
+						// Input { vec4 col }
+						"in vec4 fCol;"
+						// Output { vec4 col }
+						"out vec4 oCol;"
+
+						// Modifiers
+						"uniform vec4 aC;" // addCol
+						"uniform vec4 mC;" // mulCol
+
+						// Main
+						"void main(){"
+							// Set color
+							"oCol=(fCol*mC)+aC;"
+						"}"
+					;
+
+					// Creates program for points
+					void mugGL_points_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
+						// Exit if shader already compiled
+						if (shader->program) {
+							return;
+						}
+
+						// Compile shader
+						mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_pointVS, mugGL_pointFS);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					}
+
+				/* Buffer */
+
+					// Fills vertex data
+					void mugGL_points_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugPoint* points = (mugPoint*)obj;
+
+						// Loop through each point
+						for (uint32_m i = 0; i < c; ++i) {
+							// vec3 pos
+							mu_memcpy(v, points->pos, 12);
+							v += 3;
+							// vec4 col
+							mu_memcpy(v, points++->col, 16);
+							v += 4;
+						}
+					}
+
+					// Describes point data
+					void mugGL_points_desc(void) {
+						// vec3 pos
+						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 28, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 28, (void*)(12));
+						glEnableVertexAttribArray(1);
+					}
+
+					// Renders points
+					void mugGL_points_render(mugGL_ObjBuffer* buf) {
+						// Draw arrays
+						glDrawArrays(
+							GL_POINTS, // Render using points
+							0, // Starting index (just 0)
+							buf->obj_count // Index count (equal to amount of points)
+						);
+					}
+
+					// Subrenders points
+					void mugGL_points_subrender(uint32_m o, uint32_m c) {
+						// Draw arrays
+						glDrawArrays(
+							GL_POINTS, // Render using points
+							o, // Starting index (equal to amount of points)
+							c // Index count (equal to amount of points)
+						);
+					}
+
+					// Fills buffer with needed information
+					void mugGL_points_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_POINT;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4 (28)
+						// one point = one vertex (28)
+						buf->bv_per_obj = 28;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_points_fill_vertexes;
+						buf->desc = mugGL_points_desc;
+						buf->render = mugGL_points_render;
+						buf->subrender = mugGL_points_subrender;
+					}
+
+		/* Context setup */
+
+			// Struct for shaders
+			struct mugGL_Shaders {
+				mugGL_Shader point;
+			};
+			typedef struct mugGL_Shaders mugGL_Shaders;
 
 			// Struct for GL context
 			struct mugGL_Context {
-				// Filler; storage for later
-				int filler;
+				// Shaders
+				mugGL_Shaders shaders;
 			};
 			typedef struct mugGL_Context mugGL_Context;
 
@@ -9453,9 +10070,18 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 
 			// Loads a valid OpenGL context
 			mugResult mugGL_init_context(mug_Graphic* gfx) {
+				// Allocate inner GL context
+				gfx->p = mu_malloc(sizeof(mugGL_Context));
+				if (!gfx->p) {
+					return MUG_FAILED_MALLOC;
+				}
+				// - Casted handle
+				mugGL_Context* ic = (mugGL_Context*)gfx->p;
+
 				// Create OpenGL context
 				mugResult res = mugGraphicGL_create(gfx);
 				if (mug_result_is_fatal(res)) {
+					mu_free(gfx->p);
 					return res;
 				}
 
@@ -9465,6 +10091,7 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 				// Load OpenGL functions
 				mugGL_load_func_context = &gfx->context->cosa;
 				if (!gladLoadGL((GLADloadfunc)mugGL_load_func)) {
+					mu_free(gfx->p);
 					mugGraphicGL_destroy(gfx);
 					return MUG_GL_FAILED_LOAD;
 				}
@@ -9479,11 +10106,16 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 				// Set initial viewport
 				glViewport(0, 0, gfx->dim[0], gfx->dim[1]);
 
+				// Zero-out necessary struct memory
+				mu_memset(&ic->shaders, 0, sizeof(ic->shaders));
+
 				return res;
 			}
 
 			// Deloads a valid OpenGL context
 			void mugGL_term_context(mug_Graphic* gfx) {
+				// Free inner context
+				mu_free(gfx->p);
 				// Destroy OpenGL context
 				mugGraphicGL_destroy(gfx);
 			}
@@ -9493,6 +10125,179 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 				// ...
 				return; if (gfx) {}
 			}
+
+		/* Objects */
+
+			/* Shader logic */
+
+				// Converts object type to shader pointer
+				mugGL_Shader* mugGL_object_type_to_shader(mugGL_Context* context, mugObjectType type) {
+					switch (type) {
+						default: return 0; break;
+						case MUG_OBJECT_POINT: return &context->shaders.point; break;
+					}
+				}
+
+				// Converts object type to shader program pointer
+				GLuint* mugGL_object_type_to_program(mugGL_Context* context, mugObjectType type) {
+					// Convert object type to shader pointer
+					mugGL_Shader* shader = mugGL_object_type_to_shader(context, type);
+					// If NULL, shader doesn't exist
+					if (!shader) {
+						return 0;
+					}
+					// Return pointer to shader program if otherwise
+					return &shader->program;
+				}
+
+				// Updates dimensions shaders for each active shader program
+				void mugGL_update_dimensions(mugGL_Context* context, uint32_m dim[2]) {
+					// Holder variables
+					GLuint* program;
+					float fdim[2] = { ((float)dim[0]) / 2.f, ((float)dim[1]) / 2.f };
+
+					// Loop through each valid object type enum
+					for (mugObjectType objtype = MUG_OBJECT_FIRST; objtype <= MUG_OBJECT_LAST; ++objtype) {
+						// Find program ID
+						program = mugGL_object_type_to_program(context, MUG_OBJECT_POINT);
+						// If program ID exists, update dimensions uniform
+						if (program && *program) {
+							glUseProgram(*program);
+							glUniform2f(glGetUniformLocation(*program, "d"), fdim[0], fdim[1]);
+							glUseProgram(0);
+						}
+					}
+				}
+
+				// Loads a given object type
+				void mugGL_load_object_type(mug_Graphic* gfx, mugGL_Context* context, mugResult* result, mugObjectType type) {
+					// Call function based on object type
+					switch (type) {
+						default: MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE) break;
+						case MUG_OBJECT_POINT: mugGL_points_shader_load(gfx, &context->shaders.point, result); break;
+					}
+				}
+
+				// Deloads a given object type
+				void mugGL_deload_object_type(mugGL_Context* context, mugObjectType type) {
+					// Convert object type to shader pointer
+					mugGL_Shader* shader = mugGL_object_type_to_shader(context, type);
+					// Destroy if exists
+					if (shader) {
+						mugGL_shader_destroy(shader);
+					}
+				}
+
+				// Sets an object type modifier
+				void mugGL_object_type_mod(mugGL_Context* context, mugResult* result, mugObjectType type, mugObjectMod mod, float* data) {
+					// Get shader handle
+					mugGL_Shader* shader = mugGL_object_type_to_shader(context, type);
+					if (!shader) {
+						MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE)
+						return;
+					}
+
+					// Bind shader
+					mugGL_shader_bind(shader);
+
+					// Identify attribute
+					switch (mod) {
+						default: MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_MOD) break;
+						// addPos
+						case MUG_OBJECT_ADD_POS: glUniform3f(glGetUniformLocation(shader->program, "aP"), data[0], data[1], data[2]); break;
+						case MUG_OBJECT_MUL_POS: glUniform3f(glGetUniformLocation(shader->program, "mP"), data[0], data[1], data[2]); break;
+						case MUG_OBJECT_ADD_COL: glUniform4f(glGetUniformLocation(shader->program, "aC"), data[0], data[1], data[2], data[3]); break;
+						case MUG_OBJECT_MUL_COL: glUniform4f(glGetUniformLocation(shader->program, "mC"), data[0], data[1], data[2], data[3]); break;
+					}
+
+					// Unbind shader
+					mugGL_shader_unbind(shader);
+				}
+
+			/* Buffer logic */
+
+				// Fills information about buffer based on the type
+				mugResult mugGL_fill_info_buffer(mugGL_ObjBuffer* buf, mugObjectType type) {
+					switch (type) {
+						default: return MUG_UNKNOWN_OBJECT_TYPE; break;
+						case MUG_OBJECT_POINT: mugGL_points_fill(buf); break;
+					}
+					return MUG_SUCCESS;
+				}
+
+				// Creates an object buffer
+				mugGL_ObjBuffer* mugGL_object_buffer_create(mug_Graphic* gfx, mugGL_Context* context, mugResult* result, mugObjectType type, uint32_m obj_count, void* obj) {
+					// Load object type
+					mugResult res = MUG_SUCCESS;
+					mugGL_load_object_type(gfx, context, &res, type);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						if (mug_result_is_fatal(res)) {
+							return 0;
+						}
+					}
+
+					// Allocate struct
+					mugGL_ObjBuffer* buf = (mugGL_ObjBuffer*)mu_malloc(sizeof(mugGL_ObjBuffer));
+					if (!buf) {
+						MU_SET_RESULT(result, MUG_FAILED_MALLOC)
+						return 0;
+					}
+
+					// Fill info about buffer based on type
+					res = mugGL_fill_info_buffer(buf, type);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						if (mug_result_is_fatal(res)) {
+							mu_free(buf);
+							return 0;
+						}
+					}
+
+					// Fill other calculatable info
+					buf->obj_count = obj_count;
+					buf->vbuf_size = obj_count*buf->bv_per_obj;
+
+					// Create buffers
+					res = mugGL_objects_create(buf, obj);
+					if (res != MUG_SUCCESS) {
+						MU_SET_RESULT(result, res)
+						if (mug_result_is_fatal(res)) {
+							mu_free(buf);
+							return 0;
+						}
+					}
+
+					return buf;
+				}
+
+				// Destroys an object buffer
+				mugGL_ObjBuffer* mugGL_object_buffer_destroy(mugGL_ObjBuffer* buf) {
+					// Destroy inner buffers
+					mugGL_objects_destroy(buf);
+					// Free malloc'd data
+					mu_free(buf);
+					// Return null
+					return 0;
+				}
+
+				// Renders an object buffer
+				void mugGL_object_buffer_render(mugGL_Context* context, mugGL_ObjBuffer* buf) {
+					// Get shader handle
+					mugGL_Shader* shader = mugGL_object_type_to_shader(context, buf->obj_type);
+					if (!shader) {
+						return;
+					}
+
+					// Bind shader
+					mugGL_shader_bind(shader);
+
+					// Render buffer
+					mugGL_objects_render(buf);
+
+					// Unbind shader
+					mugGL_shader_unbind(shader);
+				}
 
 		/* Misc. */
 
@@ -9506,6 +10311,9 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 					// Viewport if they've changed
 					if (dim[0] != gfx->dim[0] || dim[1] != gfx->dim[1]) {
 						glViewport(0, 0, gfx->dim[0], gfx->dim[1]);
+
+						// + Update dimensions for shaders
+						mugGL_update_dimensions((mugGL_Context*)gfx->p, gfx->dim);
 					}
 				}
 
@@ -9699,6 +10507,211 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 			}
 		}
 
+	/* Object types */
+
+		// Loads the given object type
+		MUDEF void mug_gobject_load(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType obj_type) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do thing based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						// Bind OpenGL
+						mugGraphicGL_bind(igfx);
+						// Load object type
+						mugGL_load_object_type(igfx, (mugGL_Context*)igfx->p, result, obj_type);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings in some circumstances
+			return; if (context) {} if (result) {} if (obj_type) {}
+		}
+
+		// Deloads the given object type
+		MUDEF void mug_gobject_deload(mugContext* context, muGraphic gfx, mugObjectType obj_type) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						// Bind OpenGL
+						mugGraphicGL_bind(igfx);
+						// Deload
+						mugGL_deload_object_type((mugGL_Context*)igfx->p, obj_type);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (obj_type) {}
+		}
+
+		// Sets modification variable for given object type
+		MUDEF void mug_gobject_mod(mugContext* context, muGraphic gfx, mugObjectType type, mugObjectMod mod, float* data) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGL_object_type_mod((mugGL_Context*)igfx->p, 0, type, mod, data);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (type) {} if (mod) {} if (data) {}
+		}
+
+	/* Object buffer stuff */
+
+		// Creates an object buffer
+		MUDEF mugObjects mug_gobjects_create(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType type, uint32_m obj_count, void* objs) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: return 0; break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						return mugGL_object_buffer_create(igfx, (mugGL_Context*)igfx->p, result, type, obj_count, objs);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			if (context) {} if (result) {} if (type) {} if (obj_count) {} if (objs) {}
+		}
+
+		// Destroys an object buffer
+		MUDEF mugObjects mug_gobjects_destroy(mugContext* context, muGraphic gfx, mugObjects objs) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: return 0; break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						return mugGL_object_buffer_destroy((mugGL_ObjBuffer*)objs);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			if (context) {} if (objs) {}
+		}
+
+		MUDEF void mug_gobjects_render(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						mugGL_object_buffer_render((mugGL_Context*)igfx->p, (mugGL_ObjBuffer*)objs);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (result) {} if (objs) {}
+		}
+
+		MUDEF void mug_gobjects_subrender(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						mugGL_objects_subrender((mugGL_ObjBuffer*)objs, offset, count);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (result) {} if (objs) {} if (offset) {} if (count) {}
+		}
+
+		MUDEF void mug_gobjects_fill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, void* data) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugResult res = mugGL_objects_fill((mugGL_ObjBuffer*)objs, data);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (result) {} if (objs) {} if (data) {}
+		}
+
+		MUDEF void mug_gobjects_subfill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count, void* data) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						mugResult res = mugGL_objects_subfill((mugGL_ObjBuffer*)objs, offset, count, data);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (result) {} if (objs) {} if (offset) {} if (count) {} if (data) {}
+		}
+
 	/* Result */
 
 		// Fatal-testing function
@@ -9814,8 +10827,16 @@ To keep mug code simplistic for now, it is impossible to create a graphic genera
 				case MUG_FAILED_MALLOC: return "MUG_FAILED_MALLOC"; break;
 				case MUG_FAILED_REALLOC: return "MUG_FAILED_REALLOC"; break;
 				case MUG_UNKNOWN_GRAPHIC_SYSTEM: return "MUG_UNKNOWN_GRAPHIC_SYSTEM"; break;
+				case MUG_UNKNOWN_OBJECT_TYPE: return "MUG_UNKNOWN_OBJECT_TYPE"; break;
+				case MUG_UNKNOWN_OBJECT_MOD: return "MUG_UNKNOWN_OBJECT_MOD"; break;
 
 				case MUG_GL_FAILED_LOAD: return "MUG_GL_FAILED_LOAD"; break;
+				case MUG_GL_FAILED_COMPILE_VERTEX_SHADER: return "MUG_GL_FAILED_COMPILE_VERTEX_SHADER";
+				case MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER: return "MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER"; break;
+				case MUG_GL_FAILED_LINK_SHADERS: return "MUG_GL_FAILED_LINK_SHADERS"; break;
+				case MUG_GL_FAILED_ALLOCATE_BUFFER: return "MUG_GL_FAILED_ALLOCATE_BUFFER"; break;
+				case MUG_GL_FAILED_CREATE_BUFFER: return "MUG_GL_FAILED_CREATE_BUFFER"; break;
+				case MUG_GL_FAILED_CREATE_VERTEX_ARRAY: return "MUG_GL_FAILED_CREATE_VERTEX_ARRAY"; break;
 
 				case MUG_MUCOSA_FAILED_NULL_WINDOW_SYSTEM: return "MUG_MUCOSA_FAILED_NULL_WINDOW_SYSTEM"; break;
 				case MUG_MUCOSA_FAILED_MALLOC: return "MUG_MUCOSA_FAILED_MALLOC"; break;

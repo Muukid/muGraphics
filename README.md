@@ -46,6 +46,22 @@ To compile with Windows, you need to link the following files under the given ci
 
 mug is licensed under public domain or MIT, whichever you prefer, as well as (technically) [Apache 2.0 due to OpenGL's licensing](https://github.com/KhronosGroup/OpenGL-Registry/issues/376#issuecomment-596187053).
 
+# Multi-threading
+
+mug does not directly support thread safety, and must be implemented by the user themselves. Thread safety in mug can be generally achieved by locking each object within a mug context (ie `muGraphic` for example), making sure that only one thread ever interacts with the given object at once. This includes render calls, buffer creation, etc. There are a few known exceptions to this to achieve total thread safety, which are detailed below, but multi-threading with mug is not thoroughly tested.
+
+## Context creation
+
+If `MU_SUPPORT_OPENGL` is defined, two contexts cannot be created at the same time.
+
+## Graphic updating
+
+Due to limitations with the handling of messages on Win32, no more than one graphic can be updated safely at any given time across threads.
+
+## Window resizing/moving
+
+Due to the way that Win32 handles messages when the window is being resized or moved, a call to `mug_graphic_update` on a graphic created via a muCOSA window will hang for the entire duration of the window being dragged/moved. Handling implemented by users of mug should expect this, and handle vital functionality that needs to be executed over this time on a separate thread.
+
 # Known issues and limitations
 
 This section covers the known issues and limitations of the libraries.
@@ -69,6 +85,14 @@ For all these complications, mug only allows one texture to be used per texture 
 ## Create graphic with pre-existing window
 
 To keep mug code simplistic for now, it is impossible to create a graphic generated from a window that already was created; the window-graphic-creation process must create the window internally. This doesn't realistically limit the user's ability to customize their window, as they still have access to fully customize the window via the `muWindowInfo` parameter, but nevertheless, it would be more flexible to provide support for creating graphics with a muCOSA window that already existed beforehand.
+
+## Vertex data up front
+
+When vertex data (as well as index data) needs to be generated and a buffer needs to be filled with it, it is first allocated in its entirety on the CPU side. This may be too much for the CPU to allocate at the moment, at which case it would be more appropriate to cut it up into smaller pieces and subfill the data, but this system has yet to be implemented. This means that if the vertex/index data needed to create a given object buffer cannot be allocated up front on the CPU's side, the buffer will fail to create despite there being a way to still accomplish the task with less memory needed.
+
+## Stability with large object counts
+
+There are no checks performed on buffers so large that they cause integer overflow, meaning that the usage of too many objects will likely just result in a crash. There is no way to check for buffer size limits with mug's provided API; a buffer will simply fail to create if too large and give a non-successful result value.
 
 
 # Other library dependencies
@@ -165,9 +189,8 @@ MUDEF void mu_graphic_do_something_(mugResult* result, int a, int b);
 // and the given result pointer.
 ```
 
-// 
 > Note that, in reality, the non-result and result-checking functions aren't defined as actual independent functions, but instead, as macros to the original function. More information about the type `mugResult` can be found in the [result section](#result).
-			
+
 # Graphic
 
 The "graphic" (respective type `muGraphic`; typedef for `void*`) is a surface being rendered to by some graphics API. Since a graphic is just a reference to a rendering surface, it must be created via some other object that encapsulates a rendering surface. This is why muCOSA is included in mug, as it is able to create objects that have these surfaces, such as a window.
@@ -187,7 +210,7 @@ MUDEF muGraphic mug_graphic_destroy(mugContext* context, muGraphic gfx);
 ```
 
 
-This function must be called on every successfully-created graphic before the destruction of the context used to create it.
+This function must be called on every successfully-created graphic before the destruction of the context used to create it. This function returns 0.
 
 > The macro `mu_graphic_destroy` is the non-result-checking equivalent.
 
@@ -223,7 +246,8 @@ There are four primary functions that must be called every single frame in a par
 
 ```c
 // Loop frame-by-frame while the graphic exists:
-while (mu_graphic_exists(gfx)) {
+while (mu_graphic_exists(gfx))
+{
 // Clear the graphic with black
 mu_graphic_clear(gfx, 0.f, 0.f, 0.f);
 
@@ -291,6 +315,161 @@ The parameter `target_fps` specifies the desired amount of frames that the user 
 
 > The macro `mu_graphic_update` is the non-result-checking equivalent, and the macro `mu_graphic_update_` is the result-checking equivalent.
 
+# Objects
+
+An ***object*** in mug (commonly called a "gobject" in the API) is something that is rendered to the screen. Its ***type*** defines what type of object it is, such as a triangle object.
+
+## Object types
+
+All object types defined by mug are represented by the type `mugObjectType` (typedef for `uint16_m`). It has the following defined values:
+
+* `MUG_OBJECT_POINT` - a [point object](#point).
+
+## Load object type
+
+The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
+
+```c
+MUDEF void mug_gobject_load(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType obj_type);
+```
+
+
+> The macro `mu_gobject_load` is the non-result-checking equivalent, and the macro `mu_gobject_load_` is the result-checking equivalent.
+
+Object types are also loaded automatically when an object buffer is created with the type, so this function doesn't need to be called. This function just gives a successful result if the object type was already loaded.
+
+## Deload object type
+
+No object types are automatically loaded upon context creation. However, once an object type is loaded in mug, rather via an explicit call to `mug_gobject_load` or automatically loaded via the creation of an object buffer of the given type, it is never automatically deloaded until the graphic is destroyed. An object type can be manually deloaded via the function `mug_gobject_deload`, defined below: 
+
+```c
+MUDEF void mug_gobject_deload(mugContext* context, muGraphic gfx, mugObjectType obj_type);
+```
+
+
+Calling this function with an object type who has currently active buffers will result in undefined behavior.
+
+> The macro `mu_gobject_deload` is the non-result-checking equivalent.
+
+## Object type modifiers
+
+There are certain attributes about each object type can be universally (per mug context) changed for each object of that given type. These attributes are represented by the type `mugObjectMod` (typedef for `uint8_m`), and has the following defined values:
+
+* `MUG_OBJECT_ADD_POS` - an array of three floats representing an x-, y-, and z-offset (respectively) added to the position of every object of a given type. The default values of all three offsets are 0.
+
+* `MUG_OBJECT_MUL_POS` - an array of three floats representing an x-, y-, and z-scale (respectively) multiplied to the position of every object of a given type. The default values of all three scales are 1.
+
+* `MUG_OBJECT_ADD_COL` - an array of four floats representing an r-, g-, b-, and a-offset (respectively) added to the color channels of every object of a given type. The default values of all four offsets are 0.
+
+* `MUG_OBJECT_MUL_COL` - an array of four floats representing an r-, g-, b-, and a-scale (respectively) multiplied to the color channels of every object of a given type. The default values of all four scales are 1.
+
+Multiplication is performed first, followed by addition.
+
+### Set object type modifier
+
+The values of an object type modifier can be modified using the function `mug_gobject_mod`, defined below: 
+
+```c
+MUDEF void mug_gobject_mod(mugContext* context, muGraphic gfx, mugObjectType type, mugObjectMod mod, float* data);
+```
+
+
+This function must only be called on an object type that is currently loaded. Once an object type is deloaded and loaded again, the values of an attribute go back to their defaults.
+
+> The macro `mu_gobject_mod` is the non-result-checking equivalent.
+
+## Point
+
+A "point" in mug is a single-pixel point. Its respective struct is `mugPoint`, and has the following members:
+
+* `float pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly.
+
+* `float col[4]` - the colors of the point, with indexes 0, 1, 2, and 3 being the red, green, blue, and alpha channels respectively. All channels' values should range between 0 and 1; any other value is not guaranteed to render properly. A value of 0 means none of the channel, and a value of 1 means the maximum intensity of the channel.
+
+# Object buffers
+
+Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored GPU-side. The type for an object buffer is `mugObjects` (typedef for `void*`).
+
+## Create object buffer
+
+An object buffer can be created via the function `mug_gobjects_create`, defined below: 
+
+```c
+MUDEF mugObjects mug_gobjects_create(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType type, uint32_m obj_count, void* objs);
+```
+
+
+If `objs` is 0, the buffer is simply allocated, but filled with undefined data. If `objs` is not 0, it should be a pointer to an array of objects whose type matches the object type indicated by `type`, and whose length (in objects) should match `obj_count`.
+
+Every object buffer that is created must be destroyed before the graphic that was used to create it is destroyed.
+
+> The macro `mu_gobjects_create` is the non-result-checking equivalent, and the macro `mu_gobjects_create_` is the result-checking equivalent.
+
+## Destroy object buffer
+
+Every successfully created object buffer must be destroyed at some point with the function `mug_gobjects_destroy`, defined below: 
+
+```c
+MUDEF mugObjects mug_gobjects_destroy(mugContext* context, muGraphic gfx, mugObjects objs);
+```
+
+
+If any portion of the object buffer has been rendered during the current frame, it should not be destroyed until the entire frame has passed (AKA after `mug_graphic_update` has been called). This function returns 0.
+
+> The macro `mu_gobjects_destroy` is the non-result-checking equivalent.
+
+## Render object buffer
+
+An object buffer can be rendered to a graphic using the function `mug_gobjects_render`, defined below: 
+
+```c
+MUDEF void mug_gobjects_render(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs);
+```
+
+
+Once an object buffer has been rendered, no fill/subfill/destroy actions should be performed on the object buffer.
+
+> The macro `mu_gobjects_render` is the non-result-checking equivalent, and the macro `mu_gobjects_render_` is the result-checking equivalent.
+
+## Subrender object buffer
+
+An object buffer can be rendered like normal, except for with a specified offset (by an amount of objects) into the buffer and a specified length (also in amount of objects) using the function `mug_gobjects_subrender`, defined below: 
+
+```c
+MUDEF void mug_gobjects_subrender(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count);
+```
+
+
+Rules about buffer rendering from `mug_gobjects_render` apply here as well.
+
+> The macro `mu_gobjects_subrender` is the non-result-checking equivalent, and the macro `mu_gobjects_subrender_` is the result-checking equivalent.
+
+## Fill
+
+An object buffer's contents can be replaced using the function `mug_gobjects_fill`, defined below: 
+
+```c
+MUDEF void mug_gobjects_fill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, void* data);
+```
+
+
+`data` must be a valid pointer to an array of objects whose type matches the object type of the object buffer, and whose length matches the object count of the buffer.
+
+> The macro `mu_gobjects_fill` is the non-result-checking equivalent, and the macro `mu_gobjects_fill_` is the result-checking equivalent.
+
+## Subfill
+
+An object buffer's contents can be partially filled via specifying an offset and length (both in units of objects) into the buffer using the function `mug_gobjects_subfill`, defined below: 
+
+```c
+MUDEF void mug_gobjects_subfill(mugContext* context, mugResult* result, muGraphic gfx, mugObjects objs, uint32_m offset, uint32_m count, void* data);
+```
+
+
+`data` must be a valid pointer to an array of objects whose type matches the object type of the object buffer, and whose length matches the length specified by `count`.
+
+> The macro `mu_gobjects_subfill` is the non-result-checking equivalent, and the macro `mu_gobjects_subfill_` is the result-checking equivalent.
+
 # Result
 
 The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in mug went. It has the following defined values:
@@ -301,11 +480,27 @@ The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in
 
 * `MUG_FAILED_REALLOC` - `mu_realloc` returned a failure value, and the task was unable to be completed.
 
-* `MUG_UNKNOWN_GRAPHIC_SYSTEM` - a `muGraphicSystem` value given by a user was unrecognized. This could happen because support for the requested graphics API was not defined by the user, such as passing `MU_GRAPHIC_OPENGL` without defining `MU_SUPPORT_OPENGL`.
+* `MUG_UNKNOWN_GRAPHIC_SYSTEM` - a `muGraphicSystem` value given by the user was unrecognized. This could happen because support for the requested graphics API was not defined by the user, such as passing `MU_GRAPHIC_OPENGL` without defining `MU_SUPPORT_OPENGL`.
+
+* `MUG_UNKNOWN_OBJECT_TYPE` - a `mugObjectType` value given by the user was unrecognized.
+
+* `MUG_UNKNOWN_OBJECT_MOD` - a `mugObjectMod` value given by the user was unrecognized.
 
 * `MUG_MUCOSA_...` - a muCOSA function was called, which gave a non-success result value, which has been converted to a `mugResult` equivalent. There is a `mugResult` equivalent for any `muCOSAResult` value (besides `MUCOSA_SUCCESS`), and the conditions of the given `muCOSAResult` value apply based on the muCOSA documentation. Note that the value of the muCOSA-equivalent does not necessarily match the value of the mug version.
 
 * `MUG_GL_FAILED_LOAD` - the required OpenGL functionality failed to load from the function call to `gladLoadGL`.
+
+* `MUG_GL_FAILED_COMPILE_VERTEX_SHADER` - a vertex shader in OpenGL necessary to perform the task failed to compile.
+
+* `MUG_GL_FAILED_COMPILE_FRAGMENT_SHADER` - a fragment shader in OpenGL necessary to perform the task failed to compile.
+
+* `MUG_GL_FAILED_LINK_SHADERS` - shaders necessary to be linked to a shader program in OpenGL to perform the task failed to link.
+
+* `MUG_GL_FAILED_ALLOCATE_BUFFER` - an internal OpenGL buffer needed to perform the task was unable to be allocated to the correct size.
+
+* `MUG_GL_FAILED_CREATE_BUFFER` - a necessary call to create an OpenGL buffer failed.
+
+* `MUG_GL_FAILED_CREATE_VERTEX_ARRAY` - a necessary call to create an OpenGL vertex array failed.
 
 All non-success values (unless explicitly stated otherwise) mean that the function fully failed; AKA, it was "fatal", and the library continues as if the function had never been called. So, for example, if something was supposed to be allocated, but the function fatally failed, nothing was allocated.
 
