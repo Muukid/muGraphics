@@ -2177,6 +2177,8 @@ There are no checks performed on buffers so large that they cause integer overfl
 				// @DOCLINE The function `mug_graphic_create_window` creates a `muGraphic` by creating a `muWindow` object, defined below: @NLNT
 				MUDEF muGraphic mug_graphic_create_window(mugContext* context, mugResult* result, muGraphicSystem system, muWindowInfo* info);
 
+				// @DOCLINE This function allows the user to set their desired pixel format. This means that the user can disable depth testing by not including any depth bits (assuming that their pixel format is chosen as desired).
+
 				// @DOCLINE > The macro `mu_graphic_create_window` is the non-result-checking equivalent, and the macro `mu_graphic_create_window_` is the result-checking equivalent.
 				#define mu_graphic_create_window(...) mug_graphic_create_window(mug_global_context, &mug_global_context->result, __VA_ARGS__)
 				#define mu_graphic_create_window_(result, ...) mug_graphic_create_window(mug_global_context, result, __VA_ARGS__)
@@ -2267,11 +2269,14 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 			// @DOCLINE All object types defined by mug are represented by the type `mugObjectType` (typedef for `uint16_m`). It has the following defined values:
 
-			// @DOCLINE * `MUG_OBJECT_POINT` - a [point object](#point).
+			// @DOCLINE * `MUG_OBJECT_POINT` - a [point](#point).
 			#define MUG_OBJECT_POINT 1
 
+			// @DOCLINE * `MUG_OBJECT_LINE` - a [line](#line).
+			#define MUG_OBJECT_LINE 2
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_POINT
+			#define MUG_OBJECT_LAST MUG_OBJECT_LINE
 
 		// @DOCLINE ## Load object type
 
@@ -2326,12 +2331,22 @@ There are no checks performed on buffers so large that they cause integer overfl
 			// @DOCLINE A "point" in mug is a single-pixel point. Its respective struct is `mugPoint`, and has the following members:
 
 			struct mugPoint {
-				// @DOCLINE * `@NLFT pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly.
+				// @DOCLINE * `@NLFT pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly. A pixel with a z-coordinate greater than or equal to the pixel rendered beforehand will draw over it.
 				float pos[3];
 				// @DOCLINE * `@NLFT col[4]` - the colors of the point, with indexes 0, 1, 2, and 3 being the red, green, blue, and alpha channels respectively. All channels' values should range between 0 and 1; any other value is not guaranteed to render properly. A value of 0 means none of the channel, and a value of 1 means the maximum intensity of the channel.
 				float col[4];
 			};
 			typedef struct mugPoint mugPoint;
+
+		// @DOCLINE ## Line
+
+			// @DOCLINE A "line" in mug is a single-pixel line. Its respective struct is `mugLine`, and has the following members:
+
+			struct mugLine {
+				// @DOCLINE * `@NLFT points[2]` - the two points defining the line.
+				mugPoint points[2];
+			};
+			typedef struct mugLine mugLine;
 
 	// @DOCLINE # Object buffers
 
@@ -9908,6 +9923,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				/* Shaders */
 
 					// Vertex shader
+					// * Lines also uses this shader.
 					const char* mugGL_pointVS = 
 						// Version
 						"#version 330 core\n"
@@ -9944,6 +9960,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Fragment shader
+					// * Lines also uses this shader.
 					const char* mugGL_pointFS =
 						// Version
 						"#version 330 core\n"
@@ -9965,6 +9982,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Creates program for points
+					// * Lines also uses this function.
 					void mugGL_points_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
 						// Exit if shader already compiled
 						if (shader->program) {
@@ -9997,6 +10015,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					}
 
 					// Describes point data
+					// * Lines also uses this function.
 					void mugGL_points_desc(void) {
 						// vec3 pos
 						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 28, 0);
@@ -10042,11 +10061,93 @@ There are no checks performed on buffers so large that they cause integer overfl
 						buf->subrender = mugGL_points_subrender;
 					}
 
+			/* Lines */
+
+				// Data format: { vec3 pos, vec4 col }
+				// Rendered as GL_LINES
+
+				/* Shaders */
+
+					// Vertex shader (same as points)
+					#define mugGL_lineVS mugGL_pointVS
+
+					// Fragment shader (same as points)
+					#define mugGL_lineFS mugGL_pointFS
+
+					// Creates program for lines (same as points)
+					#define mugGL_lines_shader_load mugGL_points_shader_load
+
+				/* Buffer */
+
+					// Fills vertex data
+					void mugGL_lines_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugLine* lines = (mugLine*)obj;
+
+						// Loop through each point
+						for (uint32_m i = 0; i < c; ++i) {
+							// Point 1
+							// - vec3 pos
+							mu_memcpy(v, lines->points[0].pos, 12);
+							v += 3;
+							// - vec4 col
+							mu_memcpy(v, lines->points[0].col, 16);
+							v += 4;
+							// Point 2
+							// - vec3 pos
+							mu_memcpy(v, lines->points[1].pos, 12);
+							v += 3;
+							// - vec4 col
+							mu_memcpy(v, lines++->points[1].col, 16);
+							v += 4;
+						}
+					}
+
+					// Describes line data (same as points)
+					#define mugGL_lines_desc mugGL_points_desc
+
+					// Renders lines
+					void mugGL_lines_render(mugGL_ObjBuffer* buf) {
+						// Draw arrays
+						glDrawArrays(
+							GL_LINES, // Render using lines
+							0, // Starting index (just 0)
+							buf->obj_count*2 // Index count (two points per line)
+						);
+					}
+
+					// Subrenders lines
+					void mugGL_lines_subrender(uint32_m o, uint32_m c) {
+						// Draw arrays
+						glDrawArrays(
+							GL_LINES, // Render using lines
+							o*2, // Starting index (two points per line)
+							c*2 // Index count (two points per line)
+						);
+					}
+
+					// Fills buffer with need info
+					void mugGL_lines_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_LINE;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4 (28)
+						// one line = two vertexes (56)
+						buf->bv_per_obj = 56;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_lines_fill_vertexes;
+						buf->desc = mugGL_lines_desc;
+						buf->render = mugGL_lines_render;
+						buf->subrender = mugGL_lines_subrender;
+					}
+
 		/* Context setup */
 
 			// Struct for shaders
 			struct mugGL_Shaders {
 				mugGL_Shader point;
+				mugGL_Shader line;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -10103,6 +10204,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				glPrimitiveRestartIndex(MUG_GL_PRIM_RESTART_32);
 				// Enable depth testing
 				glEnable(GL_DEPTH_TEST);
+				glDepthFunc(GL_GEQUAL);
 				// Set initial viewport
 				glViewport(0, 0, gfx->dim[0], gfx->dim[1]);
 
@@ -10135,6 +10237,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					switch (type) {
 						default: return 0; break;
 						case MUG_OBJECT_POINT: return &context->shaders.point; break;
+						case MUG_OBJECT_LINE: return &context->shaders.line; break;
 					}
 				}
 
@@ -10159,7 +10262,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					// Loop through each valid object type enum
 					for (mugObjectType objtype = MUG_OBJECT_FIRST; objtype <= MUG_OBJECT_LAST; ++objtype) {
 						// Find program ID
-						program = mugGL_object_type_to_program(context, MUG_OBJECT_POINT);
+						program = mugGL_object_type_to_program(context, objtype);
 						// If program ID exists, update dimensions uniform
 						if (program && *program) {
 							glUseProgram(*program);
@@ -10175,6 +10278,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					switch (type) {
 						default: MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE) break;
 						case MUG_OBJECT_POINT: mugGL_points_shader_load(gfx, &context->shaders.point, result); break;
+						case MUG_OBJECT_LINE: mugGL_lines_shader_load(gfx, &context->shaders.line, result); break;
 					}
 				}
 
@@ -10221,6 +10325,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					switch (type) {
 						default: return MUG_UNKNOWN_OBJECT_TYPE; break;
 						case MUG_OBJECT_POINT: mugGL_points_fill(buf); break;
+						case MUG_OBJECT_LINE: mugGL_lines_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}
@@ -10319,6 +10424,8 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 				// Set clear color
 				glClearColor(r, g, b, 1.f);
+				// Set clear depth
+				glClearDepth(0.0);
 				// Clear screen color and depth
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			}

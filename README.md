@@ -227,6 +227,8 @@ MUDEF muGraphic mug_graphic_create_window(mugContext* context, mugResult* result
 ```
 
 
+This function allows the user to set their desired pixel format. This means that the user can disable depth testing by not including any depth bits (assuming that their pixel format is chosen as desired).
+
 > The macro `mu_graphic_create_window` is the non-result-checking equivalent, and the macro `mu_graphic_create_window_` is the result-checking equivalent.
 
 ### Get window
@@ -323,7 +325,9 @@ An ***object*** in mug (commonly called a "gobject" in the API) is something tha
 
 All object types defined by mug are represented by the type `mugObjectType` (typedef for `uint16_m`). It has the following defined values:
 
-* `MUG_OBJECT_POINT` - a [point object](#point).
+* `MUG_OBJECT_POINT` - a [point](#point).
+
+* `MUG_OBJECT_LINE` - a [line](#line).
 
 ## Load object type
 
@@ -382,9 +386,15 @@ This function must only be called on an object type that is currently loaded. On
 
 A "point" in mug is a single-pixel point. Its respective struct is `mugPoint`, and has the following members:
 
-* `float pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly.
+* `float pos[3]` - the position of the point, with indexes 0, 1, and 2 being the x-, y-, and z-coordinates respectively. All x- and y-coordiantes of a point visible on the graphic range between (0) and (the width of the graphic minus 1). All z-coordinates of a point should range between 0 and 1; any other value is not guaranteed to render properly. A pixel with a z-coordinate greater than or equal to the pixel rendered beforehand will draw over it.
 
 * `float col[4]` - the colors of the point, with indexes 0, 1, 2, and 3 being the red, green, blue, and alpha channels respectively. All channels' values should range between 0 and 1; any other value is not guaranteed to render properly. A value of 0 means none of the channel, and a value of 1 means the maximum intensity of the channel.
+
+## Line
+
+A "line" in mug is a single-pixel line. Its respective struct is `mugLine`, and has the following members:
+
+* `mugPoint points[2]` - the two points defining the line.
 
 # Object buffers
 
