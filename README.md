@@ -329,6 +329,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_LINE` - a [line](#line).
 
+* `MUG_OBJECT_TRIANGLE` - a [triangle](#triangle).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -395,6 +397,12 @@ A "point" in mug is a single-pixel point. Its respective struct is `mugPoint`, a
 A "line" in mug is a single-pixel line. Its respective struct is `mugLine`, and has the following members:
 
 * `mugPoint points[2]` - the two points defining the line.
+
+## Triangle
+
+A "triangle" in mug is a filled-in triangle defined by three points connected to each other. Its respective struct is `mugTriangle`, and has the following members:
+
+* `mugPoint points[3]` - the three points defining the triangle.
 
 # Object buffers
 

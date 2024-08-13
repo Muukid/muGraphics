@@ -2269,14 +2269,20 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 			// @DOCLINE All object types defined by mug are represented by the type `mugObjectType` (typedef for `uint16_m`). It has the following defined values:
 
+			// Inner note: these macro values must start from 1 and range to the last value with no gaps
+			// Changing around the values is OK
+
 			// @DOCLINE * `MUG_OBJECT_POINT` - a [point](#point).
 			#define MUG_OBJECT_POINT 1
 
 			// @DOCLINE * `MUG_OBJECT_LINE` - a [line](#line).
 			#define MUG_OBJECT_LINE 2
 
+			// @DOCLINE * `MUG_OBJECT_TRIANGLE` - a [triangle](#triangle).
+			#define MUG_OBJECT_TRIANGLE 3
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_LINE
+			#define MUG_OBJECT_LAST MUG_OBJECT_TRIANGLE
 
 		// @DOCLINE ## Load object type
 
@@ -2347,6 +2353,16 @@ There are no checks performed on buffers so large that they cause integer overfl
 				mugPoint points[2];
 			};
 			typedef struct mugLine mugLine;
+
+		// @DOCLINE ## Triangle
+
+			// @DOCLINE A "triangle" in mug is a filled-in triangle defined by three points connected to each other. Its respective struct is `mugTriangle`, and has the following members:
+
+			struct mugTriangle {
+				// @DOCLINE * `@NLFT points[3]` - the three points defining the triangle.
+				mugPoint points[3];
+			};
+			typedef struct mugTriangle mugTriangle;
 
 	// @DOCLINE # Object buffers
 
@@ -9923,7 +9939,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				/* Shaders */
 
 					// Vertex shader
-					// * Lines also uses this shader.
+					// * Lines and triangles also use this shader.
 					const char* mugGL_pointVS = 
 						// Version
 						"#version 330 core\n"
@@ -9960,7 +9976,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Fragment shader
-					// * Lines also uses this shader.
+					// * Lines and triangles also use this shader.
 					const char* mugGL_pointFS =
 						// Version
 						"#version 330 core\n"
@@ -9982,7 +9998,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Creates program for points
-					// * Lines also uses this function.
+					// * Lines and triangles also use this function.
 					void mugGL_points_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
 						// Exit if shader already compiled
 						if (shader->program) {
@@ -10015,7 +10031,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					}
 
 					// Describes point data
-					// * Lines also uses this function.
+					// * Lines and triangles also use this function.
 					void mugGL_points_desc(void) {
 						// vec3 pos
 						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 28, 0);
@@ -10142,12 +10158,101 @@ There are no checks performed on buffers so large that they cause integer overfl
 						buf->subrender = mugGL_lines_subrender;
 					}
 
+			/* Triangle */
+
+				// Data format: { vec3 pos, vec4 col }
+				// Rendered as GL_TRIANGLES
+
+				/* Shaders */
+
+					// Vertex shader (same as points)
+					#define mugGL_triangleVS mugGL_pointVS
+
+					// Fragment shader (same as points)
+					#define mugGL_triangleFS mugGL_pointFS
+
+					// Creates program for triangles (same as points)
+					#define mugGL_triangles_shader_load mugGL_points_shader_load
+
+				/* Buffer */
+
+					// Fills vertex data
+					void mugGL_triangles_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugTriangle* triangles = (mugTriangle*)obj;
+
+						// Loop through each triangle
+						for (uint32_m t = 0; t < c; ++t) {
+							// Point 0
+							// - vec3 pos
+							mu_memcpy(v, triangles->points[0].pos, 12);
+							v += 3;
+							// - vec4 col
+							mu_memcpy(v, triangles->points[0].col, 16);
+							v += 4;
+							// Point 1
+							// - vec3 pos
+							mu_memcpy(v, triangles->points[1].pos, 12);
+							v += 3;
+							// - vec4 col
+							mu_memcpy(v, triangles->points[1].col, 16);
+							v += 4;
+							// Point 2
+							// - vec3 pos
+							mu_memcpy(v, triangles->points[2].pos, 12);
+							v += 3;
+							// - vec4 col
+							mu_memcpy(v, triangles++->points[2].col, 16);
+							v += 4;
+						}
+					}
+
+					// Describes triangle data (same as points)
+					#define mugGL_triangles_desc mugGL_points_desc
+
+					// Renders triangles
+					void mugGL_triangles_render(mugGL_ObjBuffer* buf) {
+						// Draw arrays
+						glDrawArrays(
+							GL_TRIANGLES, // Render using triangles
+							0, // Starting index (just 0)
+							buf->obj_count*3 // Index count (three points per triangle)
+						);
+					}
+
+					// Subrenders triangles
+					void mugGL_triangles_subrender(uint32_m o, uint32_m c) {
+						// Draw arrays
+						glDrawArrays(
+							GL_TRIANGLES, // Render using triangles
+							o*3, // Starting index (three points per triangle)
+							c*3 // Index count (three points per triangle)
+						);
+					}
+
+					// Fills buffer with needed info
+					void mugGL_triangles_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_TRIANGLE;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4 (28)
+						// one triangle = three vertexes (84)
+						buf->bv_per_obj = 84;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_triangles_fill_vertexes;
+						buf->desc = mugGL_triangles_desc;
+						buf->render = mugGL_triangles_render;
+						buf->subrender = mugGL_triangles_subrender;
+					}
+
 		/* Context setup */
 
 			// Struct for shaders
 			struct mugGL_Shaders {
 				mugGL_Shader point;
 				mugGL_Shader line;
+				mugGL_Shader triangle;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -10238,6 +10343,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 						default: return 0; break;
 						case MUG_OBJECT_POINT: return &context->shaders.point; break;
 						case MUG_OBJECT_LINE: return &context->shaders.line; break;
+						case MUG_OBJECT_TRIANGLE: return &context->shaders.triangle; break;
 					}
 				}
 
@@ -10279,6 +10385,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 						default: MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE) break;
 						case MUG_OBJECT_POINT: mugGL_points_shader_load(gfx, &context->shaders.point, result); break;
 						case MUG_OBJECT_LINE: mugGL_lines_shader_load(gfx, &context->shaders.line, result); break;
+						case MUG_OBJECT_TRIANGLE: mugGL_lines_shader_load(gfx, &context->shaders.triangle, result); break;
 					}
 				}
 
@@ -10326,6 +10433,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 						default: return MUG_UNKNOWN_OBJECT_TYPE; break;
 						case MUG_OBJECT_POINT: mugGL_points_fill(buf); break;
 						case MUG_OBJECT_LINE: mugGL_lines_fill(buf); break;
+						case MUG_OBJECT_TRIANGLE: mugGL_triangles_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}
