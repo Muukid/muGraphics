@@ -337,6 +337,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_RECT` - a [rect](#rect).
 
+* `MUG_OBJECT_CIRCLE` - a [circle](#circle).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -375,7 +377,7 @@ There are certain attributes about each object type can be universally (per mug 
 
 * `MUG_OBJECT_MUL_COL` - an array of four floats representing an r-, g-, b-, and a-scale (respectively) multiplied to the color channels of every object of a given type. The default values of all four scales are 1.
 
-Multiplication is performed first, followed by addition.
+Multiplication is performed first, followed by addition. For objects that use non-polygonal borders (those being circles), the math for the color of each pixel is performed first, setting the alpha to 0 (or some intermediary between that and the given alpha value) if the pixel is not within the object, followed by the modification. This could be used to flip the alpha result (via setting the multipler to -1 and the adder to 1, thus inversing the alpha value), inverting the object's borders.
 
 ### Set object type modifier
 
@@ -419,6 +421,14 @@ A "rect" in mug is a filled-in rectangle defined by a center point, width/height
 * `float dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
 
 * `float rot` - the rotation of the rect around the center point, in radians.
+
+## Circle
+
+A "circle" in mug is a filled-in circle defined by a center point and radius. Its respective struct is `mugCircle`, and has the following members:
+
+* `mugPoint center` - the center point of the circle. The point's color determines the color of the circle.
+
+* `float radius` - the radius of the circle.
 
 # Object buffers
 
