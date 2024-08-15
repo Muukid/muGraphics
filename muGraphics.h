@@ -104,6 +104,10 @@ When vertex data (as well as index data) needs to be generated and a buffer need
 
 There are no checks performed on buffers so large that they cause integer overflow, meaning that the usage of too many objects will likely just result in a crash. There is no way to check for buffer size limits with mug's provided API; a buffer will simply fail to create if too large and give a non-successful result value.
 
+## Colors of each rect corner
+
+Every aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+
 @DOCEND */
 
 #ifndef MUG_H
@@ -2281,8 +2285,11 @@ There are no checks performed on buffers so large that they cause integer overfl
 			// @DOCLINE * `MUG_OBJECT_TRIANGLE` - a [triangle](#triangle).
 			#define MUG_OBJECT_TRIANGLE 3
 
+			// @DOCLINE * `MUG_OBJECT_RECT` - a [rect](#rect).
+			#define MUG_OBJECT_RECT 4
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_TRIANGLE
+			#define MUG_OBJECT_LAST MUG_OBJECT_RECT
 
 		// @DOCLINE ## Load object type
 
@@ -2363,6 +2370,20 @@ There are no checks performed on buffers so large that they cause integer overfl
 				mugPoint points[3];
 			};
 			typedef struct mugTriangle mugTriangle;
+
+		// @DOCLINE ## Rect
+
+			// @DOCLINE A "rect" in mug is a filled-in rectangle defined by a center point, width/height, and rotation around the center point. Its respective struct is `mugRect`, and has the following members:
+
+			struct mugRect {
+				// @DOCLINE * `@NLFT center` - the center point of the rect. The point's color determines the color of the rect.
+				mugPoint center;
+				// @DOCLINE * `@NLFT dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
+				float dim[2];
+				// @DOCLINE * `@NLFT rot` - the rotation of the rect around the center point, in radians.
+				float rot;
+			};
+			typedef struct mugRect mugRect;
 
 	// @DOCLINE # Object buffers
 
@@ -2550,6 +2571,28 @@ There are no checks performed on buffers so large that they cause integer overfl
 			MUDEF mugResult muCOSA_to_mug_result(muCOSAResult result);
 
 			// @DOCLINE This function returns `MUG_SUCCESS`/`MUCOSA_SUCCESS` (same value) if no mug equivalent exists for the given `muCOSAResult` value, rather because the given `muCOSAResult` value is invalid or is equal to `MUCOSA_SUCCESS`.
+
+	// @DOCLINE # C standard library dependencies
+
+		// @DOCLINE mug has several C standard library dependencies, all of which are overridable by defining them before the inclusion of its header. The following is a list of those dependencies.
+
+		#if !defined(mu_sinf) || \
+			!defined(mu_cosf)
+
+			// @DOCLINE ## `math.h` dependencies
+			#include <math.h>
+
+			// @DOCLINE * `mu_sinf` - equivalent to `sinf`.
+			#ifndef mu_sinf
+				#define mu_sinf sinf
+			#endif
+
+			// @DOCLINE * `mu_cosf` - equivalent to `cosf`.
+			#ifndef mu_cosf
+				#define mu_cosf cosf
+			#endif
+
+		#endif /* math.h */
 
 	MU_CPP_EXTERN_END
 #endif /* MUG_H */
@@ -9646,14 +9689,30 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 		#endif /* MU_SUPPORT_OPENGL */
 
+	/* Useful functions */
+
+		/* Math */
+
+			// Rotates a given point (rpx, rpy) around a center (cpx, cpy)
+			// Uses srot and crot as sin and cos of rotation
+			// Fills in result in pos[0] (x) and pos[1] (y)
+			void mugMath_rot_point_point(
+				float rpx, float rpy, float cpx, float cpy,
+				float srot, float crot,
+				float* pos
+			) {
+				float ox = rpx-cpx, oy = rpy-cpy;
+				pos[0] = (ox*crot - oy*srot) + cpx;
+				pos[1] = (ox*srot + oy*crot) + cpy;
+			}
+
 	/* OpenGL */
 
 	#ifdef MU_SUPPORT_OPENGL
 
 		/* Macros */
 
-			// Index used for 32-bit primitive restarting
-			#define MUG_GL_PRIM_RESTART_32 0xFFFFFFFF
+			// ...
 
 		/* General shader logic */
 
@@ -9747,10 +9806,12 @@ There are no checks performed on buffers so large that they cause integer overfl
 			// Struct for an object buffer
 			typedef struct mugGL_ObjBuffer mugGL_ObjBuffer;
 			struct mugGL_ObjBuffer {
-				// Vertex buffer object
-				GLuint vbo;
 				// Vertex array object
 				GLuint vao;
+				// Vertex buffer object
+				GLuint vbo;
+				// Index buffer object
+				GLuint ebo;
 
 				// Object type
 				mugObjectType obj_type;
@@ -9762,8 +9823,21 @@ There are no checks performed on buffers so large that they cause integer overfl
 				// Corresponding vertex buffer size (obj_count*bv_per_obj)
 				uint32_m vbuf_size;
 
+				// Amount of bytes used for each object on indexes
+				uint32_m bi_per_obj;
+				// Corresponding index buffer size (obj_count*bi_per_obj)
+				uint32_m ibuf_size;
+				// Stores if index data has been filled already to correct size
+				// Set this to false to make fill commands regenerate index data;
+				// used upon initialization of buffer and (possibly later imp.)
+				// resizing. Index data is not considered in subfilling.
+				muBool index_filled;
+
 				// Function used to fill all vertex data
 				void (*fill_vertexes)(GLfloat* v, void* obj, uint32_m c);
+				// Function used to fill all index data
+				// If this function is null, ebo is not generated
+				void (*fill_indexes)(GLuint* i, uint32_m c);
 				// Function used to describe data
 				void (*desc)(void);
 				// Function that renders with all relevant objects already binded
@@ -9809,6 +9883,8 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 					// Ensure buffer is expected size
 					if (!mugGL_buffer_size_check(GL_ARRAY_BUFFER, buf->vbuf_size)) {
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
 						return MUG_GL_FAILED_ALLOCATE_BUFFER;
 					}
 				}
@@ -9818,10 +9894,43 @@ There are no checks performed on buffers so large that they cause integer overfl
 					glBufferData(GL_ARRAY_BUFFER, buf->vbuf_size, 0, GL_DYNAMIC_DRAW);
 				}
 
+				// Indexes
+				if (buf->fill_indexes && !buf->index_filled)
+				{
+					// Allocate indexes
+					GLuint* indexes = (GLuint*)mu_malloc(buf->ibuf_size);
+					if (!indexes) {
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_FAILED_MALLOC;
+					}
+
+					// Fill index data
+					buf->fill_indexes(indexes, buf->obj_count);
+
+					// Send data to GPU
+					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buf->ebo);
+					glBufferData(GL_ELEMENT_ARRAY_BUFFER, buf->ibuf_size, indexes, GL_STATIC_DRAW);
+
+					// Free index data
+					mu_free(indexes);
+
+					// Ensure buffer is expected size
+					if (!mugGL_buffer_size_check(GL_ELEMENT_ARRAY_BUFFER, buf->ibuf_size)) {
+						glBindBuffer(GL_ARRAY_BUFFER, 0);
+						glBindVertexArray(0);
+						return MUG_GL_FAILED_ALLOCATE_BUFFER;
+					}
+
+					// Set index as filled
+					buf->index_filled = MU_TRUE;
+				}
+
 				// Describe data
 				buf->desc();
 				// Unbind and return success
 				glBindBuffer(GL_ARRAY_BUFFER, 0);
+				// glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 				glBindVertexArray(0);
 				return MUG_SUCCESS;
 			}
@@ -9845,14 +9954,17 @@ There are no checks performed on buffers so large that they cause integer overfl
 					}
 
 					// Fill vertex data
-					buf->fill_vertexes(vertexes, obj, buf->obj_count);
+					buf->fill_vertexes(vertexes, obj, obj_count);
 
 					// Send data to GPU
 					glBindBuffer(GL_ARRAY_BUFFER, buf->vbo);
 					glBufferSubData(GL_ARRAY_BUFFER, data_offset, data_size, vertexes);
+
+					// Free vertex data
+					mu_free(vertexes);
 				}
 
-				// Descrieb data
+				// Describe data
 				buf->desc();
 				// Unbind and return success
 				glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -9862,9 +9974,12 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 			// Destroys a given buffer
 			void mugGL_objects_destroy(mugGL_ObjBuffer* buf) {
-				// Destroy VAO and VBO
+				// Destroy VAO, VBO, and (possibly) EBO
 				glDeleteVertexArrays(1, &buf->vao);
 				glDeleteBuffers(1, &buf->vbo);
+				if (buf->fill_indexes) {
+					glDeleteBuffers(1, &buf->ebo);
+				}
 			}
 
 			// Creates a given buffer
@@ -9875,10 +9990,21 @@ There are no checks performed on buffers so large that they cause integer overfl
 				if (!buf->vbo) {
 					return MUG_GL_FAILED_CREATE_BUFFER;
 				}
+				// Generate EBO if necessary
+				if (buf->fill_indexes) {
+					glGenBuffers(1, &buf->ebo);
+					if (!buf->ebo) {
+						glDeleteBuffers(1, &buf->vbo);
+						return MUG_GL_FAILED_CREATE_BUFFER;
+					}
+					// + Mark indexes to be filled
+					buf->index_filled = MU_FALSE;
+				}
 				// Generate VAO
 				glGenVertexArrays(1, &buf->vao);
 				if (!buf->vao) {
 					glDeleteBuffers(1, &buf->vbo);
+					glDeleteBuffers(1, &buf->ebo);
 					return MUG_GL_FAILED_CREATE_VERTEX_ARRAY;
 				}
 
@@ -9899,6 +10025,8 @@ There are no checks performed on buffers so large that they cause integer overfl
 				uint32_m prev_count = buf->obj_count;
 				buf->obj_count = obj_count;
 				buf->vbuf_size = obj_count*buf->bv_per_obj;
+				buf->ibuf_size = obj_count*buf->bi_per_obj;
+				buf->index_filled = MU_FALSE;
 
 				// Perform a fill
 				mugResult res = mugGL_objects_fill(buf, obj);
@@ -9939,7 +10067,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				/* Shaders */
 
 					// Vertex shader
-					// * Lines and triangles also use this shader.
+					// * Lines, triangles, and rects also use this shader.
 					const char* mugGL_pointVS = 
 						// Version
 						"#version 330 core\n"
@@ -9976,7 +10104,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Fragment shader
-					// * Lines and triangles also use this shader.
+					// * Lines, triangles, and rects also use this shader.
 					const char* mugGL_pointFS =
 						// Version
 						"#version 330 core\n"
@@ -9998,7 +10126,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					;
 
 					// Creates program for points
-					// * Lines and triangles also use this function.
+					// * Lines, triangles, and rects also use this function.
 					void mugGL_points_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
 						// Exit if shader already compiled
 						if (shader->program) {
@@ -10031,7 +10159,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 					}
 
 					// Describes point data
-					// * Lines and triangles also use this function.
+					// * Lines, triangles, and rects also use this function.
 					void mugGL_points_desc(void) {
 						// vec3 pos
 						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 28, 0);
@@ -10072,6 +10200,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 						// Function equivalents
 						buf->fill_vertexes = mugGL_points_fill_vertexes;
+						buf->fill_indexes = 0;
 						buf->desc = mugGL_points_desc;
 						buf->render = mugGL_points_render;
 						buf->subrender = mugGL_points_subrender;
@@ -10153,6 +10282,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 						// Function equivalents
 						buf->fill_vertexes = mugGL_lines_fill_vertexes;
+						buf->fill_indexes = 0;
 						buf->desc = mugGL_lines_desc;
 						buf->render = mugGL_lines_render;
 						buf->subrender = mugGL_lines_subrender;
@@ -10241,9 +10371,184 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 						// Function equivalents
 						buf->fill_vertexes = mugGL_triangles_fill_vertexes;
+						buf->fill_indexes = 0;
 						buf->desc = mugGL_triangles_desc;
 						buf->render = mugGL_triangles_render;
 						buf->subrender = mugGL_triangles_subrender;
+					}
+
+			/* Rect */
+
+				// Data format: { vec3 pos, vec4 col }
+				// Indexed data: { 0, 1, 3, 1, 2, 3 }
+
+				/* Shaders */
+
+					// Vertex shader (same as points)
+					#define mugGL_rectVS mugGL_pointVS
+
+					// Fragment shader (same as points)
+					#define mugGL_rectFS mugGL_pointFS
+
+					// Creates program for rects (same as points)
+					#define mugGL_rect_shader_load mugGL_points_shader_load
+
+				/* Buffer */
+
+					// Fill vertex data
+					void mugGL_rects_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugRect* rects = (mugRect*)obj;
+
+						// Loop through each rect
+						for (uint32_m i = 0; i < c; ++i) {
+							// Store half-dim
+							float hdim[2] = { rects->dim[0]/2.f, rects->dim[1]/2.f };
+							// Store sin/cos of rotation
+							float srot = mu_sinf(rects->rot);
+							float crot = mu_cosf(rects->rot);
+
+							// Top-left
+								// vec3 pos
+								// - X and Y
+								mugMath_rot_point_point(
+									rects->center.pos[0]-hdim[0], // Point X
+									rects->center.pos[1]-hdim[1], // Point Y
+									rects->center.pos[0], // Center X
+									rects->center.pos[1], // Center Y
+									srot, crot, // Sin / Cos rotation
+									v // Position pointer
+								);
+								// - Z
+								v[2] = rects->center.pos[2];
+
+								// vec3 col
+								mu_memcpy(&v[3], rects->center.col, 16);
+								v += 7;
+
+							// Bottom-left
+								// vec3 pos
+								// - X and Y
+								mugMath_rot_point_point(
+									rects->center.pos[0]-hdim[0], // Point X
+									rects->center.pos[1]+hdim[1], // Point Y
+									rects->center.pos[0], // Center X
+									rects->center.pos[1], // Center Y
+									srot, crot, // Sin / Cos rotation
+									v // Position pointer
+								);
+								// - Z
+								v[2] = rects->center.pos[2];
+
+								// vec3 col
+								mu_memcpy(&v[3], rects->center.col, 16);
+								v += 7;
+
+							// Bottom-right
+								// vec3 pos
+								// - X and Y
+								mugMath_rot_point_point(
+									rects->center.pos[0]+hdim[0], // Point X
+									rects->center.pos[1]+hdim[1], // Point Y
+									rects->center.pos[0], // Center X
+									rects->center.pos[1], // Center Y
+									srot, crot, // Sin / Cos rotation
+									v // Position pointer
+								);
+								// - Z
+								v[2] = rects->center.pos[2];
+
+								// vec3 col
+								mu_memcpy(&v[3], rects->center.col, 16);
+								v += 7;
+
+							// Top-right
+								// vec3 pos
+								// - X and Y
+								mugMath_rot_point_point(
+									rects->center.pos[0]+hdim[0], // Point X
+									rects->center.pos[1]-hdim[1], // Point Y
+									rects->center.pos[0], // Center X
+									rects->center.pos[1], // Center Y
+									srot, crot, // Sin / Cos rotation
+									v // Position pointer
+								);
+								// - Z
+								v[2] = rects->center.pos[2];
+
+								// vec3 col
+								mu_memcpy(&v[3], rects->center.col, 16);
+								v += 7;
+
+							// Go to next rect
+							rects++;
+						}
+					}
+
+					// Fill index data
+					void mugGL_rects_fill_indexes(GLuint* i, uint32_m c) {
+						// Offset for index pattern:
+						uint32_m po = 0;
+
+						// Loop through each rect
+						for (uint32_m r = 0; r < c; ++r) {
+							// Fill out index pattern:
+							// { 0, 1, 3, 1, 2, 3 }
+							*i++ = po;
+							*i++ = po+1;
+							*i++ = po+3;
+							*i++ = po+1;
+							*i++ = po+2;
+							*i++ = po+3;
+							// Increment po
+							po += 4;
+						}
+					}
+
+					// Describes rect data (same as points)
+					#define mugGL_rects_desc mugGL_points_desc
+
+					// Renders rects
+					void mugGL_rects_render(mugGL_ObjBuffer* buf) {
+						// Draw elements
+						glDrawElements(
+							GL_TRIANGLES, // Rendering triangle-by-triangle
+							buf->obj_count*6, // Indexes per object
+							GL_UNSIGNED_INT, // Index type (GLuint)
+							(const void*)(0) // Offset in index data (in bytes)
+						);
+					}
+
+					// Subrenders rects
+					void mugGL_rects_subrender(uint32_m o, uint32_m c) {
+						// Draw elements
+						glDrawElements(
+							GL_TRIANGLES, // Rendering triangle-by-triangle
+							c*6, // Indexes per object
+							GL_UNSIGNED_INT, // Index type (GLuint)
+							(const void*)(((size_m)o)*24) // Offset in index data (in bytes; 24 = 6*4 = 6*sizeof(GLuint))
+						);
+					}
+
+					// Fills buffer with need info
+					void mugGL_rects_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_RECT;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4 (28)
+						// one rect = four vertexes (112)
+						buf->bv_per_obj = 112;
+
+						// Amount of bytes used on index per object:
+						// one rect = six indexes (24)
+						buf->bi_per_obj = 24;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_rects_fill_vertexes;
+						buf->fill_indexes = mugGL_rects_fill_indexes;
+						buf->desc = mugGL_rects_desc;
+						buf->render = mugGL_rects_render;
+						buf->subrender = mugGL_rects_subrender;
 					}
 
 		/* Context setup */
@@ -10253,6 +10558,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				mugGL_Shader point;
 				mugGL_Shader line;
 				mugGL_Shader triangle;
+				mugGL_Shader rect;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -10305,8 +10611,6 @@ There are no checks performed on buffers so large that they cause integer overfl
 				// Enable and set blending
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-				// Set primitive restart index
-				glPrimitiveRestartIndex(MUG_GL_PRIM_RESTART_32);
 				// Enable depth testing
 				glEnable(GL_DEPTH_TEST);
 				glDepthFunc(GL_GEQUAL);
@@ -10344,6 +10648,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 						case MUG_OBJECT_POINT: return &context->shaders.point; break;
 						case MUG_OBJECT_LINE: return &context->shaders.line; break;
 						case MUG_OBJECT_TRIANGLE: return &context->shaders.triangle; break;
+						case MUG_OBJECT_RECT: return &context->shaders.rect; break;
 					}
 				}
 
@@ -10385,7 +10690,8 @@ There are no checks performed on buffers so large that they cause integer overfl
 						default: MU_SET_RESULT(result, MUG_UNKNOWN_OBJECT_TYPE) break;
 						case MUG_OBJECT_POINT: mugGL_points_shader_load(gfx, &context->shaders.point, result); break;
 						case MUG_OBJECT_LINE: mugGL_lines_shader_load(gfx, &context->shaders.line, result); break;
-						case MUG_OBJECT_TRIANGLE: mugGL_lines_shader_load(gfx, &context->shaders.triangle, result); break;
+						case MUG_OBJECT_TRIANGLE: mugGL_triangles_shader_load(gfx, &context->shaders.triangle, result); break;
+						case MUG_OBJECT_RECT: mugGL_rect_shader_load(gfx, &context->shaders.rect, result); break;
 					}
 				}
 
@@ -10434,6 +10740,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 						case MUG_OBJECT_POINT: mugGL_points_fill(buf); break;
 						case MUG_OBJECT_LINE: mugGL_lines_fill(buf); break;
 						case MUG_OBJECT_TRIANGLE: mugGL_triangles_fill(buf); break;
+						case MUG_OBJECT_RECT: mugGL_rects_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}
@@ -10470,6 +10777,9 @@ There are no checks performed on buffers so large that they cause integer overfl
 					// Fill other calculatable info
 					buf->obj_count = obj_count;
 					buf->vbuf_size = obj_count*buf->bv_per_obj;
+					if (buf->fill_indexes) {
+						buf->ibuf_size = obj_count*buf->bi_per_obj;
+					}
 
 					// Create buffers
 					res = mugGL_objects_create(buf, obj);
@@ -10504,10 +10814,24 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 					// Bind shader
 					mugGL_shader_bind(shader);
-
 					// Render buffer
 					mugGL_objects_render(buf);
+					// Unbind shader
+					mugGL_shader_unbind(shader);
+				}
 
+				// Subrenders an object buffer
+				void mugGL_object_buffer_subrender(mugGL_Context* context, mugGL_ObjBuffer* buf, uint32_m offset, uint32_m count) {
+					// Get shader handle
+					mugGL_Shader* shader = mugGL_object_type_to_shader(context, buf->obj_type);
+					if (!shader) {
+						return;
+					}
+
+					// Bind shader
+					mugGL_shader_bind(shader);
+					// Subrender buffer
+					mugGL_objects_subrender(buf, offset, count);
 					// Unbind shader
 					mugGL_shader_unbind(shader);
 				}
@@ -10871,7 +11195,7 @@ There are no checks performed on buffers so large that they cause integer overfl
 				#ifdef MU_SUPPORT_OPENGL
 					case MU_GRAPHIC_OPENGL: {
 						mugGraphicGL_bind(igfx);
-						mugGL_objects_subrender((mugGL_ObjBuffer*)objs, offset, count);
+						mugGL_object_buffer_subrender((mugGL_Context*)igfx->p, (mugGL_ObjBuffer*)objs, offset, count);
 					} break;
 				#endif
 			}

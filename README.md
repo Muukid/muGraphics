@@ -94,6 +94,10 @@ When vertex data (as well as index data) needs to be generated and a buffer need
 
 There are no checks performed on buffers so large that they cause integer overflow, meaning that the usage of too many objects will likely just result in a crash. There is no way to check for buffer size limits with mug's provided API; a buffer will simply fail to create if too large and give a non-successful result value.
 
+## Colors of each rect corner
+
+Every aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+
 
 # Other library dependencies
 
@@ -331,6 +335,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_TRIANGLE` - a [triangle](#triangle).
 
+* `MUG_OBJECT_RECT` - a [rect](#rect).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -403,6 +409,16 @@ A "line" in mug is a single-pixel line. Its respective struct is `mugLine`, and 
 A "triangle" in mug is a filled-in triangle defined by three points connected to each other. Its respective struct is `mugTriangle`, and has the following members:
 
 * `mugPoint points[3]` - the three points defining the triangle.
+
+## Rect
+
+A "rect" in mug is a filled-in rectangle defined by a center point, width/height, and rotation around the center point. Its respective struct is `mugRect`, and has the following members:
+
+* `mugPoint center` - the center point of the rect. The point's color determines the color of the rect.
+
+* `float dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
+
+* `float rot` - the rotation of the rect around the center point, in radians.
 
 # Object buffers
 
@@ -567,3 +583,13 @@ MUDEF mugResult muCOSA_to_mug_result(muCOSAResult result);
 
 
 This function returns `MUG_SUCCESS`/`MUCOSA_SUCCESS` (same value) if no mug equivalent exists for the given `muCOSAResult` value, rather because the given `muCOSAResult` value is invalid or is equal to `MUCOSA_SUCCESS`.
+
+# C standard library dependencies
+
+mug has several C standard library dependencies, all of which are overridable by defining them before the inclusion of its header. The following is a list of those dependencies.
+
+## `math.h` dependencies
+
+* `mu_sinf` - equivalent to `sinf`.
+
+* `mu_cosf` - equivalent to `cosf`.
