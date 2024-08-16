@@ -2291,8 +2291,11 @@ Every aspect about a rect is customizable besides the individual color of each c
 			// @DOCLINE * `MUG_OBJECT_CIRCLE` - a [circle](#circle).
 			#define MUG_OBJECT_CIRCLE 5
 
+			// @DOCLINE * `MUG_OBJECT_SQUIRCLE` - a [squircle](#squircle).
+			#define MUG_OBJECT_SQUIRCLE 6
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_CIRCLE
+			#define MUG_OBJECT_LAST MUG_OBJECT_SQUIRCLE
 
 		// @DOCLINE ## Load object type
 
@@ -2399,6 +2402,22 @@ Every aspect about a rect is customizable besides the individual color of each c
 				float radius;
 			};
 			typedef struct mugCircle mugCircle;
+
+		// @DOCLINE ## Squircle
+
+			// @DOCLINE A "squircle" in mug is a filled-in [squircle](https://en.wikipedia.org/wiki/Squircle), defined by a center point, a radius, and an exponent. Its respective struct is `mugSquircle` and has the following members:
+
+			struct mugSquircle {
+				// @DOCLINE * `@NLFT center` - the center point of the squircle. The point's color determines the color of the squircle.
+				mugPoint center;
+				// @DOCLINE * `@NLFT rot` - the rotation of the squircle around the center, in radians.
+				float rot;
+				// @DOCLINE * `@NLFT radius` - the radius of the squircle.
+				float radius;
+				// @DOCLINE * `@NLFT exp` - the exponent used for the squircle equation (`|x-a|**exp + |y-b|**exp = |radius|**exp`). The higher the number, the sharper the edges, and vice versa. Any value for this member below 2 is not guaranteed to render correctly.
+				float exp;
+			};
+			typedef struct mugSquircle mugSquircle;
 
 	// @DOCLINE # Object buffers
 
@@ -10449,7 +10468,8 @@ Every aspect about a rect is customizable besides the individual color of each c
 							// Store half-dim
 							float hdim[2] = { rects->dim[0]/2.f, rects->dim[1]/2.f };
 							// Store sin/cos of rotation
-							float srot = mu_sinf(rects->rot);
+							// Sin is negative because y-direction is flipped in mug coordinates
+							float srot = -mu_sinf(rects->rot);
 							float crot = mu_cosf(rects->rot);
 
 							// Top-left
@@ -10464,7 +10484,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Fill index data
-					// Circles also use this
+					// Circles, squircles also use this
 					void mugGL_rects_fill_indexes(GLuint* i, uint32_m c) {
 						// Offset for index pattern:
 						uint32_m po = 0;
@@ -10488,7 +10508,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					#define mugGL_rects_desc mugGL_points_desc
 
 					// Renders rects
-					// Circles also use this
+					// Circles, squircles also use this
 					void mugGL_rects_render(mugGL_ObjBuffer* buf) {
 						// Draw elements
 						glDrawElements(
@@ -10500,7 +10520,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Subrenders rects
-					// Circles also use this
+					// Circles, squircles also use this
 					void mugGL_rects_subrender(uint32_m o, uint32_m c) {
 						// Draw elements
 						glDrawElements(
@@ -10534,203 +10554,441 @@ Every aspect about a rect is customizable besides the individual color of each c
 
 			/* Circle */
 
-				/* Shader */
+				// Data format: { vec3 pos, vec4 col, vec2 cen, float rad }
+				// Indexed data: { 0, 1, 3, 1, 2, 3 }
 
-					// Data format: { vec3 pos, vec4 col, vec2 cen, float rad }
-					// Indexed data: { 0, 1, 3, 1, 2, 3 }
+				/* Shaders */
 
-					/* Shaders */
+					// Vertex shader
+					const char* mugGL_circleVS = 
+						// Version
+						"#version 330 core\n"
 
-						// Vertex shader
-						const char* mugGL_circleVS = 
-							// Version
-							"#version 330 core\n"
+						// Input (pos, col, cen, rad)
+						"layout(location=0)in vec3 vPos;"
+						"layout(location=1)in vec4 vCol;"
+						"layout(location=2)in vec2 vCen;"
+						"layout(location=3)in float vRad;"
 
-							// Input (pos, col, cen, rad)
-							"layout(location=0)in vec3 vPos;"
-							"layout(location=1)in vec4 vCol;"
-							"layout(location=2)in vec2 vCen;"
-							"layout(location=3)in float vRad;"
+						// Output (col, cen, float rad)
+						"out vec4 fCol;"
+						"out vec2 fCen;"
+						"out float fRad;"
 
-							// Output (col, cen, float rad)
-							"out vec4 fCol;"
-							"out vec2 fCen;"
-							"out float fRad;"
+						// Dimensions of graphic divided by 2
+						"uniform vec2 d;"
+						// Modifiers
+						"uniform vec3 aP;" // addPos
+						"uniform vec3 mP;" // mulPos
 
-							// Dimensions of graphic divided by 2
-							"uniform vec2 d;"
-							// Modifiers
-							"uniform vec3 aP;" // addPos
-							"uniform vec3 mP;" // mulPos
+						// Main
+						"void main(){"
+							// Set position
+							"gl_Position=vec4("
+								// X
+								"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
+								// Y
+								"-(((vPos.y*mP.y)+aP.y)-(d.y))/d.y,"
+								// Z
+								"((vPos.z*mP.z)+aP.z),"
+								// W
+								"1.0"
+							");"
 
-							// Main
-							"void main(){"
-								// Set position
-								"gl_Position=vec4("
-									// X
-									"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
-									// Y
-									"-(((vPos.y*mP.y)+aP.y)-(d.y))/d.y,"
-									// Z
-									"((vPos.z*mP.z)+aP.z),"
-									// W
-									"1.0"
-								");"
+							// Transfer data to fragment
+							"fCol=vCol;"
+							// (Flip y because fragcoord is bottom-left origin)
+							"fCen=vec2((vCen.x*mP.x)+aP.x, (d.y*2.0)-((vCen.y*mP.y)+aP.y));"
+							"fRad=vRad;"
+						"}"
+					;
 
-								// Transfer data to fragment
-								"fCol=vCol;"
-								// (Flip y because fragcoord is bottom-left origin)
-								"fCen=vec2(vCen.x, (d.y*2.0)-vCen.y);"
-								"fRad=vRad;"
-							"}"
-						;
+					// Fragment shader
+					const char* mugGL_circleFS = 
+						// Version
+						"#version 330 core\n"
 
-						// Fragment shader
-						const char* mugGL_circleFS = 
-							// Version
-							"#version 330 core\n"
+						// Input (col, cen, rad)
+						"in vec4 fCol;"
+						"in vec2 fCen;"
+						"in float fRad;"
+						// Output (col)
+						"out vec4 oCol;"
 
-							// Input (col, cen, rad)
-							"in vec4 fCol;"
-							"in vec2 fCen;"
-							"in float fRad;"
-							// Output (col)
-							"out vec4 oCol;"
+						// Modifiers
+						"uniform vec4 aC;" // addCol
+						"uniform vec4 mC;" // mulCol
 
-							// Modifiers
-							"uniform vec4 aC;" // addCol
-							"uniform vec4 mC;" // mulCol
+						// Returns a smooth transition between 0.0 and 1.0
+						// depending on if pixel (p) is outside of circle
+						// (center c, radius r)
+						// Uses this formula (lol):
+						// \max\left(\min\left(-\left(\sqrt{\left(p.x-c.x\right)^{2}+\left(p.y-c.y\right)^{2}}-r\right)+0.5,1\right),0\right)
+						"float dis(vec2 p,vec2 c,float r){"
+							// Return inverse of:
+							"return 1.0-"
+								"max(min("
+								// Negative if outside, positive if inside
+								// Fades between edge of circle; automatic anti-aliasing >:)
+								"(sqrt(pow(p.x-c.x,2.0)+pow(p.y-c.y,2.0))-r)+0.5,"
+								// Maximum value of 1
+								"1.0),"
+								// Minimum value of 0
+								"0.0);"
+						"}"
 
-							// Returns a smooth transition between 0.0 and 1.0
-							// depending on if pixel (p) is outside of circle
-							// (center c, radius r)
-							// Uses this formula (lol):
-							// \max\left(\min\left(-\left(\sqrt{\left(p.x-c.x\right)^{2}+\left(p.y-c.y\right)^{2}}-r\right)+0.5,1\right),0\right)
-							"float dis(vec2 p,vec2 c,float r){"
-								// Return inverse of:
-								"return 1.0-"
-									"max(min("
-									// Negative if outside, positive if inside
-									// Fades between edge of circle; automatic anti-aliasing >:)
-									"(sqrt(pow(p.x-c.x,2.0)+pow(p.y-c.y,2.0))-r)+0.5,"
-									// Maximum value of 1
-									"1.0),"
-									// Minimum value of 0
-									"0.0);"
-							"}"
+						// Main
+						"void main(){"
+							// Calculate color
+							"oCol=vec4(fCol.rgb, fCol.a*dis(gl_FragCoord.xy,fCen,fRad));"
+							// Apply modifiers
+							"oCol=(oCol*mC)+aC;"
+						"}"
+					;
 
-							// Main
-							"void main(){"
-								// Calculate color
-								"oCol=vec4(fCol.rgb, fCol.a*dis(gl_FragCoord.xy,fCen,fRad));"
-								// Apply modifiers
-								"oCol=(oCol*mC)+aC;"
-							"}"
-						;
-
-						// Creates program for circles (same as circles)
-						void mugGL_circles_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
-							// Exit if shader already compiled
-							if (shader->program) {
-								return;
-							}
-
-							// Compile shader
-							mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_circleVS, mugGL_circleFS);
-							if (res != MUG_SUCCESS) {
-								MU_SET_RESULT(result, res)
-							}
+					// Creates program for circles
+					void mugGL_circles_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
+						// Exit if shader already compiled
+						if (shader->program) {
+							return;
 						}
 
-					/* Buffer */
+						// Compile shader
+						mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_circleVS, mugGL_circleFS);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					}
 
-						// Fills a particular vertex given what to multiply radius by
-						// (Used to alternate between 4 corners)
-						// Returns new v pointer after this vertex
-						static inline GLfloat* mugGL_circles_fill_invertexes(
-							// Circle data
-							GLfloat* v, mugCircle* circle,
-							// Radius data
-							float vradx, float vrady
-						) {
-							// vec3 pos
-							// - x and y
-							*v++ = circle->center.pos[0]+(circle->radius*vradx);
-							*v++ = circle->center.pos[1]+(circle->radius*vrady);
-							// - z
-							*v++ = circle->center.pos[2];
+				/* Buffer */
 
-							// vec4 col
-							mu_memcpy(v, circle->center.col, 16);
-							// vec2 cen
-							mu_memcpy(v+4, circle->center.pos, 8);
-							// float rad
-							v[6] = circle->radius;
-							return v+7;
+					// Fills a particular vertex given what to multiply radius by
+					// (Used to alternate between 4 corners)
+					// Returns new v pointer after this vertex
+					static inline GLfloat* mugGL_circles_fill_invertexes(
+						// Circle data
+						GLfloat* v, mugCircle* circle,
+						// Radius data
+						float vradx, float vrady
+					) {
+						// vec3 pos
+						// - x and y
+						*v++ = circle->center.pos[0]+(circle->radius*vradx);
+						*v++ = circle->center.pos[1]+(circle->radius*vrady);
+						// - z
+						*v++ = circle->center.pos[2];
+
+						// vec4 col
+						mu_memcpy(v, circle->center.col, 16);
+						// vec2 cen
+						mu_memcpy(v+4, circle->center.pos, 8);
+						// float rad
+						v[6] = circle->radius;
+						return v+7;
+					}
+
+					// Fills vertex data
+					void mugGL_circles_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugCircle* circles = (mugCircle*)obj;
+
+						// Loop through each circle
+						for (uint32_m i = 0; i < c; ++i) {
+							// Top-left
+							v = mugGL_circles_fill_invertexes(v, circles,  -1.f, -1.f);
+							// Bottom-left
+							v = mugGL_circles_fill_invertexes(v, circles,  -1.f,  1.f);
+							// Bottom-right
+							v = mugGL_circles_fill_invertexes(v, circles,   1.f,  1.f);
+							// Top-right
+							v = mugGL_circles_fill_invertexes(v, circles++, 1.f, -1.f);
+						}
+					}
+
+					// Fill index data (same as rect)
+					#define mugGL_circles_fill_indexes mugGL_rects_fill_indexes
+
+					// Describes circle data
+					void mugGL_circles_desc(void) {
+						// vec3 pos
+						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 40, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 40, (void*)(12));
+						glEnableVertexAttribArray(1);
+						// vec2 cen
+						glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 40, (void*)(28));
+						glEnableVertexAttribArray(2);
+						// float rad
+						glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 40, (void*)(36));
+						glEnableVertexAttribArray(3);
+					}
+
+					// Renders circles (same as rect)
+					#define mugGL_circles_render mugGL_rects_render
+					// Subrenders circles (same as rect)
+					#define mugGL_circles_subrender mugGL_rects_subrender
+
+					// Fills buffer with needed info
+					void mugGL_circles_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_CIRCLE;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4+vec2+float (40)
+						// one circle = four vertexes (160)
+						buf->bv_per_obj = 160;
+
+						// Amount of bytes used on index per object:
+						// one circle = six indexes (24)
+						buf->bi_per_obj = 24;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_circles_fill_vertexes;
+						buf->fill_indexes = mugGL_circles_fill_indexes;
+						buf->desc = mugGL_circles_desc;
+						buf->render = mugGL_circles_render;
+						buf->subrender = mugGL_circles_subrender;
+					}
+
+			/* Squircle */
+
+				// Data format: { vec3 pos, vec4 col, float rot, vec2 cen, float rad, float exp }
+				// Indexed data: { 0, 1, 3, 1, 2, 3 }
+
+				/* Shaders */
+
+					// Vertex shader
+					const char* mugGL_squircleVS = 
+						// Version
+						"#version 330 core\n"
+
+						// Input (pos, col, rot, cen, rad, exp)
+						"layout(location=0)in vec3 vPos;"
+						"layout(location=1)in vec4 vCol;"
+						"layout(location=2)in float vRot;"
+						"layout(location=3)in vec2 vCen;"
+						"layout(location=4)in float vRad;"
+						"layout(location=5)in float vExp;"
+
+						// Output (rot, col, cen, rad, exp)
+						"out float fRot;"
+						"out vec4 fCol;"
+						"out vec2 fCen;"
+						"out float fRad;"
+						"out float fExp;"
+
+						// Dimensions of graphic divided by 2
+						"uniform vec2 d;"
+						// Modifiers
+						"uniform vec3 aP;" // addPos
+						"uniform vec3 mP;" // mulPos
+
+						// Main
+						"void main(){"
+							// Set position
+							"gl_Position=vec4("
+								// X
+								"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
+								// Y
+								"-(((vPos.y*mP.y)+aP.y)-(d.y))/d.y,"
+								// Z
+								"(vPos.z*mP.z)+aP.z,"
+								// W
+								"1.0"
+							");"
+
+							// Transfer data to fragment
+							"fRot=vRot;"
+							"fCol=vCol;"
+							// (Flip y because fragcoord is bottom-left origin)
+							"fCen=vec2((vCen.x*mP.x)+aP.x, (d.y*2.0)-((vCen.y*mP.y)+aP.y));"
+							"fRad=vRad;"
+							"fExp=vExp;"
+						"}"
+					;
+
+					// Fragment shader
+					const char* mugGL_squircleFS =
+						// Version
+						"#version 330 core\n"
+
+						// Input (rot, col, cen, rad, exp)
+						"in float fRot;"
+						"in vec4 fCol;"
+						"in vec2 fCen;"
+						"in float fRad;"
+						"in float fExp;"
+						// Output (col)
+						"out vec4 oCol;"
+
+						// Modifiers
+						"uniform vec4 aC;" // addCol
+						"uniform vec4 mC;" // mulCol
+
+						// Rotates point (p) around center (c)
+						// Rotation is given by cos (cr) and sin (sr) of rotation
+						"vec2 r(vec2 p,vec2 c,float cr,float sr){"
+							"vec2 o=p-c;"
+							// MATH
+							"return vec2((o.x*cr-o.y*sr)+c.x,(o.x*sr+o.y*cr)+c.y);"
+						"}"
+
+						// Returns a smooth transition between 0.0 and 1.0
+						// depending on if pixel (p) is outside of squircle
+						// (center c, radius r, exponent e)
+						// Uses this formula:
+						// \max\left(\min\left(-\left(\left(\left|p.x-c.x\right|^{b}+\left|p.y-c.y\right|^{b}\right)^{\frac{1}{b}}-r\right)+0.5,1\right),0\right)
+						// ^ (b is the exponent)
+						"float s(vec2 p,vec2 c,float r,float e){"
+							// Return inverse of:
+							"return 1.0-"
+								"max(min("
+								// Negative if outside, positive if inside
+								// Fades between edge of squircle; automatic anti-aliasing >:)
+								"(pow(pow(abs(p.x-c.x),e)+pow(abs(p.y-c.y),e),1.0/e)-r)+0.5,"
+								// Maximum value of 1
+								"1.0),"
+								// Maximum value of 0
+								"0.0)"
+							";"
+						"}"
+
+						// Main
+						"void main(){"
+							// Calculate color (rotating FragCoord to adjust for rotation)
+							"oCol=vec4(fCol.rgb, fCol.a*s(r(gl_FragCoord.xy,fCen,sin(fRot),cos(fRot)),fCen,fRad,fExp));"
+							// Apply modifiers
+							"oCol=(oCol*mC)+aC;"
+						"}"
+					;
+
+					// Creates program for squircles
+					void mugGL_squircles_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
+						// Exit if shader already compiled
+						if (shader->program) {
+							return;
 						}
 
-						// Fills vertex data
-						void mugGL_circles_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
-							// Convert obj to struct array
-							mugCircle* circles = (mugCircle*)obj;
-
-							// Loop through each circle
-							for (uint32_m i = 0; i < c; ++i) {
-								// Top-left
-								v = mugGL_circles_fill_invertexes(v, circles,  -1.f, -1.f);
-								// Bottom-left
-								v = mugGL_circles_fill_invertexes(v, circles,  -1.f,  1.f);
-								// Bottom-right
-								v = mugGL_circles_fill_invertexes(v, circles,   1.f,  1.f);
-								// Top-right
-								v = mugGL_circles_fill_invertexes(v, circles++, 1.f, -1.f);
-							}
+						// Compile shader
+						mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_squircleVS, mugGL_squircleFS);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
 						}
+					}
 
-						// Fill index data (same as rect)
-						#define mugGL_circles_fill_indexes mugGL_rects_fill_indexes
+				/* Buffer */
 
-						// Describes circle data
-						void mugGL_circles_desc(void) {
-							// vec3 pos
-							glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 40, 0);
-							glEnableVertexAttribArray(0);
-							// vec4 col
-							glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 40, (void*)(12));
-							glEnableVertexAttribArray(1);
-							// vec2 cen
-							glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 40, (void*)(28));
-							glEnableVertexAttribArray(2);
-							// float rad
-							glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, 40, (void*)(36));
-							glEnableVertexAttribArray(3);
+					// Fills a particular vertex given what to multiply radius by
+					// (Used to alternate between 4 corners)
+					// Returns new v pointer after this vertex
+					static inline GLfloat* mugGL_squircles_fill_invertexes(
+						// Squircle data
+						GLfloat* v, mugSquircle* squircle,
+						// Radius data
+						float vradx, float vrady,
+						// Rotation data
+						float srot, float crot
+					) {
+						// vec3 pos
+						// - x and y (rotated)
+						mugMath_rot_point_point(
+							squircle->center.pos[0]+(squircle->radius*vradx), // Point x
+							squircle->center.pos[1]+(squircle->radius*vrady), // Point y
+							squircle->center.pos[0], // Center x
+							squircle->center.pos[1], // Center y
+							srot, crot, // Sin / Cos rotation
+							v
+						);
+						// - z
+						v[2] = squircle->center.pos[2];
+						v += 3;
+
+						// vec4 col
+						mu_memcpy(v, squircle->center.col, 16);
+						// float rot
+						v[4] = squircle->rot;
+						// vec2 cen
+						mu_memcpy(v+5, squircle->center.pos, 8);
+						// float rad
+						v[7] = squircle->radius;
+						// float exp
+						v[8] = squircle->exp;
+						return v+9;
+					}
+
+					// Fills vertex data
+					void mugGL_squircles_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugSquircle* squircles = (mugSquircle*)obj;
+
+						// Loop through each squircle
+						for (uint32_m i = 0; i < c; ++i) {
+							// Calculate rotation values
+							// Sin is negative because y-direction is flipped in mug coordinates
+							float srot = -mu_sinf(squircles->rot);
+							float crot = mu_cosf(squircles->rot);
+
+							// Top-left
+							v = mugGL_squircles_fill_invertexes(v, squircles,  -1.f, -1.f, srot, crot);
+							// Bottom-left
+							v = mugGL_squircles_fill_invertexes(v, squircles,  -1.f,  1.f, srot, crot);
+							// Bottom-right
+							v = mugGL_squircles_fill_invertexes(v, squircles,   1.f,  1.f, srot, crot);
+							// Top-right
+							v = mugGL_squircles_fill_invertexes(v, squircles++, 1.f, -1.f, srot, crot);
 						}
+					}
 
-						// Renders circles (same as rect)
-						#define mugGL_circles_render mugGL_rects_render
-						// Subrenders circles (same as rect)
-						#define mugGL_circles_subrender mugGL_rects_subrender
+					// Fill index data (same as rect)
+					#define mugGL_squircles_fill_indexes mugGL_rects_fill_indexes
 
-						// Fills buffer with needed info
-						void mugGL_circles_fill(mugGL_ObjBuffer* buf) {
-							buf->obj_type = MUG_OBJECT_CIRCLE;
+					// Describes squircle data
+					void mugGL_squircles_desc(void) {
+						// vec3 pos
+						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 48, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 48, (void*)(12));
+						glEnableVertexAttribArray(1);
+						// float rot
+						glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 48, (void*)(28));
+						glEnableVertexAttribArray(2);
+						// vec2 cen
+						glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 48, (void*)(32));
+						glEnableVertexAttribArray(3);
+						// float rad
+						glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 48, (void*)(40));
+						glEnableVertexAttribArray(4);
+						// float exp
+						glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 48, (void*)(44));
+						glEnableVertexAttribArray(5);
+					}
 
-							// Amount of bytes used on vertex per object:
-							// one vertex = vec3+vec4+vec2+float (40)
-							// one circle = four vertexes (160)
-							buf->bv_per_obj = 160;
+					// Renders squircles (same as rect)
+					#define mugGL_squircles_render mugGL_rects_render
+					// Subrenders squircles (same as rect)
+					#define mugGL_squircles_subrender mugGL_rects_subrender
 
-							// Amount of bytes used on index per object:
-							// one circle = six indexes (24)
-							buf->bi_per_obj = 24;
+					// Fills buffer with needed info
+					void mugGL_squircles_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_SQUIRCLE;
 
-							// Function equivalents
-							buf->fill_vertexes = mugGL_circles_fill_vertexes;
-							buf->fill_indexes = mugGL_circles_fill_indexes;
-							buf->desc = mugGL_circles_desc;
-							buf->render = mugGL_circles_render;
-							buf->subrender = mugGL_circles_subrender;
-						}
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4+float+vec2+float+float (48)
+						// one squircle = four vertexes (192)
+						buf->bv_per_obj = 192;
+
+						// Amount of bytes used on index per object:
+						// one squircle = six indexes (24)
+						buf->bi_per_obj = 24;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_squircles_fill_vertexes;
+						buf->fill_indexes = mugGL_squircles_fill_indexes;
+						buf->desc = mugGL_squircles_desc;
+						buf->render = mugGL_squircles_render;
+						buf->subrender = mugGL_squircles_subrender;
+					}
 
 		/* Context setup */
 
@@ -10741,6 +10999,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 				mugGL_Shader triangle;
 				mugGL_Shader rect;
 				mugGL_Shader circle;
+				mugGL_Shader squircle;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -10832,6 +11091,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_TRIANGLE: return &context->shaders.triangle; break;
 						case MUG_OBJECT_RECT: return &context->shaders.rect; break;
 						case MUG_OBJECT_CIRCLE: return &context->shaders.circle; break;
+						case MUG_OBJECT_SQUIRCLE: return &context->shaders.squircle; break;
 					}
 				}
 
@@ -10876,6 +11136,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_TRIANGLE: mugGL_triangles_shader_load(gfx, &context->shaders.triangle, result); break;
 						case MUG_OBJECT_RECT: mugGL_rects_shader_load(gfx, &context->shaders.rect, result); break;
 						case MUG_OBJECT_CIRCLE: mugGL_circles_shader_load(gfx, &context->shaders.circle, result); break;
+						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_shader_load(gfx, &context->shaders.squircle, result); break;
 					}
 				}
 
@@ -10926,6 +11187,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_TRIANGLE: mugGL_triangles_fill(buf); break;
 						case MUG_OBJECT_RECT: mugGL_rects_fill(buf); break;
 						case MUG_OBJECT_CIRCLE: mugGL_circles_fill(buf); break;
+						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}
