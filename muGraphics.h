@@ -2294,8 +2294,11 @@ Every aspect about a rect is customizable besides the individual color of each c
 			// @DOCLINE * `MUG_OBJECT_SQUIRCLE` - a [squircle](#squircle).
 			#define MUG_OBJECT_SQUIRCLE 6
 
+			// @DOCLINE * `MUG_OBJECT_ROUND_RECT` - a [round rect](#round-rect).
+			#define MUG_OBJECT_ROUND_RECT 7
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_SQUIRCLE
+			#define MUG_OBJECT_LAST MUG_OBJECT_ROUND_RECT
 
 		// @DOCLINE ## Load object type
 
@@ -2418,6 +2421,22 @@ Every aspect about a rect is customizable besides the individual color of each c
 				float exp;
 			};
 			typedef struct mugSquircle mugSquircle;
+
+		// @DOCLINE ## Round rect
+
+			// @DOCLINE A "round rect" in mug is a filled-in rectangle with perfectly rounded edges, defined by a center point, dimensions, and the radius of the rounded edges. Its respective struct is `mugRoundRect` and has the following members:
+
+			struct mugRoundRect {
+				// @DOCLINE * `@NLFT center` - the center point of the round rect. The point's color determines the color of the round rect.
+				mugPoint center;
+				// @DOCLINE * `@NLFT dim[2]` - the dimensions of the round rect (`dim[0]` is width and `dim[1]` is height).
+				float dim[2];
+				// @DOCLINE * `@NLFT rot` - the rotation of the round rect around the center point, in radians.
+				float rot;
+				// @DOCLINE * `@NLFT radius `- the radius of the rounded edges.
+				float radius;
+			};
+			typedef struct mugRoundRect mugRoundRect;
 
 	// @DOCLINE # Object buffers
 
@@ -10484,7 +10503,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Fill index data
-					// Circles, squircles also use this
+					// Circles, squircles, round rects also use this
 					void mugGL_rects_fill_indexes(GLuint* i, uint32_m c) {
 						// Offset for index pattern:
 						uint32_m po = 0;
@@ -10508,7 +10527,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					#define mugGL_rects_desc mugGL_points_desc
 
 					// Renders rects
-					// Circles, squircles also use this
+					// Circles, squircles, round rects also use this
 					void mugGL_rects_render(mugGL_ObjBuffer* buf) {
 						// Draw elements
 						glDrawElements(
@@ -10520,7 +10539,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Subrenders rects
-					// Circles, squircles also use this
+					// Circles, squircles, round rects also use this
 					void mugGL_rects_subrender(uint32_m o, uint32_m c) {
 						// Draw elements
 						glDrawElements(
@@ -10990,6 +11009,247 @@ Every aspect about a rect is customizable besides the individual color of each c
 						buf->subrender = mugGL_squircles_subrender;
 					}
 
+			/* Round rect */
+
+				// Data format: { vec3 pos, vec4 col, float rot, vec2 cen, vec2 dim, float rad }
+				// * dim is actually half-dimensions
+				// Indexed data: { 0, 1, 3, 1, 2, 3 }
+
+				/* Shaders */
+
+					// Vertex shader
+					const char* mugGL_roundrectVS = 
+						// Version
+						"#version 330 core\n"
+
+						// Input ( pos, col, rot, cen, dim, rad )
+						"layout(location=0)in vec3 vPos;"
+						"layout(location=1)in vec4 vCol;"
+						"layout(location=2)in float vRot;"
+						"layout(location=3)in vec2 vCen;"
+						"layout(location=4)in vec2 vDim;"
+						"layout(location=5)in float vRad;"
+
+						// Output (col, rot, cen, dim, rad)
+						"out vec4 fCol;"
+						"out float fRot;"
+						"out vec2 fCen;"
+						"out vec2 fDim;"
+						"out float fRad;"
+
+						// Dimensions of graphic divided by 2
+						"uniform vec2 d;"
+						// Modifiers
+						"uniform vec3 aP;" // addPos
+						"uniform vec3 mP;" // mulPos
+
+						// Main
+						"void main(){"
+							// Set position
+							"gl_Position=vec4("
+								// X
+								"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
+								// Y
+								"-(((vPos.y*mP.y)+aP.y)-(d.y))/d.y,"
+								// Z
+								"(vPos.z*mP.z)+aP.z,"
+								// W
+								"1.0"
+							");"
+
+							// Transfer data to fragment
+							"fCol=vCol;"
+							"fRot=vRot;"
+							// (Flip y because fragcoord is bottom-left origin)
+							"fCen=vec2((vCen.x*mP.x)+aP.x,(d.y*2.0)-((vCen.y*mP.y)+aP.y));"
+							"fDim=vDim;"
+							"fRad=vRad;"
+						"}"
+					;
+
+					// Fragment shader
+					const char* mugGL_roundrectFS =
+						// Version
+						"#version 330 core\n"
+
+						// Input (col, rot, cen, dim, rad)
+						"in vec4 fCol;"
+						"in float fRot;"
+						"in vec2 fCen;"
+						"in vec2 fDim;"
+						"in float fRad;"
+						// Output (col)
+						"out vec4 oCol;"
+
+						// Modifiers
+						"uniform vec4 aC;" // addCol
+						"uniform vec4 mC;" // mulCol
+
+						// Rotates point (p) around center (c)
+						// Rotation is given by cos (cr) and sin(sr) of rotation
+						"vec2 r(vec2 p,vec2 c,float cr,float sr){"
+							"vec2 o=p-c;"
+							// MATH
+							"return vec2((o.x*cr-o.y*sr)+c.x,(o.x*sr+o.y*cr)+c.y);"
+						"}"
+
+						// Main
+						"void main(){"
+							// Calculate pixel based on rotation of FragCoord
+							"vec2 p=r(gl_FragCoord.xy,fCen,sin(fRot),cos(fRot));"
+							// Calculate absolute distance from center
+							"vec2 j=vec2(abs(p.x-fCen.x),abs(p.y-fCen.y));"
+							// Calculate alpha multiplier:
+							"float a="
+								// If we're inside of rectangle's bounding box:
+								// - \left|x-p.x\right|\le w_{0}\left\{\left|y-p.y\right|\le h_{0}-r\right\}
+								// - \left|y-p.y\right|\le h_{0}\left\{\left|x-p.x\right|\le w_{0}-r\right\}
+								"((j.x<=fDim.x && j.y<=fDim.y-fRad) || (j.y<=fDim.y && j.x<+fDim.x-fRad))?"
+									// If these checks passed, we're in the rectangle; just set to 1.0
+									"1.0:"
+								// If it didn't succeed, we're in a circle corner
+								// In this case, we use the magical equation to return a smooth transition
+								// between in and out of the corner (automatic AA)
+								// - \max\left(\min\left(-\left(\sqrt{\left|\left|j.x-p.x\right|-w_{0}+r\right|^{2}+\left|\left|j.y-p.y\right|-h_{0}+r\right|^{2}}-r\right)+0.5,1\right),0\right)
+								"max(min(-(sqrt(pow(abs(j.x-fDim.x+fRad),2.0)+pow(abs(j.y-fDim.y+fRad),2.0))-fRad)+0.5,1.0),0.0)"
+							";"
+							// Calculate color
+							"oCol=vec4(fCol.rgb,fCol.a*a);"
+							// Apply modifiers
+							"oCol=(oCol*mC)+aC;"
+						"}"
+					;
+
+					// Creates program for round rects
+					void mugGL_roundrects_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
+						// Exit if shader already compiled
+						if (shader->program) {
+							return;
+						}
+
+						// Compile shader
+						mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_roundrectVS, mugGL_roundrectFS);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					}
+
+				/* Buffer */
+
+					// Fills a particular vertex given what to multiply dimensions by
+					// (Used to alternate between 4 corners)
+					// Returns new v pointer after this vertex
+					static inline GLfloat* mugGL_roundrects_fill_invertexes(
+						// Round rect data
+						GLfloat* v, mugRoundRect* roundrect,
+						// Dimension data
+						float hdim[2], float vdim0, float vdim1,
+						// Rotation data
+						float srot, float crot
+					) {
+						// vec3 pos
+						// - x and y (rotated)
+						mugMath_rot_point_point(
+							roundrect->center.pos[0]+(hdim[0]*vdim0), // Point x
+							roundrect->center.pos[1]+(hdim[1]*vdim1), // Point y
+							roundrect->center.pos[0], // Center x
+							roundrect->center.pos[1], // Center y
+							srot, crot, // Sin / Cos rotation
+							v
+						);
+						// - z
+						v[2] = roundrect->center.pos[2];
+
+						// vec4 col
+						mu_memcpy(&v[3], roundrect->center.col, 16);
+						// float rot
+						v[7] = roundrect->rot;
+						// vec2 cen
+						mu_memcpy(&v[8], roundrect->center.pos, 8);
+						// vec2 dim
+						mu_memcpy(&v[10], hdim, 8);
+						// float rad
+						v[12] = roundrect->radius;
+
+						return v+13;
+					}
+
+					// Fills vertex data
+					void mugGL_roundrects_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mugRoundRect* roundrects = (mugRoundRect*)obj;
+
+						// Loop through each round rect
+						for (uint32_m i = 0; i < c; ++i) {
+							// Calculate rotation values
+							// Sin is negative because y-direction is flipped in mug coordinates
+							float srot = -mu_sinf(roundrects->rot);
+							float crot =  mu_cosf(roundrects->rot);
+							// Calculate half-dimensions
+							float hdim[2] = { roundrects->dim[0]/2.f, roundrects->dim[1]/2.f };
+
+							// Top-left
+							v = mugGL_roundrects_fill_invertexes(v, roundrects,   hdim, -1.f, -1.f, srot, crot);
+							// Bottom-left
+							v = mugGL_roundrects_fill_invertexes(v, roundrects,   hdim, -1.f,  1.f, srot, crot);
+							// Bottom-right
+							v = mugGL_roundrects_fill_invertexes(v, roundrects,   hdim,  1.f,  1.f, srot, crot);
+							// Top-right
+							v = mugGL_roundrects_fill_invertexes(v, roundrects++, hdim,  1.f, -1.f, srot, crot);
+						}
+					}
+
+					// Fill index data (same as rect)
+					#define mugGL_roundrects_fill_indexes mugGL_rects_fill_indexes
+
+					// Describes round rect data
+					void mugGL_roundrects_desc(void) {
+						// vec3 pos
+						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 52, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 52, (void*)(12));
+						glEnableVertexAttribArray(1);
+						// float rot
+						glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 52, (void*)(28));
+						glEnableVertexAttribArray(2);
+						// vec2 cen
+						glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 52, (void*)(32));
+						glEnableVertexAttribArray(3);
+						// vec2 dim
+						glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, 52, (void*)(40));
+						glEnableVertexAttribArray(4);
+						// float rad
+						glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 52, (void*)(48));
+						glEnableVertexAttribArray(5);
+					}
+
+					// Renders round rects (same as rect)
+					#define mugGL_roundrects_render mugGL_rects_render
+					// Subrenders round rects (same as rect)
+					#define mugGL_roundrects_subrender mugGL_rects_subrender
+
+					// Fills buffer with needed info
+					void mugGL_roundrects_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_ROUND_RECT;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4+float+vec2+vec2+float (52)
+						// one round rect = four vertexes (208)
+						buf->bv_per_obj = 208;
+
+						// Amount of bytes used on index per object:
+						// one round rect = six indexes (24)
+						buf->bi_per_obj = 24;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_roundrects_fill_vertexes;
+						buf->fill_indexes = mugGL_roundrects_fill_indexes;
+						buf->desc = mugGL_roundrects_desc;
+						buf->render = mugGL_roundrects_render;
+						buf->subrender = mugGL_roundrects_subrender;
+					}
+
 		/* Context setup */
 
 			// Struct for shaders
@@ -11000,6 +11260,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 				mugGL_Shader rect;
 				mugGL_Shader circle;
 				mugGL_Shader squircle;
+				mugGL_Shader roundrect;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -11092,6 +11353,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_RECT: return &context->shaders.rect; break;
 						case MUG_OBJECT_CIRCLE: return &context->shaders.circle; break;
 						case MUG_OBJECT_SQUIRCLE: return &context->shaders.squircle; break;
+						case MUG_OBJECT_ROUND_RECT: return &context->shaders.roundrect; break;
 					}
 				}
 
@@ -11137,6 +11399,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_RECT: mugGL_rects_shader_load(gfx, &context->shaders.rect, result); break;
 						case MUG_OBJECT_CIRCLE: mugGL_circles_shader_load(gfx, &context->shaders.circle, result); break;
 						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_shader_load(gfx, &context->shaders.squircle, result); break;
+						case MUG_OBJECT_ROUND_RECT: mugGL_roundrects_shader_load(gfx, &context->shaders.roundrect, result); break;
 					}
 				}
 
@@ -11188,6 +11451,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_RECT: mugGL_rects_fill(buf); break;
 						case MUG_OBJECT_CIRCLE: mugGL_circles_fill(buf); break;
 						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_fill(buf); break;
+						case MUG_OBJECT_ROUND_RECT: mugGL_roundrects_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}

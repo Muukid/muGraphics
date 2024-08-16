@@ -341,6 +341,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_SQUIRCLE` - a [squircle](#squircle).
 
+* `MUG_OBJECT_ROUND_RECT` - a [round rect](#round-rect).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -443,6 +445,18 @@ A "squircle" in mug is a filled-in [squircle](https://en.wikipedia.org/wiki/Squi
 * `float radius` - the radius of the squircle.
 
 * `float exp` - the exponent used for the squircle equation (`|x-a|**exp + |y-b|**exp = |radius|**exp`). The higher the number, the sharper the edges, and vice versa. Any value for this member below 2 is not guaranteed to render correctly.
+
+## Round rect
+
+A "round rect" in mug is a filled-in rectangle with perfectly rounded edges, defined by a center point, dimensions, and the radius of the rounded edges. Its respective struct is `mugRoundRect` and has the following members:
+
+* `mugPoint center` - the center point of the round rect. The point's color determines the color of the round rect.
+
+* `float dim[2]` - the dimensions of the round rect (`dim[0]` is width and `dim[1]` is height).
+
+* `float rot` - the rotation of the round rect around the center point, in radians.
+
+* `float radius `- the radius of the rounded edges.
 
 # Object buffers
 
