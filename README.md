@@ -96,7 +96,15 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 ## Colors of each rect corner
 
-Every aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+Every visual aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+
+## Mipmapping
+
+Currently, mug has no built-in support for mipmapping.
+
+## OpenGL error checking
+
+OpenGL mode in mug doesn't perform much error checking. This means that if something goes fatally wrong, there is a fair chance that mug won't catch onto it, which will lead to a crash. Usually, this is fine, since the crash was incorrect behavior on the user's end, but it becomes an issue when less predictable errors are thrown, such as memory limits.
 
 
 # Other library dependencies
@@ -343,6 +351,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_ROUND_RECT` - a [round rect](#round-rect).
 
+* `MUG_OBJECT_TEXTURE_2D` - a [two-dimensional texture rect](#2d-texture-rect).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -352,9 +362,9 @@ MUDEF void mug_gobject_load(mugContext* context, mugResult* result, muGraphic gf
 ```
 
 
-> The macro `mu_gobject_load` is the non-result-checking equivalent, and the macro `mu_gobject_load_` is the result-checking equivalent.
-
 Object types are also loaded automatically when an object buffer is created with the type, so this function doesn't need to be called. This function just gives a successful result if the object type was already loaded.
+
+> The macro `mu_gobject_load` is the non-result-checking equivalent, and the macro `mu_gobject_load_` is the result-checking equivalent.
 
 ## Deload object type
 
@@ -458,9 +468,25 @@ A "round rect" in mug is a filled-in rectangle with perfectly rounded edges, def
 
 * `float radius `- the radius of the rounded edges.
 
+## 2D texture rect
+
+A "2D texture rect" in mug is a rect texture object, acting as a rect with a two-dimensional texture rendered over it. Its respective struct is `mug2DTextureRect`, and has the following members:
+
+* `mugPoint center` - the center of the rect. The point's color determines the color of the rect, which is multiplied with the color values of the texture.
+
+* `float dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
+
+* `float rot` - the rotation of the rect around the center point, in radians.
+
+* `float tex_pos[2]` - the position of the [texture cutout](#texture-cutout).
+
+* `float tex_dim[2]` - the dimensions of the [texture cutout](#texture-cutout).
+
+The texture that gets rendered onto the rect is the [buffer's texture](#object-buffer-texture).
+
 # Object buffers
 
-Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored GPU-side. The type for an object buffer is `mugObjects` (typedef for `void*`).
+Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored for rendering. The type for an object buffer is `mugObjects` (typedef for `void*`).
 
 ## Create object buffer
 
@@ -542,6 +568,115 @@ MUDEF void mug_gobjects_subfill(mugContext* context, mugResult* result, muGraphi
 
 > The macro `mu_gobjects_subfill` is the non-result-checking equivalent, and the macro `mu_gobjects_subfill_` is the result-checking equivalent.
 
+## Object buffer texture
+
+For object buffers that rely on rendering a texture, their texture can be set via the function `mug_gobjects_texture`, defined below: 
+
+```c
+MUDEF void mug_gobjects_texture(mugContext* context, muGraphic gfx, mugObjects obj, mugTexture tex);
+```
+
+
+Once the object buffer's texture has been set, all subsequent calls to render/subrender the buffer will be rendered with the given texture until this function is called with another texture.
+
+Calling this function on a buffer whose object type does not use texture rendering will result in undefined behavior. Calling this function with a texture type that doesn't match the intended texture type of the object type (for example, setting a two-dimensional texture rect buffer's texture as a three-dimensional texture) will result in undefined behavior.
+
+> The macro `mu_gobjects_texture` is the non-result-checking equivalent.
+
+# Texture
+
+A "texture" in mug is a pixel bitmap stored for rendering (often called a "gtexture" in the API), and is used in rendering to draw images to the screen using a texture object buffer. Its respective type is `mugTexture` (typedef for `void*`).
+
+## Texture types
+
+There are different ways that a texture's pixel data can be layed out. For this, there are different "types" of textures, represented by the type `mugTextureType` (typedef for `uint16_m`). It has the following defined values:
+
+* `MUG_TEXTURE_2D` - a two-dimensional texture.
+
+* `MUG_TEXTURE_3D` - a three-dimensional texture.
+
+All types expect pixel data ordered left-to-right and top-to-bottom. All textures that have more than two dimensions are ordered starting from layer 0 incrementally.
+
+Three-dimensional textures act as multiple 2D textures stored one after the other, with the first one specified being referenced as layer 0.
+
+## Texture format
+
+A texture format specifies how the raw byte data of the pixels should be interpreted into bitmap data values, represented by the type `mugTextureFormat` (typedef for `uint16_m`). It has the following defined values:
+
+* `MUG_TEXTURE_U8_R` - red-channel unsigned 8-bit integer normalized texture format.
+
+* `MUG_TEXTURE_U8_RGB` - red-green-blue-channel unsigned 8-bit integer normalized texture format.
+
+* `MUG_TEXTURE_U8_RGBA` - red-green-blue-alpha-channel unsigned 8-bit integer normalized texture format.
+
+## Texture wrapping
+
+When a [texture cutout](#texture-cutout) generates texture coordinates out of range (thus rendering parts of the texture that aren't defined), wrapping occurs, which helps to give valid data when this occurs. The behavior of the wrapping is customizable via the type `mugTextureWrapping` (typedef for `uint8_m`), which has the following defined values:
+
+* `MUG_TEXTURE_REPEAT` - the texture repeats when out-of-range texture coordinate values are given.
+
+* `MUG_TEXTURE_MIRRORED_REPEAT` - the texture repeats when out-of-range texture coordinate values are given, mirroring the image for every time the texture coordinates wrap around.
+
+* `MUG_TEXTURE_CLAMP` - the texture's coordinates are clamped into a valid range. This has the effect of repeating the same coordinate value for out-of-range coordinates on a given axis, which visually stretches the single-pixel boundaries of the image indefinitely.
+
+## Texture filtering
+
+mug allows the user to specify the [texture filtering](https://en.wikipedia.org/wiki/Texture_filtering) of a given texture, using the type `mugTextureFiltering` (typedef for `uint8_m`), which has the folowing defined values:
+
+* `MUG_TEXTURE_NEAREST` - [nearest neighbor interpolation](https://en.wikipedia.org/wiki/Nearest-neighbor_interpolation).
+
+* `MUG_TEXTURE_BILINEAR` - [bilinear interpolation](https://en.wikipedia.org/wiki/Bilinear_interpolation).
+
+## Texture info
+
+Information about how a texture is stored within mug is represented with the struct `mugTextureInfo`. It has the following members:
+
+* `mugTextureType type` - the [texture type](#texture-types).
+
+* `mugTextureFormat format` - the [texture format](#texture-format).
+
+* `mugTextureWrapping wrapping[2]` - the [texture wrapping](#texture-wrapping) on the x (`wrapping[0]`) and y (`wrapping[1]`).
+
+* `mugTextureFiltering filtering[2]` - the [texture filtering](#texture-filtering) when upscaling (`filtering[0]`) and downscaling (`filtering[1]`).
+
+## Texture cutout
+
+When a texture is rendered onto a rect, exactly what part of the texture is being mapped needs to be specified, which is detailed in the form of a "cutout". The cutout takes a portion of the texture and renders only that portion of the texture over the rect. The texture cutout is specified in texture coordinates, ranging from a top-left origin of (0,0) to bottom-right (1, 1). The cutout itself is defined by a *position* and *dimensions*.
+
+The position is made up of an x-, y-, and z-coordinate. The x- and y-coordinates specify the top-leftest point of the cutout in texture coordinates. The z-coordinate specifies which layer of the texture to render from, and is only used in three-dimensional textures.
+
+The dimensions are made up of a width and height value, which specify how far the texture cutout reaches from the position in texture coordinates. Negative values will work, and will flip the texture's appearance correspondingly.
+
+Any cutout that will result in the rendering of texture coordinates outside of the valid texture coordinates range ([0,0], [1,1]) will cause wrapping, to which behavior is defined by the [texture wrapping](#texture-wrapping) of the texture currently being rendered.
+
+## Texture creation
+
+To create a handle to the texture for rendering, the function `mug_gtexture_create` is used, defined below: 
+
+```c
+MUDEF mugTexture mug_gtexture_create(mugContext* context, mugResult* result, muGraphic gfx, mugTextureInfo* info, uint32_m* dim, muByte* data);
+```
+
+
+`dim`'s length is dictated by the dimensions of the format used for the texture (specified in `info`). For example, if the texture is two-dimensional, `dim` is expected to be an array of 2 values, but if the texture is three-dimensional, `dim` is expected to be an array of 3 values.
+
+Once this function is finished, the pointer to the data (`data`) is no longer held onto.
+
+Every successfully created texture must be [destroyed](#texture-destruction) at some point.
+
+> The macro `mu_gtexture_create` is the non-result-checking equivalent, and the macro `mu_gtexture_create_` is the result-checking equivalent.
+
+## Texture destruction
+
+Once a texture is successfully created, the function `mug_gtexture_destroy` must be called on it at some point, defined below: 
+
+```c
+MUDEF mugTexture mug_gtexture_destroy(mugContext* context, muGraphic gfx, mugTexture tex);
+```
+
+
+> The macro `mu_gtexture_destroy` is the non-result-checking equivalent.
+
 # Result
 
 The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in mug went. It has the following defined values:
@@ -573,6 +708,8 @@ The type `mugResult` (typedef for `uint16_m`) is used to represent how a task in
 * `MUG_GL_FAILED_CREATE_BUFFER` - a necessary call to create an OpenGL buffer failed.
 
 * `MUG_GL_FAILED_CREATE_VERTEX_ARRAY` - a necessary call to create an OpenGL vertex array failed.
+
+* `MUG_GL_FAILED_GENERATE_TEXTURE` - a necessary call to generate an OpenGL texture failed.
 
 All non-success values (unless explicitly stated otherwise) mean that the function fully failed; AKA, it was "fatal", and the library continues as if the function had never been called. So, for example, if something was supposed to be allocated, but the function fatally failed, nothing was allocated.
 

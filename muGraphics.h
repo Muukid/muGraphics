@@ -106,7 +106,15 @@ There are no checks performed on buffers so large that they cause integer overfl
 
 ## Colors of each rect corner
 
-Every aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+Every visual aspect about a rect is customizable besides the individual color of each corner of the rect; every rect is defined by one color and one color only, making rect gradient effects only possible by rendering triangles that form rects, which is slightly less optimal and slightly more annoying.
+
+## Mipmapping
+
+Currently, mug has no built-in support for mipmapping.
+
+## OpenGL error checking
+
+OpenGL mode in mug doesn't perform much error checking. This means that if something goes fatally wrong, there is a fair chance that mug won't catch onto it, which will lead to a crash. Usually, this is fine, since the crash was incorrect behavior on the user's end, but it becomes an issue when less predictable errors are thrown, such as memory limits.
 
 @DOCEND */
 
@@ -2059,6 +2067,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 
 	// Typedefs explained later
 	typedef uint16_m mugResult;
+	typedef void* mugTexture;
 
 	// @DOCLINE # Graphics API support macros
 
@@ -2297,19 +2306,22 @@ Every aspect about a rect is customizable besides the individual color of each c
 			// @DOCLINE * `MUG_OBJECT_ROUND_RECT` - a [round rect](#round-rect).
 			#define MUG_OBJECT_ROUND_RECT 7
 
+			// @DOCLINE * `MUG_OBJECT_TEXTURE_2D` - a [two-dimensional texture rect](#2d-texture-rect).
+			#define MUG_OBJECT_TEXTURE_2D 8
+
 			#define MUG_OBJECT_FIRST MUG_OBJECT_POINT
-			#define MUG_OBJECT_LAST MUG_OBJECT_ROUND_RECT
+			#define MUG_OBJECT_LAST MUG_OBJECT_TEXTURE_2D
 
 		// @DOCLINE ## Load object type
 
 			// @DOCLINE The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: @NLNT
 			MUDEF void mug_gobject_load(mugContext* context, mugResult* result, muGraphic gfx, mugObjectType obj_type);
 
+			// @DOCLINE Object types are also loaded automatically when an object buffer is created with the type, so this function doesn't need to be called. This function just gives a successful result if the object type was already loaded.
+
 			// @DOCLINE > The macro `mu_gobject_load` is the non-result-checking equivalent, and the macro `mu_gobject_load_` is the result-checking equivalent.
 			#define mu_gobject_load(...) mug_gobject_load(mug_global_context, &mug_global_context->result, __VA_ARGS__)
 			#define mu_gobject_load_(result, ...) mug_gobject_load(mug_global_context, result, __VA_ARGS__)
-
-			// @DOCLINE Object types are also loaded automatically when an object buffer is created with the type, so this function doesn't need to be called. This function just gives a successful result if the object type was already loaded.
 
 		// @DOCLINE ## Deload object type
 
@@ -2438,11 +2450,31 @@ Every aspect about a rect is customizable besides the individual color of each c
 			};
 			typedef struct mugRoundRect mugRoundRect;
 
+		// @DOCLINE ## 2D texture rect
+
+			// @DOCLINE A "2D texture rect" in mug is a rect texture object, acting as a rect with a two-dimensional texture rendered over it. Its respective struct is `mug2DTextureRect`, and has the following members:
+
+			struct mug2DTextureRect {
+				// @DOCLINE * `@NLFT center` - the center of the rect. The point's color determines the color of the rect, which is multiplied with the color values of the texture.
+				mugPoint center;
+				// @DOCLINE * `@NLFT dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
+				float dim[2];
+				// @DOCLINE * `@NLFT rot` - the rotation of the rect around the center point, in radians.
+				float rot;
+				// @DOCLINE * `@NLFT tex_pos[2]` - the position of the [texture cutout](#texture-cutout).
+				float tex_pos[2];
+				// @DOCLINE * `@NLFT tex_dim[2]` - the dimensions of the [texture cutout](#texture-cutout).
+				float tex_dim[2];
+			};
+			typedef struct mug2DTextureRect mug2DTextureRect;
+
+			// @DOCLINE The texture that gets rendered onto the rect is the [buffer's texture](#object-buffer-texture).
+
 	// @DOCLINE # Object buffers
 
 		typedef void* mugObjects;
 
-		// @DOCLINE Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored GPU-side. The type for an object buffer is `mugObjects` (typedef for `void*`).
+		// @DOCLINE Objects are collectively stored, updated, and rendered in buffers (referred to as "gobjects" in the API), which are stored for rendering. The type for an object buffer is `mugObjects` (typedef for `void*`).
 
 		// @DOCLINE ## Create object buffer
 
@@ -2510,6 +2542,126 @@ Every aspect about a rect is customizable besides the individual color of each c
 			// @DOCLINE > The macro `mu_gobjects_subfill` is the non-result-checking equivalent, and the macro `mu_gobjects_subfill_` is the result-checking equivalent.
 			#define mu_gobjects_subfill(...) mug_gobjects_subfill(mug_global_context, &mug_global_context->result, __VA_ARGS__)
 			#define mu_gobjects_subfill_(result, ...) mug_gobjects_subfill(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Object buffer texture
+
+			// @DOCLINE For object buffers that rely on rendering a texture, their texture can be set via the function `mug_gobjects_texture`, defined below: @NLNT
+			MUDEF void mug_gobjects_texture(mugContext* context, muGraphic gfx, mugObjects obj, mugTexture tex);
+
+			// @DOCLINE Once the object buffer's texture has been set, all subsequent calls to render/subrender the buffer will be rendered with the given texture until this function is called with another texture.
+
+			// @DOCLINE Calling this function on a buffer whose object type does not use texture rendering will result in undefined behavior. Calling this function with a texture type that doesn't match the intended texture type of the object type (for example, setting a two-dimensional texture rect buffer's texture as a three-dimensional texture) will result in undefined behavior.
+
+			// @DOCLINE > The macro `mu_gobjects_texture` is the non-result-checking equivalent.
+			#define mu_gobjects_texture(...) mug_gobjects_texture(mug_global_context, __VA_ARGS__)
+
+	// @DOCLINE # Texture
+
+		// @DOCLINE A "texture" in mug is a pixel bitmap stored for rendering (often called a "gtexture" in the API), and is used in rendering to draw images to the screen using a texture object buffer. Its respective type is `mugTexture` (typedef for `void*`).
+
+		// @DOCLINE ## Texture types
+
+			typedef uint16_m mugTextureType;
+
+			// @DOCLINE There are different ways that a texture's pixel data can be layed out. For this, there are different "types" of textures, represented by the type `mugTextureType` (typedef for `uint16_m`). It has the following defined values:
+
+			// @DOCLINE * `MUG_TEXTURE_2D` - a two-dimensional texture.
+			#define MUG_TEXTURE_2D 0
+
+			// @DOCLINE * `MUG_TEXTURE_3D` - a three-dimensional texture.
+			#define MUG_TEXTURE_3D 1
+
+			// @DOCLINE All types expect pixel data ordered left-to-right and top-to-bottom. All textures that have more than two dimensions are ordered starting from layer 0 incrementally.
+
+			// @DOCLINE Three-dimensional textures act as multiple 2D textures stored one after the other, with the first one specified being referenced as layer 0.
+
+		// @DOCLINE ## Texture format
+
+			// @DOCLINE A texture format specifies how the raw byte data of the pixels should be interpreted into bitmap data values, represented by the type `mugTextureFormat` (typedef for `uint16_m`). It has the following defined values:
+			typedef uint16_m mugTextureFormat;
+
+			// @DOCLINE * `MUG_TEXTURE_U8_R` - red-channel unsigned 8-bit integer normalized texture format.
+			#define MUG_TEXTURE_U8_R 0
+			// @DOCLINE * `MUG_TEXTURE_U8_RGB` - red-green-blue-channel unsigned 8-bit integer normalized texture format.
+			#define MUG_TEXTURE_U8_RGB 1
+			// @DOCLINE * `MUG_TEXTURE_U8_RGBA` - red-green-blue-alpha-channel unsigned 8-bit integer normalized texture format.
+			#define MUG_TEXTURE_U8_RGBA 2
+
+		// @DOCLINE ## Texture wrapping
+
+			typedef uint8_m mugTextureWrapping;
+
+			// @DOCLINE When a [texture cutout](#texture-cutout) generates texture coordinates out of range (thus rendering parts of the texture that aren't defined), wrapping occurs, which helps to give valid data when this occurs. The behavior of the wrapping is customizable via the type `mugTextureWrapping` (typedef for `uint8_m`), which has the following defined values:
+
+			// @DOCLINE * `MUG_TEXTURE_REPEAT` - the texture repeats when out-of-range texture coordinate values are given.
+			#define MUG_TEXTURE_REPEAT 0
+
+			// @DOCLINE * `MUG_TEXTURE_MIRRORED_REPEAT` - the texture repeats when out-of-range texture coordinate values are given, mirroring the image for every time the texture coordinates wrap around.
+			#define MUG_TEXTURE_MIRRORED_REPEAT 1
+
+			// @DOCLINE * `MUG_TEXTURE_CLAMP` - the texture's coordinates are clamped into a valid range. This has the effect of repeating the same coordinate value for out-of-range coordinates on a given axis, which visually stretches the single-pixel boundaries of the image indefinitely.
+			#define MUG_TEXTURE_CLAMP 2
+
+		// @DOCLINE ## Texture filtering
+
+			typedef uint8_m mugTextureFiltering;
+
+			// @DOCLINE mug allows the user to specify the [texture filtering](https://en.wikipedia.org/wiki/Texture_filtering) of a given texture, using the type `mugTextureFiltering` (typedef for `uint8_m`), which has the folowing defined values:
+
+			// @DOCLINE * `MUG_TEXTURE_NEAREST` - [nearest neighbor interpolation](https://en.wikipedia.org/wiki/Nearest-neighbor_interpolation).
+			#define MUG_TEXTURE_NEAREST 0
+
+			// @DOCLINE * `MUG_TEXTURE_BILINEAR` - [bilinear interpolation](https://en.wikipedia.org/wiki/Bilinear_interpolation).
+			#define MUG_TEXTURE_BILINEAR 1
+
+		// @DOCLINE ## Texture info
+
+			// @DOCLINE Information about how a texture is stored within mug is represented with the struct `mugTextureInfo`. It has the following members:
+
+			struct mugTextureInfo {
+				// @DOCLINE * `@NLFT type` - the [texture type](#texture-types).
+				mugTextureType type;
+				// @DOCLINE * `@NLFT format` - the [texture format](#texture-format).
+				mugTextureFormat format;
+				// @DOCLINE * `@NLFT wrapping[2]` - the [texture wrapping](#texture-wrapping) on the x (`wrapping[0]`) and y (`wrapping[1]`).
+				mugTextureWrapping wrapping[2];
+				// @DOCLINE * `@NLFT filtering[2]` - the [texture filtering](#texture-filtering) when upscaling (`filtering[0]`) and downscaling (`filtering[1]`).
+				mugTextureFiltering filtering[2];
+			};
+			typedef struct mugTextureInfo mugTextureInfo;
+
+		// @DOCLINE ## Texture cutout
+
+			// @DOCLINE When a texture is rendered onto a rect, exactly what part of the texture is being mapped needs to be specified, which is detailed in the form of a "cutout". The cutout takes a portion of the texture and renders only that portion of the texture over the rect. The texture cutout is specified in texture coordinates, ranging from a top-left origin of (0,0) to bottom-right (1, 1). The cutout itself is defined by a *position* and *dimensions*.
+
+			// @DOCLINE The position is made up of an x-, y-, and z-coordinate. The x- and y-coordinates specify the top-leftest point of the cutout in texture coordinates. The z-coordinate specifies which layer of the texture to render from, and is only used in three-dimensional textures.
+
+			// @DOCLINE The dimensions are made up of a width and height value, which specify how far the texture cutout reaches from the position in texture coordinates. Negative values will work, and will flip the texture's appearance correspondingly.
+
+			// @DOCLINE Any cutout that will result in the rendering of texture coordinates outside of the valid texture coordinates range ([0,0], [1,1]) will cause wrapping, to which behavior is defined by the [texture wrapping](#texture-wrapping) of the texture currently being rendered.
+
+		// @DOCLINE ## Texture creation
+
+			// @DOCLINE To create a handle to the texture for rendering, the function `mug_gtexture_create` is used, defined below: @NLNT
+			MUDEF mugTexture mug_gtexture_create(mugContext* context, mugResult* result, muGraphic gfx, mugTextureInfo* info, uint32_m* dim, muByte* data);
+
+			// @DOCLINE `dim`'s length is dictated by the dimensions of the format used for the texture (specified in `info`). For example, if the texture is two-dimensional, `dim` is expected to be an array of 2 values, but if the texture is three-dimensional, `dim` is expected to be an array of 3 values.
+
+			// @DOCLINE Once this function is finished, the pointer to the data (`data`) is no longer held onto.
+
+			// @DOCLINE Every successfully created texture must be [destroyed](#texture-destruction) at some point.
+
+			// @DOCLINE > The macro `mu_gtexture_create` is the non-result-checking equivalent, and the macro `mu_gtexture_create_` is the result-checking equivalent.
+			#define mu_gtexture_create(...) mug_gtexture_create(mug_global_context, &mug_global_context->result, __VA_ARGS__)
+			#define mu_gtexture_create_(result, ...) mug_gtexture_create(mug_global_context, result, __VA_ARGS__)
+
+		// @DOCLINE ## Texture destruction
+
+			// @DOCLINE Once a texture is successfully created, the function `mug_gtexture_destroy` must be called on it at some point, defined below: @NLNT
+			MUDEF mugTexture mug_gtexture_destroy(mugContext* context, muGraphic gfx, mugTexture tex);
+
+			// @DOCLINE > The macro `mu_gtexture_destroy` is the non-result-checking equivalent.
+			#define mu_gtexture_destroy(...) mug_gtexture_destroy(mug_global_context, __VA_ARGS__)
 
 	// @DOCLINE # Result
 
@@ -2590,6 +2742,9 @@ Every aspect about a rect is customizable besides the individual color of each c
 		#define MUG_GL_FAILED_CREATE_BUFFER 8197
 		// @DOCLINE * `MUG_GL_FAILED_CREATE_VERTEX_ARRAY` - a necessary call to create an OpenGL vertex array failed.
 		#define MUG_GL_FAILED_CREATE_VERTEX_ARRAY 8198
+
+		// @DOCLINE * `MUG_GL_FAILED_GENERATE_TEXTURE` - a necessary call to generate an OpenGL texture failed.
+		#define MUG_GL_FAILED_GENERATE_TEXTURE 8199
 
 		// @DOCLINE All non-success values (unless explicitly stated otherwise) mean that the function fully failed; AKA, it was "fatal", and the library continues as if the function had never been called. So, for example, if something was supposed to be allocated, but the function fatally failed, nothing was allocated.
 
@@ -9854,6 +10009,132 @@ Every aspect about a rect is customizable besides the individual color of each c
 				glUseProgram(shader->program);
 			}
 
+		/* General texture logic */
+
+			/* Conversions */
+
+				// mugTextureType -> GLenum
+				GLenum mugGL_texture_type(mugTextureType type) {
+					switch (type) {
+						default: return GL_TEXTURE_2D; break;
+						case MUG_TEXTURE_2D: return GL_TEXTURE_2D; break;
+						case MUG_TEXTURE_3D: return GL_TEXTURE_3D; break;
+					}
+				}
+
+				// mugTextureWrapping -> GLint
+				GLint mugGL_texture_wrapping(mugTextureWrapping wrap) {
+					switch (wrap) {
+						default: return GL_REPEAT; break;
+						case MUG_TEXTURE_REPEAT: return GL_REPEAT; break;
+						case MUG_TEXTURE_MIRRORED_REPEAT: return GL_MIRRORED_REPEAT; break;
+						case MUG_TEXTURE_CLAMP: return GL_CLAMP_TO_EDGE; break;
+					}
+				}
+
+				// mugTextureFiltering -> GLint
+				GLint mugGL_texture_filtering(mugTextureFiltering fil) {
+					switch (fil) {
+						default: return GL_NEAREST; break;
+						case MUG_TEXTURE_NEAREST: return GL_NEAREST; break;
+						case MUG_TEXTURE_BILINEAR: return GL_LINEAR; break;
+					}
+				}
+
+				// mugTextureFormat -> GLenum format
+				GLenum mugGL_texture_format_format(mugTextureFormat format) {
+					switch (format) {
+						default: return GL_RGB; break;
+						case MUG_TEXTURE_U8_R: return GL_RED; break;
+						case MUG_TEXTURE_U8_RGB: return GL_RGB; break;
+						case MUG_TEXTURE_U8_RGBA: return GL_RGBA; break;
+					}
+				}
+
+				// mugTextureformat -> GLenum type
+				GLenum mugGL_texture_format_type(mugTextureFormat format) {
+					switch (format) {
+						default: return GL_UNSIGNED_BYTE; break;
+						// U8
+						case MUG_TEXTURE_U8_R: case MUG_TEXTURE_U8_RGB: case MUG_TEXTURE_U8_RGBA:
+							return GL_UNSIGNED_BYTE;
+						break;
+					}
+				}
+
+			// Struct for a texture
+			struct mugGL_Texture {
+				// Handle to the texture from glGenTextures
+				GLuint handle;
+				// The format type (like GL_TEXTURE_2D for example)
+				GLenum target;
+			};
+			typedef struct mugGL_Texture mugGL_Texture;
+
+			// Creates a texture
+			mugGL_Texture* mugGL_texture_create(mugResult* result, mugTextureInfo* info, uint32_m* dim, muByte* data) {
+				// Allocate the texture container
+				mugGL_Texture* tex = (mugGL_Texture*)mu_malloc(sizeof(mugGL_Texture));
+				if (!tex) {
+					MU_SET_RESULT(result, MUG_FAILED_MALLOC)
+					return 0;
+				}
+
+				// Generate texture
+				glGenTextures(1, &tex->handle);
+				if (!tex->handle) {
+					MU_SET_RESULT(result, MUG_GL_FAILED_GENERATE_TEXTURE)
+					mu_free(tex);
+					return 0;
+				}
+
+				// Get equivalent target
+				tex->target = mugGL_texture_type(info->type);
+				// Bind texture
+				glBindTexture(tex->target, tex->handle);
+
+				// Wrapping
+				glTexParameteri(tex->target, GL_TEXTURE_WRAP_S, mugGL_texture_wrapping(info->wrapping[0]));
+				glTexParameteri(tex->target, GL_TEXTURE_WRAP_T, mugGL_texture_wrapping(info->wrapping[1]));
+				// Filtering
+				glTexParameteri(tex->target, GL_TEXTURE_MAG_FILTER, mugGL_texture_filtering(info->filtering[0]));
+				glTexParameteri(tex->target, GL_TEXTURE_MIN_FILTER, mugGL_texture_filtering(info->filtering[1]));
+
+				// Generate texture
+				switch (info->type) {
+					// 2D
+					case MUG_TEXTURE_2D: {
+						GLenum format = mugGL_texture_format_format(info->format);
+						glTexImage2D(
+							GL_TEXTURE_2D, 0,
+							format, dim[0], dim[1], 0, format,
+							mugGL_texture_format_type(info->format),
+							(const void*)data
+						);
+					} break;
+				}
+
+				// Don't generate mipmap for now
+				// glGenerateMipmap(tex->target);
+
+				return tex;
+			}
+
+			// Destroys a texture
+			void* mugGL_texture_destroy(mugGL_Texture* tex) {
+				// Destroy texture
+				glDeleteTextures(1, &tex->handle);
+				// Free container
+				mu_free(tex);
+				// Return null
+				return 0;
+			}
+
+			// Binds a texture
+			void mugGL_texture_bind(mugGL_Texture* tex) {
+				glBindTexture(tex->target, tex->handle);
+			}
+
 		/* General buffer logic */
 
 			// Struct for an object buffer
@@ -9885,6 +10166,9 @@ Every aspect about a rect is customizable besides the individual color of each c
 				// used upon initialization of buffer and (possibly later imp.)
 				// resizing. Index data is not considered in subfilling.
 				muBool index_filled;
+
+				// Optional handle to a texture
+				mugGL_Texture* tex;
 
 				// Function used to fill all vertex data
 				void (*fill_vertexes)(GLfloat* v, void* obj, uint32_m c);
@@ -10092,7 +10376,12 @@ Every aspect about a rect is customizable besides the individual color of each c
 				return res;
 			}
 
+			// Renders the object buffer
 			void mugGL_objects_render(mugGL_ObjBuffer* buf) {
+				// Bind texture if needed
+				if (buf->tex) {
+					mugGL_texture_bind(buf->tex);
+				}
 				// Bind VAO
 				glBindVertexArray(buf->vao);
 				// Call render function
@@ -10101,13 +10390,23 @@ Every aspect about a rect is customizable besides the individual color of each c
 				glBindVertexArray(0);
 			}
 
+			// Subrenders the object buffer
 			void mugGL_objects_subrender(mugGL_ObjBuffer* buf, uint32_m obj_offset, uint32_m obj_count) {
+				// Bind texture if needed
+				if (buf->tex) {
+					mugGL_texture_bind(buf->tex);
+				}
 				// Bind VAO
 				glBindVertexArray(buf->vao);
 				// Call subrender function
 				buf->subrender(obj_offset, obj_count);
 				// Unbind VAO
 				glBindVertexArray(0);
+			}
+
+			// Sets the given object buffer's texture
+			void mugGL_objects_texture(mugGL_ObjBuffer* buf, mugGL_Texture* tex) {
+				buf->tex = tex;
 			}
 
 		/* Objects */
@@ -10503,7 +10802,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Fill index data
-					// Circles, squircles, round rects also use this
+					// Circles, squircles, round rects, textures also use this
 					void mugGL_rects_fill_indexes(GLuint* i, uint32_m c) {
 						// Offset for index pattern:
 						uint32_m po = 0;
@@ -10527,7 +10826,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					#define mugGL_rects_desc mugGL_points_desc
 
 					// Renders rects
-					// Circles, squircles, round rects also use this
+					// Circles, squircles, round rects, textures also use this
 					void mugGL_rects_render(mugGL_ObjBuffer* buf) {
 						// Draw elements
 						glDrawElements(
@@ -10539,7 +10838,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 					}
 
 					// Subrenders rects
-					// Circles, squircles, round rects also use this
+					// Circles, squircles, round rects, textures also use this
 					void mugGL_rects_subrender(uint32_m o, uint32_m c) {
 						// Draw elements
 						glDrawElements(
@@ -11250,6 +11549,198 @@ Every aspect about a rect is customizable besides the individual color of each c
 						buf->subrender = mugGL_roundrects_subrender;
 					}
 
+			/* 2D texture */
+
+				// Data format: { vec3 pos, vec4 col, vec2 tex }
+				// Indexed data: { 0, 1, 3, 1, 2, 3 }
+
+				/* Shaders */
+
+					// Vertex shader
+					const char* mugGL_2DtextureVS = 
+						// Version
+						"#version 330 core\n"
+
+						// Input { vec3 pos, vec4 col, vec2 tex }
+						"layout(location=0)in vec3 vPos;"
+						"layout(location=1)in vec4 vCol;"
+						"layout(location=2)in vec2 vTex;"
+
+						// Output { vec4 col, vec2 tex }
+						"out vec4 fCol;"
+						"out vec2 fTex;"
+
+						// Dimensions of graphic divided by 2
+						"uniform vec2 d;"
+						// Modifiers
+						"uniform vec3 aP;" // addPos
+						"uniform vec3 mP;" // mulPos
+
+						// Main
+						"void main(){"
+							// Set position
+							"gl_Position=vec4("
+								// X
+								"(((vPos.x*mP.x)+aP.x)-(d.x))/d.x,"
+								// Y
+								"-(((vPos.y*mP.y)+aP.y)-(d.y))/d.y,"
+								// Z
+								"(vPos.z*mP.z)+aP.z,"
+								// W
+								"1.0"
+							");"
+
+							// Transfer to fragment
+							"fCol=vCol;"
+							"fTex=vTex;"
+						"}"
+					;
+
+					// Fragment shader
+					const char* mugGL_2DtextureFS = 
+						// Version
+						"#version 330 core\n"
+
+						// Input { vec4 col, vec2 tex }
+						"in vec4 fCol;"
+						"in vec2 fTex;"
+						// Output { vec4 col }
+						"out vec4 oCol;"
+
+						// Sampler
+						"uniform sampler2D tex;"
+						// Modifiers
+						"uniform vec4 aC;" // addCol
+						"uniform vec4 mC;" // mulCol
+
+						// Main
+						"void main(){"
+							// Set color
+							"oCol=((fCol*texture(tex,fTex))*mC)+aC;"
+						"}"
+					;
+
+					// Creates program for 2D textures
+					void mugGL_2Dtextures_shader_load(mug_Graphic* gfx, mugGL_Shader* shader, mugResult* result) {
+						// Exit if shader already compiled
+						if (shader->program) {
+							return;
+						}
+
+						// Compile shader
+						mugResult res = mugGL_shader_create_vf(gfx, shader, mugGL_2DtextureVS, mugGL_2DtextureFS);
+						if (res != MUG_SUCCESS) {
+							MU_SET_RESULT(result, res)
+						}
+					}
+
+				/* Buffer */
+
+					// Fills a particular vertex given what to multiply dimensions by
+					// (Used to alternate between 4 corners)
+					// Returns new v pointer
+					static inline GLfloat* mugGL_2Dtextures_fill_invertexes(
+						// Rect data
+						GLfloat* v, mug2DTextureRect* rect,
+						// Half-dim and vector dim
+						float hdim[2], float vdim0, float vdim1,
+						// Center and half-dim of texture cutout
+						float ctex[2], float htdim[2],
+						// Sin/Cos rotation
+						float srot, float crot
+					) {
+						// vec3 pos
+						// - x and y
+						mugMath_rot_point_point(
+							rect->center.pos[0]+(hdim[0]*vdim0), // Point x
+							rect->center.pos[1]+(hdim[1]*vdim1), // Point y
+							rect->center.pos[0], // Center x
+							rect->center.pos[1], // Center y
+							srot, crot, // Sin/Cos rotation
+							v
+						);
+						// - z
+						v[2] = rect->center.pos[2];
+
+						// vec4 col
+						mu_memcpy(&v[3], rect->center.col, 16);
+						// vec2 tex
+						v[7] = ctex[0]+(htdim[0]*vdim0);
+						v[8] = ctex[1]+(htdim[1]*vdim1);
+						return v+9;
+					}
+
+					// Fills vertex data
+					void mugGL_2Dtextures_fill_vertexes(GLfloat* v, void* obj, uint32_m c) {
+						// Convert obj to struct array
+						mug2DTextureRect* rects = (mug2DTextureRect*)obj;
+
+						// Loop through each rect
+						for (uint32_m i = 0; i < c; ++i) {
+							// Store half-dim
+							float hdim[2] = { rects->dim[0]/2.f, rects->dim[1]/2.f };
+							// Store sin/cos of rotation
+							// Sin is negative because y-direction is flipped in mug coordinates
+							float srot = -mu_sinf(rects->rot);
+							float crot = mu_cosf(rects->rot);
+							// Half-texture dim
+							float htdim[2] = { rects->tex_dim[0]/2.f, rects->tex_dim[1]/2.f };
+							// Center of texture cutout
+							float ctex[2] = { rects->tex_pos[0]+htdim[0], rects->tex_pos[1]+htdim[1] };
+
+							// Top-left
+							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim, -1.f, -1.f, ctex, htdim, srot, crot);
+							// Bottom-left
+							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim, -1.f,  1.f, ctex, htdim, srot, crot);
+							// Bottom-right
+							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim,  1.f,  1.f, ctex, htdim, srot, crot);
+							// Top-right
+							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim,  1.f, -1.f, ctex, htdim, srot, crot);
+						}
+					}
+
+					// Fills index data (same as rect)
+					#define mugGL_2Dtextures_fill_indexes mugGL_rects_fill_indexes
+
+					// Describes data
+					void mugGL_2Dtextures_desc(void) {
+						// vec3 pos
+						glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 36, 0);
+						glEnableVertexAttribArray(0);
+						// vec4 col
+						glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 36, (void*)(12));
+						glEnableVertexAttribArray(1);
+						// vec2 tex
+						glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 36, (void*)(28));
+						glEnableVertexAttribArray(2);
+					}
+
+					// Renders data (same as rects)
+					#define mugGL_2Dtextures_render mugGL_rects_render
+					// Subrenders data (same as rects)
+					#define mugGL_2Dtextures_subrender mugGL_rects_subrender
+
+					// Fills buffer with needed info
+					void mugGL_2Dtextures_fill(mugGL_ObjBuffer* buf) {
+						buf->obj_type = MUG_OBJECT_TEXTURE_2D;
+
+						// Amount of bytes used on vertex per object:
+						// one vertex = vec3+vec4+vec2 (36)
+						// one rect = four vertexes (144)
+						buf->bv_per_obj = 144;
+
+						// Amount of bytes used on index per object:
+						// one rect = six indexes (24)
+						buf->bi_per_obj = 24;
+
+						// Function equivalents
+						buf->fill_vertexes = mugGL_2Dtextures_fill_vertexes;
+						buf->fill_indexes = mugGL_2Dtextures_fill_indexes;
+						buf->desc = mugGL_2Dtextures_desc;
+						buf->render = mugGL_2Dtextures_render;
+						buf->subrender = mugGL_2Dtextures_subrender;
+					}
+
 		/* Context setup */
 
 			// Struct for shaders
@@ -11261,6 +11752,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 				mugGL_Shader circle;
 				mugGL_Shader squircle;
 				mugGL_Shader roundrect;
+				mugGL_Shader textures2D;
 			};
 			typedef struct mugGL_Shaders mugGL_Shaders;
 
@@ -11354,6 +11846,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_CIRCLE: return &context->shaders.circle; break;
 						case MUG_OBJECT_SQUIRCLE: return &context->shaders.squircle; break;
 						case MUG_OBJECT_ROUND_RECT: return &context->shaders.roundrect; break;
+						case MUG_OBJECT_TEXTURE_2D: return &context->shaders.textures2D; break;
 					}
 				}
 
@@ -11400,6 +11893,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_CIRCLE: mugGL_circles_shader_load(gfx, &context->shaders.circle, result); break;
 						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_shader_load(gfx, &context->shaders.squircle, result); break;
 						case MUG_OBJECT_ROUND_RECT: mugGL_roundrects_shader_load(gfx, &context->shaders.roundrect, result); break;
+						case MUG_OBJECT_TEXTURE_2D: mugGL_2Dtextures_shader_load(gfx, &context->shaders.textures2D, result); break;
 					}
 				}
 
@@ -11443,6 +11937,10 @@ Every aspect about a rect is customizable besides the individual color of each c
 
 				// Fills information about buffer based on the type
 				mugResult mugGL_fill_info_buffer(mugGL_ObjBuffer* buf, mugObjectType type) {
+					// Set texture handle to null
+					buf->tex = 0;
+
+					// Fill based on type
 					switch (type) {
 						default: return MUG_UNKNOWN_OBJECT_TYPE; break;
 						case MUG_OBJECT_POINT: mugGL_points_fill(buf); break;
@@ -11452,6 +11950,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 						case MUG_OBJECT_CIRCLE: mugGL_circles_fill(buf); break;
 						case MUG_OBJECT_SQUIRCLE: mugGL_squircles_fill(buf); break;
 						case MUG_OBJECT_ROUND_RECT: mugGL_roundrects_fill(buf); break;
+						case MUG_OBJECT_TEXTURE_2D: mugGL_2Dtextures_fill(buf); break;
 					}
 					return MUG_SUCCESS;
 				}
@@ -11962,6 +12461,71 @@ Every aspect about a rect is customizable besides the individual color of each c
 			return; if (context) {} if (result) {} if (objs) {} if (offset) {} if (count) {} if (data) {}
 		}
 
+		MUDEF void mug_gobjects_texture(mugContext* context, muGraphic gfx, mugObjects obj, mugTexture tex) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						mugGL_objects_texture((mugGL_ObjBuffer*)obj, (mugGL_Texture*)tex);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			return; if (context) {} if (obj) {} if (tex) {}
+		}
+
+	/* Texture stuff */
+
+		MUDEF mugTexture mug_gtexture_create(mugContext* context, mugResult* result, muGraphic gfx, mugTextureInfo* info, uint32_m* dim, muByte* data) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: return 0; break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						return mugGL_texture_create(result, info, dim, data);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			if (context) {} if (result) {} if (info) {} if (dim) {} if (data) {}
+		}
+
+		MUDEF mugTexture mug_gtexture_destroy(mugContext* context, muGraphic gfx, mugTexture tex) {
+			// Get inner graphic handle
+			mug_Graphic* igfx = (mug_Graphic*)gfx;
+
+			// Do things based on graphic system
+			switch (igfx->system) {
+				default: return 0; break;
+
+				// OpenGL
+				#ifdef MU_SUPPORT_OPENGL
+					case MU_GRAPHIC_OPENGL: {
+						mugGraphicGL_bind(igfx);
+						return mugGL_texture_destroy((mugGL_Texture*)tex);
+					} break;
+				#endif
+			}
+
+			// To avoid unused parameter warnings
+			if (context) {} if (tex) {}
+		}
+
 	/* Result */
 
 		// Fatal-testing function
@@ -12087,6 +12651,7 @@ Every aspect about a rect is customizable besides the individual color of each c
 				case MUG_GL_FAILED_ALLOCATE_BUFFER: return "MUG_GL_FAILED_ALLOCATE_BUFFER"; break;
 				case MUG_GL_FAILED_CREATE_BUFFER: return "MUG_GL_FAILED_CREATE_BUFFER"; break;
 				case MUG_GL_FAILED_CREATE_VERTEX_ARRAY: return "MUG_GL_FAILED_CREATE_VERTEX_ARRAY"; break;
+				case MUG_GL_FAILED_GENERATE_TEXTURE: return "MUG_GL_FAILED_GENERATE_TEXTURE"; break;
 
 				case MUG_MUCOSA_FAILED_NULL_WINDOW_SYSTEM: return "MUG_MUCOSA_FAILED_NULL_WINDOW_SYSTEM"; break;
 				case MUG_MUCOSA_FAILED_MALLOC: return "MUG_MUCOSA_FAILED_MALLOC"; break;
