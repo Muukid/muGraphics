@@ -12196,7 +12196,7 @@ OpenGL mode in mug doesn't perform much error checking. This means that if somet
 			}
 
 			// To avoid unused parameter warnings
-			return; if (context) {} if (result) {}
+			return; if (context) {} if (result) {} if (r) {} if (g) {} if (b) {}
 		}
 
 		// Swaps buffers, presenting image to screen
@@ -12230,7 +12230,7 @@ OpenGL mode in mug doesn't perform much error checking. This means that if somet
 			}
 
 			// Avoid unused parameter warnings
-			return; if (context) {}
+			return; if (context) {} if (result) {}
 		}
 
 		// Updates the graphic's parent
