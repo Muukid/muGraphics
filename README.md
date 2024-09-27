@@ -106,6 +106,10 @@ Currently, mug has no built-in support for mipmapping.
 
 OpenGL mode in mug doesn't perform much error checking. This means that if something goes fatally wrong, there is a fair chance that mug won't catch onto it, which will lead to a crash. Usually, this is fine, since the crash was incorrect behavior on the user's end, but it becomes an issue when less predictable errors are thrown, such as memory limits.
 
+## Matrix object type modifier
+
+It is likely that [object type modifiers](#object-type-modifiers) would work better as matrices. This has yet to be implemented.
+
 
 # Other library dependencies
 
@@ -353,6 +357,8 @@ All object types defined by mug are represented by the type `mugObjectType` (typ
 
 * `MUG_OBJECT_TEXTURE_2D` - a [two-dimensional texture rect](#2d-texture-rect).
 
+* `MUG_OBJECT_TEXTURE_2D_ARRAY` - a [two-dimensional texture array rect](#2d-texture-array-rect).
+
 ## Load object type
 
 The ability to render a certain object type can be pre-loaded via the function `mug_gobject_load`, defined below: 
@@ -482,7 +488,23 @@ A "2D texture rect" in mug is a rect texture object, acting as a rect with a two
 
 * `float tex_dim[2]` - the dimensions of the [texture cutout](#texture-cutout).
 
-The texture that gets rendered onto the rect is the [buffer's texture](#object-buffer-texture).
+The texture that gets rendered onto the rect is the [buffer's texture](#object-buffer-texture). The type of the texture must be `MUG_TEXTURE_2D`.
+
+## 2D texture array rect
+
+A "2D texture array rect" in mug is a rect texture object, acting as a rect with a two-dimension texture array rendered over it. Its respective struct is `mug2DTextureArrayRect`, and has the following members:
+
+* `mugPoint center` - the center of the rect. The point's color determines the color of the rect, which is multiplied with the color values of the texture.
+
+* `float dim[2]` - the dimensions of the rect, in width (`dim[0]`) and height (`dim[1]`).
+
+* `float rot` - the rotation of the rect around the center point, in radians.
+
+* `float tex_pos[3]` - the position of the [texture cutout](#texture-cutout).
+
+* `float tex_dim[2]` - the dimensions of the [texture cutout](#texture-cutout).
+
+The texture that gets rendered onto the rect is the [buffer's texture](#object-buffer-texture). The type of the texture must be `MUG_TEXTURE_2D_ARRAY`.
 
 # Object buffers
 
@@ -593,11 +615,11 @@ There are different ways that a texture's pixel data can be layed out. For this,
 
 * `MUG_TEXTURE_2D` - a two-dimensional texture.
 
-* `MUG_TEXTURE_3D` - a three-dimensional texture.
+* `MUG_TEXTURE_2D_ARRAY` - a two-dimensional texture array.
 
 All types expect pixel data ordered left-to-right and top-to-bottom. All textures that have more than two dimensions are ordered starting from layer 0 incrementally.
 
-Three-dimensional textures act as multiple 2D textures stored one after the other, with the first one specified being referenced as layer 0.
+Texture arrays act as multiple 2D textures stored one after the other, with the first one specified being referenced as layer/depth 0.
 
 ## Texture format
 
@@ -643,11 +665,11 @@ Information about how a texture is stored within mug is represented with the str
 
 When a texture is rendered onto a rect, exactly what part of the texture is being mapped needs to be specified, which is detailed in the form of a "cutout". The cutout takes a portion of the texture and renders only that portion of the texture over the rect. The texture cutout is specified in texture coordinates, ranging from a top-left origin of (0,0) to bottom-right (1, 1). The cutout itself is defined by a *position* and *dimensions*.
 
-The position is made up of an x-, y-, and z-coordinate. The x- and y-coordinates specify the top-leftest point of the cutout in texture coordinates. The z-coordinate specifies which layer of the texture to render from, and is only used in three-dimensional textures.
+The position is made up of an x-, y-, and sometimes a z-coordinate. The x- and y-coordinates specify the top-leftest point of the cutout in texture coordinates. The z-coordinate is only relevant (and respectively defined) if the texture is a texture array, in which case the z-coordinate specifies the index into the texture array to render.
 
 The dimensions are made up of a width and height value, which specify how far the texture cutout reaches from the position in texture coordinates. Negative values will work, and will flip the texture's appearance correspondingly.
 
-Any cutout that will result in the rendering of texture coordinates outside of the valid texture coordinates range ([0,0], [1,1]) will cause wrapping, to which behavior is defined by the [texture wrapping](#texture-wrapping) of the texture currently being rendered.
+Any cutout that will result in the rendering of texture coordinates outside of the valid texture coordinates range ([0,0], [1,1]) will cause wrapping, to which behavior is defined by the [texture wrapping](#texture-wrapping) of the texture currently being rendered. Any z-coordinate values for texture arrays that aren't a perfect integer value or who are out of range in the texture array's depth
 
 ## Texture creation
 
@@ -658,7 +680,9 @@ MUDEF mugTexture mug_gtexture_create(mugContext* context, mugResult* result, muG
 ```
 
 
-`dim`'s length is dictated by the dimensions of the format used for the texture (specified in `info`). For example, if the texture is two-dimensional, `dim` is expected to be an array of 2 values, but if the texture is three-dimensional, `dim` is expected to be an array of 3 values.
+`dim`'s length is dictated by the dimensions of the format used for the texture (specified in `info`). For example, if the texture is `MUG_TEXTURE_2D`, `dim` is expected to be an array of 2 values, but if the texture is `MUG_TEXTURE_2D_ARRAY`, `dim` is expected to be an array of 3 values, with `dim[2]` corresponding to the depth of the texture array (AKA the texture array length).
+
+The texture width and height's minimum supported value is 2048. The texture depth's minimum supported value is 256.
 
 Once this function is finished, the pointer to the data (`data`) is no longer held onto.
 
@@ -676,6 +700,41 @@ MUDEF mugTexture mug_gtexture_destroy(mugContext* context, muGraphic gfx, mugTex
 
 
 > The macro `mu_gtexture_destroy` is the non-result-checking equivalent.
+
+# Min/Max supported values
+
+mug has several minimums and maximums in regards to several values, such as a texture's width and height. mug's [minimum values](#minimum-supported-values) are constants that are guaranteed to be supported on any system that runs mug successfully. mug's [maximum values](#maximum-supported-values) can differ from device to device, and are retrieved at runtime.
+
+## Minimum supported values
+
+mug defines several macros for minimum values for various parts of mug. If mug is running successfully, these minimums are guaranteed for the system.
+
+### Texture minimum supported values
+
+The following macros for minimum values regarding textures are defined:
+
+* `MUG_MIN_TEXTURE_WIDTH_HEIGHT` - the minimum texture width and height. This value is 1024.
+
+* `MUG_MIN_TEXTURE_DEPTH` - the minimum texture depth (for texture arrays). This value is 256.
+
+## Maximum supported values
+
+mug is able to retrieve maximum values for the current device using the function `mug_max`, defined below: 
+
+```c
+MUDEF uint32_m mug_max(mugContext* context, muGraphic gfx, mugMax max);
+```
+
+
+`max` is a value specifying what maximum is being requested; values for the type `mugMax` are defined below. If `max` is an unrecognized value, 0 is returned.
+
+### Texture maximum supported values
+
+The following macros for maximum values (for the type `mugMax`) regarding textures are defined:
+
+* `MUG_MAX_TEXTURE_WIDTH_HEIGHT` - the maximum texture width and height.
+
+* `MUG_MAX_TEXTURE_DEPTH` - the maximum texture depth (for texture arrays).
 
 # Result
 
