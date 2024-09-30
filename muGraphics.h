@@ -11963,13 +11963,13 @@ It is likely that [object type modifiers](#object-type-modifiers) would work bet
 							float ctex[2] = { rects->tex_pos[0]+htdim[0], rects->tex_pos[1]+htdim[1] };
 
 							// Top-left
-							v = mugGL_2Dtexturearr_fill_invertexes(v, rects, hdim, -1.f, -1.f, ctex, htdim, srot, crot);
+							v = mugGL_2Dtexturearr_fill_invertexes(v, rects  , hdim, -1.f, -1.f, ctex, htdim, srot, crot);
 							// Bottom-left
-							v = mugGL_2Dtexturearr_fill_invertexes(v, rects, hdim, -1.f,  1.f, ctex, htdim, srot, crot);
+							v = mugGL_2Dtexturearr_fill_invertexes(v, rects  , hdim, -1.f,  1.f, ctex, htdim, srot, crot);
 							// Bottom-right
-							v = mugGL_2Dtexturearr_fill_invertexes(v, rects, hdim,  1.f,  1.f, ctex, htdim, srot, crot);
+							v = mugGL_2Dtexturearr_fill_invertexes(v, rects  , hdim,  1.f,  1.f, ctex, htdim, srot, crot);
 							// Top-right
-							v = mugGL_2Dtexturearr_fill_invertexes(v, rects, hdim,  1.f, -1.f, ctex, htdim, srot, crot);
+							v = mugGL_2Dtexturearr_fill_invertexes(v, rects++, hdim,  1.f, -1.f, ctex, htdim, srot, crot);
 						}
 					}
 
