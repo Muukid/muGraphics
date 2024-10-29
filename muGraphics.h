@@ -10,7 +10,7 @@ More explicit license information at the end of file.
 
 /* @DOCBEGIN
 
-# muGraphics v1.0.1
+# muGraphics v1.0.0
 
 muGraphics (acrynomized to "mug") is a public domain single-file C library for high-level 2D cross-graphics-API rendering. Its header is automatically defined upon inclusion if not already included (`MUG_H`), and the source code is defined if `MUG_IMPLEMENTATION` is defined, following the internal structure of:
 
@@ -2096,7 +2096,7 @@ It is likely that [object type modifiers](#object-type-modifiers) would work bet
 
 		#define MUG_VERSION_MAJOR 1
 		#define MUG_VERSION_MINOR 0
-		#define MUG_VERSION_PATCH 1
+		#define MUG_VERSION_PATCH 0
 
 	// @DOCLINE # mug context
 
