@@ -1,8 +1,8 @@
 
 
-# muGraphics v1.0.0
+# muGraphics v1.0.1
 
-muGraphics (acrynomized to "mug") is a public domain* single-file C library for high-level 2D cross-graphics-API rendering. Its header is automatically defined upon inclusion if not already included (`MUG_H`), and the source code is defined if `MUG_IMPLEMENTATION` is defined, following the internal structure of:
+muGraphics (acrynomized to "mug") is a public domain single-file C library for high-level 2D cross-graphics-API rendering. Its header is automatically defined upon inclusion if not already included (`MUG_H`), and the source code is defined if `MUG_IMPLEMENTATION` is defined, following the internal structure of:
 
 ```c
 #ifndef MUG_H
@@ -115,7 +115,7 @@ It is likely that [object type modifiers](#object-type-modifiers) would work bet
 
 mug has a dependency on:
 
-* [muCOSA v2.0.0](https://github.com/Muukid/muCOSA/releases/tag/v2.0.0).
+* [muCOSA v2.0.1](https://github.com/Muukid/muCOSA/releases/tag/v2.0.1).
 
 * [glad 2.0.6 GL v3.3 Core](https://github.com/Dav1dde/glad/releases/tag/v2.0.6). glad is only included in the implementation of mug, meaning that only defining the header of mug won't give the user access to OpenGL.
 
