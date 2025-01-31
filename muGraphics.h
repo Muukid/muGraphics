@@ -10,7 +10,7 @@ More explicit license information at the end of file.
 
 /* @DOCBEGIN
 
-# muGraphics v1.0.0
+# muGraphics v1.0.1
 
 muGraphics (acrynomized to "mug") is a public domain single-file C library for high-level 2D cross-graphics-API rendering. Its header is automatically defined upon inclusion if not already included (`MUG_H`), and the source code is defined if `MUG_IMPLEMENTATION` is defined, following the internal structure of:
 
@@ -2096,7 +2096,7 @@ It is likely that [object type modifiers](#object-type-modifiers) would work bet
 
 		#define MUG_VERSION_MAJOR 1
 		#define MUG_VERSION_MINOR 0
-		#define MUG_VERSION_PATCH 0
+		#define MUG_VERSION_PATCH 1
 
 	// @DOCLINE # mug context
 
@@ -11777,7 +11777,7 @@ It is likely that [object type modifiers](#object-type-modifiers) would work bet
 							// Bottom-right
 							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim,  1.f,  1.f, ctex, htdim, srot, crot);
 							// Top-right
-							v = mugGL_2Dtextures_fill_invertexes(v, rects,   hdim,  1.f, -1.f, ctex, htdim, srot, crot);
+							v = mugGL_2Dtextures_fill_invertexes(v, rects++, hdim,  1.f, -1.f, ctex, htdim, srot, crot);
 						}
 					}
 
@@ -13078,4 +13078,3 @@ For Khronos specifications:
 	CONDITIONS OF ANY KIND, either express or implied. See the License for the
 	specific language governing permissions and limitations under the License.
 */
-
